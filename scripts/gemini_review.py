@@ -142,5 +142,16 @@ def main():
         except Exception:
             pass
 
+    # If running in an Entire-tracked trail, post review to the trail discussion
+    try:
+        subprocess.run(
+            ["entire", "trail", "comment", "add", "--title", "🤖 Gemini Code Review", "--body", full_review],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        pass
+
 if __name__ == "__main__":
     main()
