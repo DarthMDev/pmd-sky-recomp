@@ -78,4 +78,4 @@ AI coding tools were used during the development of this project. All translated
 
 ## License
 
-See [`LICENSE`](LICENSE) for complete licensing terms. Original project tooling and scripts are licensed under the MIT License; the runtime and binary distributions link GPL-3.0-or-later components (`melonDS`), and `ndsrecomp` is licensed under PolyForm Noncommercial 1.0.0.
+SkyRecompiled is licensed under the **GNU General Public License v3.0 or later** ([`LICENSE`](LICENSE)). Integrated third-party components are acknowledged under their respective licenses (`FreeBIOS` under BSD-2-Clause, `melonDS` under GPL-3.0-or-later, `pmdsky-debug` under MIT/GPL-3.0, and `ndsrecomp` under PolyForm Noncommercial 1.0.0).
