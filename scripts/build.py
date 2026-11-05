@@ -35,6 +35,7 @@ GENERATED_BIOS_DIR = BUILD_DIR / "generated_bios"
 GENERATED_BANKS_DIR = BUILD_DIR / "generated_sky_us"
 DEFAULT_ROM_PATH = REPO_ROOT / "roms" / "pmdsky.us.nds"
 CLEAN_USA_SHA1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
+CLEAN_EU_SHA1 = "c838a5adf1ed32d2da8454976e5b1a1aa189c139"
 
 # Ensure Homebrew and standard tool paths are accessible
 for extra_path in ["/opt/homebrew/bin", "/usr/local/bin"]:
@@ -180,23 +181,32 @@ def find_rom(rom_arg: str | None) -> Path:
     sys.exit(1)
 
 
-def compile_game_banks(rom_path: Path) -> None:
+def compile_game_banks(rom_path: Path, forced_region: str | None = None) -> None:
     log(f"Verifying and extracting ROM: {rom_path}")
     rom_bytes = rom_path.read_bytes()
     sha1 = hashlib.sha1(rom_bytes).hexdigest()
-    if sha1 != CLEAN_USA_SHA1:
-        log_err(f"ROM SHA-1 mismatch! Expected: {CLEAN_USA_SHA1}, got: {sha1}")
+    if sha1 == CLEAN_USA_SHA1:
+        region = "NA"
+    elif sha1 == CLEAN_EU_SHA1:
+        region = "EU"
+    elif forced_region:
+        region = forced_region
+    else:
+        log_err(f"ROM SHA-1 mismatch! Not clean USA ({CLEAN_USA_SHA1}) or Europe ({CLEAN_EU_SHA1})")
         sys.exit(1)
 
-    log(f"ROM SHA-1 verified: {sha1} (Clean USA)")
+    log(f"ROM SHA-1 verified: {sha1} (Region: {region})")
     prepare_script = REPO_ROOT / "tools" / "prepare_rom.py"
     run_cmd([sys.executable, str(prepare_script), "--rom", str(rom_path), "--compile"])
 
 
-def build_runner(jobs: int, build_type: str) -> Path:
-    log(f"Building nds_runner ({build_type})...")
+def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
+    log(f"Building nds_runner ({build_type}, region={region_mode})...")
     RUNNER_BUILD_DIR.mkdir(parents=True, exist_ok=True)
     runner_src_dir = REPO_ROOT / "third_party" / "ndsrecomp" / "runner"
+
+    us_banks = BUILD_DIR / "generated_sky_us"
+    eu_banks = BUILD_DIR / "generated_sky_eu"
 
     is_apple = platform.system() == "Darwin"
     cmake_args = [
@@ -207,9 +217,26 @@ def build_runner(jobs: int, build_type: str) -> Path:
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DNDS_ENABLE_COMPUTE_RENDERER={'OFF' if is_apple else 'ON'}",
         f"-DNDS_GENERATED_DIR={GENERATED_BIOS_DIR}",
-        f"-DNDS_TITLE_BANK_DIR={GENERATED_BANKS_DIR}",
-        f"-DNDS_TITLE_ROM_SHA1={CLEAN_USA_SHA1}",
     ]
+
+    if region_mode == "dual" or (region_mode == "auto" and (us_banks / "sky_arm9_main.c").exists() and (eu_banks / "sky_arm9_main.c").exists()):
+        log("Configuring dual-region runner (USA + Europe)...")
+        cmake_args.extend([
+            f"-DNDS_TITLE_BANK_DIRS={us_banks};{eu_banks}",
+            f"-DNDS_TITLE_ROM_SHA1S={CLEAN_USA_SHA1};{CLEAN_EU_SHA1}",
+        ])
+    elif region_mode == "EU" or (not (us_banks / "sky_arm9_main.c").exists() and (eu_banks / "sky_arm9_main.c").exists()):
+        log("Configuring Europe (EU) runner...")
+        cmake_args.extend([
+            f"-DNDS_TITLE_BANK_DIR={eu_banks}",
+            f"-DNDS_TITLE_ROM_SHA1={CLEAN_EU_SHA1}",
+        ])
+    else:
+        log("Configuring USA (NA) runner...")
+        cmake_args.extend([
+            f"-DNDS_TITLE_BANK_DIR={us_banks}",
+            f"-DNDS_TITLE_ROM_SHA1={CLEAN_USA_SHA1}",
+        ])
     if is_apple and Path("/opt/homebrew").exists():
         cmake_args.append("-DCMAKE_PREFIX_PATH=/opt/homebrew")
 
@@ -231,6 +258,7 @@ def main() -> None:
     parser.add_argument("--clean", action="store_true", help="Clean build directory before building")
     parser.add_argument("--build-type", choices=["Release", "Debug", "RelWithDebInfo"], default="Release")
     parser.add_argument("--jobs", "-j", type=int, default=multiprocessing.cpu_count(), help="Parallel build jobs")
+    parser.add_argument("--region", choices=["NA", "EU", "dual", "auto"], default="auto", help="Cartridge region target")
     parser.add_argument("--skip-recompile", action="store_true", help="Skip prepare_rom.py if banks exist")
     parser.add_argument("--package", action="store_true", help="Package macOS SkyRecompiled.app bundle")
     args = parser.parse_args()
@@ -249,11 +277,11 @@ def main() -> None:
 
     if not args.skip_recompile or not (GENERATED_BANKS_DIR / "sky_arm9_main.c").exists():
         rom_path = find_rom(args.rom)
-        compile_game_banks(rom_path)
+        compile_game_banks(rom_path, forced_region=args.region if args.region in ("NA", "EU") else None)
     else:
         log("Skipping ROM extraction (game banks already present).")
 
-    runner_bin = build_runner(args.jobs, args.build_type)
+    runner_bin = build_runner(args.jobs, args.build_type, region_mode=args.region)
 
     if args.package or platform.system() == "Darwin":
         log("Packaging macOS application bundle...")

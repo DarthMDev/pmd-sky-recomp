@@ -1076,10 +1076,23 @@ def main() -> int:
         print(f"[prepare_rom] ERROR: ROM file not found: {args.rom}", file=sys.stderr)
         return 1
 
+    default_out_us = repo_root / "build" / "extracted_sky_us"
+    default_gen_us = repo_root / "build" / "generated_sky_us"
+    is_default_out = (args.out_dir == default_out_us)
+    is_default_gen = (args.gen_dir == default_gen_us)
+
+    # Detect region early to adjust default dirs if Europe
+    rom_head = args.rom.read_bytes()
+    rom_sha1 = hashlib.sha1(rom_head).hexdigest()
+    detected_region = KNOWN_ROMS.get(rom_sha1, (args.region or "NA", ""))[0]
+
+    out_dir = (repo_root / "build" / f"extracted_sky_{detected_region.lower()}") if is_default_out else args.out_dir
+    gen_dir = (repo_root / "build" / f"generated_sky_{detected_region.lower()}") if is_default_gen else args.gen_dir
+
     _sha1, _region, banks = prepare_rom(
         args.rom,
         args.symbols_dir,
-        args.out_dir,
+        out_dir,
         allow_custom_rom=args.allow_custom_rom,
         forced_region=args.region,
     )
@@ -1092,9 +1105,9 @@ def main() -> int:
         return 1
 
     if args.compile:
-        args.gen_dir.mkdir(parents=True, exist_ok=True)
+        gen_dir.mkdir(parents=True, exist_ok=True)
 
-    mode_label = "Auditing" if args.audit else f"Recompiling -> {args.gen_dir}"
+    mode_label = "Auditing" if args.audit else f"Recompiling -> {gen_dir}"
     print(f"[prepare_rom] {mode_label} {len(banks)} banks using {args.jobs} threads...")
 
     failures = 0
@@ -1105,7 +1118,7 @@ def main() -> int:
                 run_recompiler_for_bank,
                 args.recompiler,
                 b,
-                args.gen_dir,
+                gen_dir,
                 args.audit,
                 args.max_function_bytes,
             ): b
