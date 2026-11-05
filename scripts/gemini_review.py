@@ -65,8 +65,46 @@ def get_git_diff() -> str:
         res = subprocess.run(["git", "diff", "HEAD"], capture_output=True, text=True)
         return res.stdout
 
+def discover_model(api_key: str) -> str:
+    """Discovers an available Gemini model that supports generateContent."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "SkyRecompiled-CI/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            valid_models = [
+                m["name"] for m in models 
+                if "generateContent" in m.get("supportedGenerationMethods", [])
+            ]
+            
+            # Preference ranking
+            for pref in [
+                "models/gemini-2.5-flash",
+                "models/gemini-2.0-flash",
+                "models/gemini-1.5-flash-latest",
+                "models/gemini-1.5-flash",
+                "models/gemini-1.5-pro-latest",
+                "models/gemini-1.5-pro",
+            ]:
+                if pref in valid_models:
+                    return pref
+            
+            # If any flash model is available, use first match
+            for m in valid_models:
+                if "flash" in m:
+                    return m
+            
+            if valid_models:
+                return valid_models[0]
+    except Exception as e:
+        print(f"::notice:: Model discovery endpoint fallback: {e}")
+    
+    # Fallback to standard 2.0/1.5 candidates
+    return "models/gemini-2.0-flash"
+
 def call_gemini(api_key: str, diff_text: str) -> str:
-    """Calls Gemini REST API using urllib."""
+    """Calls Gemini REST API with dynamic model discovery and fallback."""
     # Truncate diff to avoid exceeding context window if massive
     max_diff_len = 60000
     if len(diff_text) > max_diff_len:
@@ -74,8 +112,17 @@ def call_gemini(api_key: str, diff_text: str) -> str:
 
     prompt = REVIEW_PROMPT.format(diff_text=diff_text)
     
-    # Try gemini-1.5-flash first (fast, generous free tier rate limits)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    model_name = discover_model(api_key)
+    # Strip leading 'models/' if present for URL formatting
+    model_slug = model_name.replace("models/", "")
+    
+    candidates = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_slug}:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1/models/{model_slug}:generateContent?key={api_key}",
+    ]
+    
     payload = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -86,26 +133,35 @@ def call_gemini(api_key: str, diff_text: str) -> str:
         }
     }
     
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "")
-            return "Gemini returned no review content."
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8", errors="replace")
-        return f"Gemini API Error (HTTP {e.code}): {error_body}"
-    except Exception as e:
-        return f"Gemini API Request failed: {e}"
+    last_err = ""
+    for url in candidates:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "SkyRecompiled-CI/1.0"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                response_candidates = data.get("candidates", [])
+                if response_candidates:
+                    parts = response_candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+                return "Gemini returned an empty review candidate."
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            last_err = f"HTTP {e.code}: {error_body}"
+            # If 404 (model not found), loop to try next candidate endpoint
+            if e.code == 404:
+                continue
+            # For 400/403/429, break and raise
+            break
+        except Exception as e:
+            last_err = str(e)
+            continue
+            
+    raise RuntimeError(f"All Gemini API endpoints failed. Last error: {last_err}")
 
 def main():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -119,7 +175,15 @@ def main():
         sys.exit(0)
 
     print(f"Generating Gemini review for diff ({len(diff_text)} bytes)...")
-    review = call_gemini(api_key, diff_text)
+    try:
+        review = call_gemini(api_key, diff_text)
+    except Exception as e:
+        print(f"::error title=Gemini Review Failed::{e}")
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path and os.path.exists(os.path.dirname(summary_path)):
+            with open(summary_path, "a", encoding="utf-8") as f:
+                f.write(f"### ❌ Gemini Code Review Failed\n\n```\n{e}\n```\n")
+        sys.exit(1)
     
     header = "### 🤖 Gemini Code Review\n\n"
     full_review = header + review
