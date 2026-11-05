@@ -72,4 +72,14 @@ if [[ -f "${PATCH_FILE}" ]]; then
     fi
 fi
 
+CORE_PATCH="${REPO_ROOT}/patches/arm-recomp-core-msvc-popcount.patch"
+if [[ -f "${CORE_PATCH}" ]]; then
+    if git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply --reverse --check "${CORE_PATCH}" 2>/dev/null; then
+        echo "[setup] MSVC popcount patch already applied to arm-recomp-core."
+    else
+        echo "[setup] Applying patches/arm-recomp-core-msvc-popcount.patch..."
+        git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply "${CORE_PATCH}"
+    fi
+fi
+
 echo "[setup] All third_party dependencies verified and ready."
