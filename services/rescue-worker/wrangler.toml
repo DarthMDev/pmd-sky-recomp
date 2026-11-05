@@ -1,0 +1,13 @@
+name = "sky-rescue-worker"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+
+# Cloudflare D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "sky_rescues_d1"
+database_id = "local-sky-rescues-db"
+
+[vars]
+ENVIRONMENT = "production"
+MAX_CLAIM_DURATION_HOURS = 24
