@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SkyRecompiled — Controls Preset for Pokémon Mystery Dungeon: Explorers of Sky
+# ─────────────────────────────────────────────────────────────────────────────
+# Tailored specifically for dungeon crawling, tactical 8-way movement, turn-
+# based menu navigation, and diagonal locking.
+
+[preset]
+name = "Mystery Dungeon Modern Tactical"
+description = "Ergonomic modern gamepad and keyboard configuration for dungeon crawls."
+
+# ── GAMEPAD MAPPINGS (Xbox / PlayStation / Nintendo Switch Pro) ───────────────
+[gamepad]
+# Movement & Navigation (8-direction support)
+dpad_up = "up"
+dpad_down = "down"
+dpad_left = "left"
+dpad_right = "right"
+left_stick_up = "up"
+left_stick_down = "down"
+left_stick_left = "left"
+left_stick_right = "right"
+
+# Core Actions
+# A button (South / B on Switch): Primary Attack / Confirm
+button_south = "A"
+# B button (East / A on Switch): Run / Fast-walk (corridor dash) / Cancel
+button_east = "B"
+# X button (West / Y on Switch): Open Main Dungeon Menu (Items, Moves, Team, Rest)
+button_west = "X"
+# Y button (North / X on Switch): Turn-in-place (8-direction rotation without moving)
+button_north = "Y"
+
+# Tactical Modifiers & Shoulder Triggers
+# Right Shoulder / Right Trigger (RT): Diagonal Movement Lock
+# Holding this restricts movement to Northeast, Northwest, Southeast, Southwest!
+right_shoulder = "R"
+right_trigger = "R"
+
+# Left Shoulder / Left Trigger (LT): Quick-Slot Set Move Shortcut (L + A)
+left_shoulder = "L"
+left_trigger = "L"
+
+# System & Navigation
+start = "Start"        # Dungeon Pause / Quicksave
+back = "Select"        # Dungeon Mini-Map Mode / Floor Log Toggle
+guide = "Menu"
+
+# Touch-Screen Emulation
+# Right stick emulates stylus position for touch menus & map scrolling
+right_stick_x = "touch_x"
+right_stick_y = "touch_y"
+right_stick_click = "touch_press"
+
+
+# ── KEYBOARD MAPPINGS (Ergonomic PC Layout) ───────────────────────────────────
+[keyboard]
+# Movement (WASD + Arrow Keys + Numpad for direct diagonal keys!)
+# Direct diagonal keys on Numpad:
+#   7: NW, 8: N, 9: NE
+#   4: W,  5: pass turn, 6: E
+#   1: SW, 2: S, 3: SE
+key_w = "up"
+key_s = "down"
+key_a = "left"
+key_d = "right"
+key_up = "up"
+key_down = "down"
+key_left = "left"
+key_right = "right"
+
+# Core Actions (J/K/U/I or Z/X/C/V styles)
+key_j = "A"            # Standard Attack / Confirm (or Key Z)
+key_k = "B"            # Dash / Cancel (or Key X)
+key_u = "X"            # Open Menu (or Key C)
+key_i = "Y"            # Turn-in-place (or Key V)
+
+key_z = "A"
+key_x = "B"
+key_c = "X"
+key_v = "Y"
+
+# Modifiers
+key_left_shift = "R"   # Diagonal Lock (hold Shift to lock diagonal movement)
+key_space = "A"        # Quick Attack / Advance Text
+key_tab = "L"          # Set Move Shortcut
+
+# System
+key_return = "Start"   # Start / Quicksave
+key_escape = "Select"  # Map Toggle / Floor Log
+key_f1 = "Quicksave"
+key_f2 = "Quickload"
+key_f11 = "Fullscreen"
