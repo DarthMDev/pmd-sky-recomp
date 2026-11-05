@@ -152,10 +152,10 @@ def call_gemini(api_key: str, diff_text: str) -> str:
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
             last_err = f"HTTP {e.code}: {error_body}"
-            # If 404 (model not found), loop to try next candidate endpoint
-            if e.code == 404:
+            # If 404 (model not found), 503 (high demand), or 429 (rate limited), try next candidate!
+            if e.code in (404, 429, 503):
                 continue
-            # For 400/403/429, break and raise
+            # For 400/403, break and raise
             break
         except Exception as e:
             last_err = str(e)
