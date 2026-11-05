@@ -78,14 +78,14 @@ def discover_model(api_key: str) -> str:
                 if "generateContent" in m.get("supportedGenerationMethods", [])
             ]
             
-            # Preference ranking
+            # Preference ranking (prefer Gemini 3.8 Flash for 2026 API)
             for pref in [
+                "models/gemini-3.8-flash",
+                "models/gemini-3.8-pro",
                 "models/gemini-2.5-flash",
                 "models/gemini-2.0-flash",
                 "models/gemini-1.5-flash-latest",
                 "models/gemini-1.5-flash",
-                "models/gemini-1.5-pro-latest",
-                "models/gemini-1.5-pro",
             ]:
                 if pref in valid_models:
                     return pref
@@ -100,8 +100,8 @@ def discover_model(api_key: str) -> str:
     except Exception as e:
         print(f"::notice:: Model discovery endpoint fallback: {e}")
     
-    # Fallback to standard 2.0/1.5 candidates
-    return "models/gemini-2.0-flash"
+    # Fallback to standard 3.8 candidates
+    return "models/gemini-3.8-flash"
 
 def call_gemini(api_key: str, diff_text: str) -> str:
     """Calls Gemini REST API with dynamic model discovery and fallback."""
@@ -118,9 +118,9 @@ def call_gemini(api_key: str, diff_text: str) -> str:
     
     candidates = [
         f"https://generativelanguage.googleapis.com/v1beta/models/{model_slug}:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}",
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1/models/{model_slug}:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent?key={api_key}",
     ]
     
     payload = {
