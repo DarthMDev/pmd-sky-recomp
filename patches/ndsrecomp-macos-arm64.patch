@@ -1,0 +1,96 @@
+diff --git a/recompiler/tests/flat_execution_probe.cpp b/recompiler/tests/flat_execution_probe.cpp
+index 48da1a9..956da06 100644
+--- a/recompiler/tests/flat_execution_probe.cpp
++++ b/recompiler/tests/flat_execution_probe.cpp
+@@ -73,6 +73,7 @@ extern "C" void nds_region_finish(uint32_t single_step,uint32_t) {
+ extern "C" void runtime_note_code_write() {
+     ++code_writes;if(invalidate)g_nds_fast_limit=0;
+ }
++extern "C" void runtime_note_code_write_pages(const uint32_t*,uint32_t) { runtime_note_code_write(); }
+ extern "C" void runtime_note_live_write(uint32_t,uint32_t,uint32_t,uint32_t) {}
+ extern "C" uint32_t runtime_code_cycles(uint32_t pc) {g_last_code_pc[0]=pc;return 1;}
+ extern "C" uint32_t runtime_mem_cycles_slow(uint32_t a,uint32_t,uint32_t) {g_last_data_addr[0]=a;return 1;}
+diff --git a/runner/src/debug_server.cpp b/runner/src/debug_server.cpp
+index bf4ffb2..3b45382 100644
+--- a/runner/src/debug_server.cpp
++++ b/runner/src/debug_server.cpp
+@@ -1557,10 +1557,20 @@ std::string handle(const std::string& line) {
+     // is it costing? Asked before trusting a table, and the answer carries the
+     // observer's own measured overhead.
+     if (cmd == "hostprof_status") return nds_hostprof_status_json();
+-    if (cmd == "arm9_native_compilations") return nds_arm9_native_compilation_json(json_bool(line,"reset",false));
++    if (cmd == "arm9_native_compilations") {
++#if defined(NDS_ARM9_DYNARMIC)
++        return nds_arm9_native_compilation_json(json_bool(line,"reset",false));
++#else
++        return "{\"available\":false}";
++#endif
++    }
+     if (cmd == "arm9_native_prepare") {
++#if defined(NDS_ARM9_DYNARMIC)
+         nds_arm9_native_prepare_idle(static_cast<uint32_t>(std::min<uint64_t>(json_u64(line,"budget_us",0),500000)));
+         return nds_arm9_native_preparation_json();
++#else
++        return "{\"available\":false}";
++#endif
+     }
+     if (cmd == "arm9_native" || cmd == "arm9_native_census") {
+ #if defined(NDS_ARM9_DYNARMIC)
+diff --git a/runner/src/live_overlay_platform.cpp b/runner/src/live_overlay_platform.cpp
+index 45b561e..c7a75fa 100644
+--- a/runner/src/live_overlay_platform.cpp
++++ b/runner/src/live_overlay_platform.cpp
+@@ -2,7 +2,7 @@
+ 
+ #include <system_error>
+ 
+-#if defined(__linux__)
++#if defined(__linux__) || defined(__APPLE__)
+ #include <unistd.h>
+ #endif
+ 
+@@ -32,7 +32,7 @@ std::string shell_quote(const std::filesystem::path& path) {
+ bool is_executable_file(const std::filesystem::path& path) {
+     std::error_code ec;
+     if (!std::filesystem::is_regular_file(path, ec)) return false;
+-#if defined(__linux__)
++#if defined(__linux__) || defined(__APPLE__)
+     return access(path.c_str(), X_OK) == 0;
+ #else
+     return true;
+@@ -46,6 +46,8 @@ const char* live_overlay_library_suffix() {
+     return ".dll";
+ #elif defined(__linux__)
+     return ".so";
++#elif defined(__APPLE__)
++    return ".dylib";
+ #else
+     return "";
+ #endif
+@@ -73,7 +75,7 @@ std::string live_overlay_bundled_tcc_command(
+     const auto recompiler = toolchain / "nds_recompile.exe";
+     const auto tcc = toolchain / "tcc" / "tcc.exe";
+     const auto runner = exe_dir / "nds_runner.exe";
+-#elif defined(__linux__)
++#elif defined(__linux__) || defined(__APPLE__)
+     auto python = toolchain / "python" / "bin" / "python3";
+     if (!std::filesystem::is_regular_file(python, ec)) {
+         ec.clear();
+@@ -83,8 +85,11 @@ std::string live_overlay_bundled_tcc_command(
+     const auto tcc = toolchain / "tcc" / "tcc";
+     const auto runner = exe_dir / "nds_runner";
+ #else
++    (void)ec;
++    (void)toolchain;
+     return {};
+ #endif
++#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
+     const auto script = toolchain / "compile_live_shards.py";
+     const auto include = toolchain / "include";
+     ec.clear();
+@@ -104,4 +109,5 @@ std::string live_overlay_bundled_tcc_command(
+         " --runner-exe " + shell_quote(runner) +
+         " --compiler tcc --tcc " + shell_quote(tcc) +
+         " --include-roots --min-hits 8";
++#endif
+ }

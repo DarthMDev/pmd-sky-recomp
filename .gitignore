@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SkyRecompiled — Clean-Room & Build Hygiene (.gitignore)
+# NEVER commit Nintendo DS ROMs, BIOS/firmware dumps, saves, or ROM-derived C!
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Nintendo DS ROMs, extracted binaries, & ROM-derived generated code
+*.nds
+*.srl
+*.dsi
+*.ids
+*.gba
+*.xdelta
+*.bps
+*.ips
+roms/
+bios/
+*.rom
+*.bin
+extracted/
+generated/
+generated_*/
+
+# Save files & savestates
+*.sav
+*.dsv
+*.duc
+*.ss[0-9]*
+*.state
+savestates/
+saves/
+
+# Build & runtime outputs
+build/
+build-*/
+out/
+dist/
+*.app/
+*.dmg
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+coverage*.json
+diagnostics/
+logs/
+
+# Third-party dependencies (bootstrapped via scripts/setup_third_party.sh)
+third_party/
+
+# Entire CLI local settings (keep project settings tracked if present)
+.entire/settings.local.json
+
+# OS / Editor cruft
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
+*.swp
+*~
