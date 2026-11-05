@@ -52,7 +52,11 @@ if [[ ! -s "${TOMLPP_DEST}" ]]; then
     echo "[setup] Fetching toml++ v3.4.0 single header..."
     curl -fsSL "${TOMLPP_URL}" -o "${TOMLPP_DEST}"
 fi
-ACTUAL_SHA256="$(shasum -a 256 "${TOMLPP_DEST}" | awk '{print $1}')"
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "${TOMLPP_DEST}" | awk '{print $1}')"
+else
+    ACTUAL_SHA256="$(shasum -a 256 "${TOMLPP_DEST}" | awk '{print $1}')"
+fi
 if [[ "${ACTUAL_SHA256}" != "${TOMLPP_SHA256}" ]]; then
     rm -f "${TOMLPP_DEST}"
     echo "[setup] ERROR: toml.hpp SHA-256 mismatch (${ACTUAL_SHA256} != ${TOMLPP_SHA256})" >&2

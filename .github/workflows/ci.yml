@@ -75,7 +75,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential libsdl3-dev libgl1-mesa-dev libasound2-dev
+          sudo apt-get install -y cmake ninja-build build-essential libgl1-mesa-dev libasound2-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -117,6 +117,17 @@ jobs:
 
       - name: Set up MSVC Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bootstrap Third-Party Dependencies
+        shell: bash
+        run: |
+          bash ./scripts/setup_third_party.sh
+
+      - name: Run PMDSky Bindings Generator & Unit Tests
+        shell: bash
+        run: |
+          python3 tools/gen_pmdsky_bindings.py
+          python3 -m unittest tests/test_pmdsky_bindings.py
 
       - name: Build Static Recompiler & Run Test Suite
         shell: bash
