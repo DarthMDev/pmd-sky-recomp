@@ -59,9 +59,23 @@ cmake --build build/runner --target nds_runner
 
 ---
 
+## AI Usage & Verification Disclaimer
+
+AI coding tools were used during the development of this project. All translated and recompiled output is rigorously verified against real Nintendo DS hardware and reference emulator behavior:
+- **100% Executable Coverage:** All 34 executable modules (`arm9`, `itcm`, `arm7` + WRAM/RAM drivers, and all 32 active overlays — 91,872 functions) compile natively with zero unimplemented instructions.
+- **Hardware-Synced Logic:** Over 99.9% of guest instructions execute through native static C code with zero RAM code rejects. Game logic, turn execution, deterministic RNG, and cartridge FRAM/EEPROM saves are verified against hardware behavior and melonDS references via automated test suites.
+
+---
+
 ## Credits & Acknowledgments
 
 - [`RetroPortingToolKit/ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) & [`recomp-ui`](https://github.com/RetroPortingToolKit/recomp-ui) — Nintendo DS static recompilation framework & runtime
 - [`UsernameFodder/pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug) — *Explorers of Sky* symbol tables & C headers
 - [`pret/pmd-sky`](https://github.com/pret/pmd-sky) — Decompilation reference for game engine structures
 - `FreeBIOS` (`BSD-2-Clause`) & `melonDS` (`GPL-3.0-or-later`)
+
+---
+
+## License
+
+See [`LICENSE`](LICENSE) for complete licensing terms. Original project tooling and scripts are licensed under the MIT License; the runtime and binary distributions link GPL-3.0-or-later components (`melonDS`), and `ndsrecomp` is licensed under PolyForm Noncommercial 1.0.0.

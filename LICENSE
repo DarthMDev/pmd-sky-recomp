@@ -1,0 +1,77 @@
+SkyRecompiled Licensing Information
+===================================
+
+Original tools, scripts, and build configuration in this repository are licensed
+under the MIT License unless otherwise specified.
+
+Because the compiled runtime (`nds_runner`) links vendored `melonDS` components
+(`GPU3D`, `Wifi`), binary distributions of SkyRecompiled must comply with the
+GNU General Public License Version 3.0 or later (GPL-3.0-or-later).
+
+--------------------------------------------------------------------------------
+1. MIT License (Original Project Code)
+--------------------------------------------------------------------------------
+
+Copyright (c) 2026 SkyRecompiled Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+2. Third-Party Components & Licenses
+--------------------------------------------------------------------------------
+
+- melonDS (GPU3D, Wifi emulation components):
+  Licensed under GNU General Public License v3.0 or later (GPL-3.0-or-later).
+  https://github.com/melonDS-emu/melonDS
+
+- ndsrecomp (Static recompiler & runtime framework):
+  PolyForm Noncommercial License 1.0.0.
+  Copyright (c) 2026 Matthew Stanley.
+  https://github.com/RetroPortingToolKit/ndsrecomp
+
+- recomp-ui (Dear ImGui UI wrapper & frontend):
+  MIT License.
+  https://github.com/RetroPortingToolKit/recomp-ui
+
+- FreeBIOS (Clean-room Nintendo DS BIOS implementation):
+  BSD 2-Clause License.
+  Copyright (c) 2021-2023 Arisotura and melonDS contributors.
+
+- pmdsky-debug (Symbol tables & decompilation headers):
+  Dual-licensed under MIT License OR GNU General Public License v3.0 or later.
+  Copyright (c) pmdsky-debug contributors.
+  https://github.com/UsernameFodder/pmdsky-debug
+
+- toml++ (TOML parser):
+  MIT License.
+  Copyright (c) Mark Gillard.
+  https://github.com/marzer/tomlplusplus
+
+--------------------------------------------------------------------------------
+3. Trademark & Copyright Disclaimer
+--------------------------------------------------------------------------------
+
+Pokémon and Pokémon Mystery Dungeon are registered trademarks of Nintendo,
+Creatures Inc., Game Freak Inc., and Spike Chunsoft Co., Ltd.
+This project is an independent research and static recompilation effort and is
+not affiliated with, endorsed by, or sponsored by Nintendo or Spike Chunsoft.
+
+This repository contains NO copyrighted game ROMs, proprietary BIOS binaries,
+firmware images, or extracted game assets. Users must provide their own legally
+dumped copy of the game.
