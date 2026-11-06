@@ -23,6 +23,7 @@ set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
 add_subdirectory("${SKY_SDL_DIR}" sdl EXCLUDE_FROM_ALL)
 
+# The iOS Metal presenter uses the software renderer at native resolution.
 set(NDS_ENABLE_COMPUTE_RENDERER OFF CACHE BOOL "" FORCE)
 set(NDS_BOOTSTRAP_FIRMWARE ON CACHE BOOL "" FORCE)
 foreach(bank IN ITEMS NDS_TITLE_BANK_DIR NDS_TITLE_BANK_DIRS

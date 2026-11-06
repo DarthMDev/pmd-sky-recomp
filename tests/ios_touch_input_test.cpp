@@ -23,4 +23,14 @@ int main() {
     touch.set(a, a);
     touch.clear();
     if (touch.current() != 0 || touch.beginFrame() != 0) return 7;
+
+    constexpr uint16_t down = 1u << 7;
+    constexpr uint16_t directions = dpad | down;
+    touch.set(directions, up);
+    if (touch.beginFrame() != up) return 8;
+    touch.set(directions, right);
+    touch.set(directions, down);
+    touch.set(directions, 0);
+    if (touch.current() != down || touch.beginFrame() != down) return 9;
+    if (touch.beginFrame() != 0) return 10;
 }

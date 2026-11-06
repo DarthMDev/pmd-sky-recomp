@@ -25,6 +25,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -113,43 +114,47 @@ def generate_freebios(
     ndsrecomp_root: Path = REPO_ROOT / "third_party" / "ndsrecomp",
     output_dir: Path = GENERATED_BIOS_DIR,
 ) -> None:
+    """Generate FreeBIOS dispatch banks when their tool or inputs change."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    freebios_files = [
-        output_dir / "freebios_arm9.c",
-        output_dir / "freebios_arm9_dispatch.c",
-        output_dir / "freebios_arm7.c",
-        output_dir / "freebios_arm7_dispatch.c",
-        output_dir / "arm9_bios.c",
-        output_dir / "arm7_bios.c",
+    cpus = (9, 7)
+    configs = [ndsrecomp_root / "bios" / f"freebios{cpu}.toml" for cpu in cpus]
+    binaries = [
+        ndsrecomp_root / "third_party" / "freebios" / f"drastic_bios_arm{cpu}.bin"
+        for cpu in cpus
     ]
-    if all(p.exists() for p in freebios_files):
+    generated = [
+        f"freebios_arm{cpu}{suffix}"
+        for cpu in cpus
+        for suffix in (".c", ".h", "_dispatch.c")
+    ]
+    fingerprint = "\n".join(
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (recompiler_bin, *configs, *binaries)
+    )
+    stamp = output_dir / ".freebios-inputs"
+    if (not stamp.is_file() or stamp.read_text() != fingerprint
+            or not all((output_dir / name).is_file() for name in generated)):
+        log("Generating FreeBIOS C dispatch banks...")
+        with tempfile.TemporaryDirectory(dir=output_dir) as scratch:
+            staging = Path(scratch)
+            for cpu, config, binary in zip(cpus, configs, binaries):
+                # Runner CMake expects a single unsharded translation unit per CPU.
+                run_cmd([
+                    str(recompiler_bin),
+                    "--config", str(config),
+                    "--bin", str(binary),
+                    "--out", scratch,
+                    "--bank", f"freebios_arm{cpu}",
+                    "--shards", "1",
+                ])
+            stamp.unlink(missing_ok=True)
+            for name in generated:
+                (staging / name).replace(output_dir / name)
+            (staging / stamp.name).write_text(fingerprint)
+            (staging / stamp.name).replace(stamp)
+        log("FreeBIOS generation complete.")
+    else:
         log("FreeBIOS C dispatch banks already generated.")
-        return
-
-    log("Generating FreeBIOS C dispatch banks...")
-    bios9_toml = ndsrecomp_root / "bios" / "freebios9.toml"
-    bios7_toml = ndsrecomp_root / "bios" / "freebios7.toml"
-    freebios9_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm9.bin"
-    freebios7_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm7.bin"
-
-    # ARM9 FreeBIOS (single unsharded translation unit expected by runner CMake)
-    run_cmd([
-        str(recompiler_bin),
-        "--config", str(bios9_toml),
-        "--bin", str(freebios9_bin),
-        "--out", str(output_dir),
-        "--bank", "freebios_arm9",
-        "--shards", "1",
-    ])
-    # ARM7 FreeBIOS (single unsharded translation unit expected by runner CMake)
-    run_cmd([
-        str(recompiler_bin),
-        "--config", str(bios7_toml),
-        "--bin", str(freebios7_bin),
-        "--out", str(output_dir),
-        "--bank", "freebios_arm7",
-        "--shards", "1",
-    ])
 
     # Stub native BIOS dispatch files required by CMakeLists
     for name in ["arm9_bios", "arm7_bios"]:
@@ -164,7 +169,6 @@ def generate_freebios(
                 f'const unsigned g_dispatch_{name}_len = 0;\n',
                 encoding="utf-8",
             )
-    log("FreeBIOS generation complete.")
 
 
 def find_rom(rom_arg: str | None) -> Path:

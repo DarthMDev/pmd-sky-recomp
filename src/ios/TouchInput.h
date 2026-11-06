@@ -5,7 +5,13 @@
 class SkyTouchInput {
 public:
     void set(uint16_t buttons, uint16_t pressed) {
-        pending_ |= pressed & ~held_;
+        const uint16_t previous = held_ & buttons;
+        if (pressed && pressed != previous) {
+            // Moving within a group replaces its old direction. Releasing
+            // the group still leaves a quick tap available for the next frame.
+            pending_ = (pending_ & ~buttons) | pressed;
+            framePresses_ &= ~buttons;
+        }
         held_ = (held_ & ~buttons) | pressed;
     }
 

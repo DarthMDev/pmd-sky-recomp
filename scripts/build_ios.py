@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import os
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -22,19 +21,11 @@ IPA = IOS_DIR / "SkyRecompiled-iOS-alpha.ipa"
 
 
 def setup_dependencies(deps: Path) -> tuple[Path, Path, Path]:
+    """Verify pinned sources, apply iOS patches, and stage SDL."""
     ndsrecomp = deps / "ndsrecomp"
     ui = deps / "recomp-ui"
-    if not (deps / ".bootstrapped").exists():
-        env = {**os.environ, "SKY_THIRD_PARTY_DIR": str(deps)}
-        run_cmd(["bash", str(REPO_ROOT / "scripts" / "setup_third_party.sh")], env=env)
-        (deps / ".bootstrapped").touch()
-
-    apply = ["git", "-C", str(ndsrecomp), "apply"]
-    for name in ("ndsrecomp-ios.patch", "ndsrecomp-ios-touch.patch"):
-        patch = REPO_ROOT / "patches" / name
-        if subprocess.run([*apply, "--reverse", "--check", str(patch)],
-                          capture_output=True).returncode != 0:
-            run_cmd([*apply, str(patch)])
+    env = {**os.environ, "SKY_THIRD_PARTY_DIR": str(deps)}
+    run_cmd(["bash", str(REPO_ROOT / "scripts" / "setup_third_party.sh"), "--ios"], env=env)
 
     sdl = deps / f"SDL-release-{SDL_VERSION}"
     if not (sdl / "CMakeLists.txt").is_file():
@@ -50,6 +41,7 @@ def setup_dependencies(deps: Path) -> tuple[Path, Path, Path]:
 
 
 def stage_resources(app: Path, ndsrecomp: Path, ui: Path, sdl: Path) -> None:
+    """Copy the runtime configuration and license notices into the app."""
     shutil.copy2(REPO_ROOT / "config" / "game.toml", app / "game.toml")
     licenses = app / "Licenses"
     licenses.mkdir(exist_ok=True)
@@ -69,6 +61,7 @@ def stage_resources(app: Path, ndsrecomp: Path, ui: Path, sdl: Path) -> None:
 
 
 def main() -> None:
+    """Build and test the iOS runner, then stage the simulator app or IPA."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulator", action="store_true", help="Build an arm64 simulator .app")
     args = parser.parse_args()

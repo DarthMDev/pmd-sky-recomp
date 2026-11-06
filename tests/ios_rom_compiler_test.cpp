@@ -18,6 +18,10 @@ bool check(bool ok, const char* message) {
 } // namespace
 
 int main() {
+    const auto zero = sky_decode_instruction(0, 0, false);
+    bool ok = check(zero.op == armv4t::IrOp::AND,
+                    "ARM word zero at PC zero must decode before ROM preparation");
+
     std::array<uint8_t, 0x48> rom{};
     write32(rom.data() + 0x20, 0x40);
     write32(rom.data() + 0x28, 0x02000000);
@@ -28,7 +32,7 @@ int main() {
     write32(rom.data() + 0x40, 0xea000000); // ARM B to PC + 8.
     write32(rom.data() + 0x44, 0xe000e000); // Two Thumb branches.
 
-    bool ok = check(sky_compile_rom(rom.data(), rom.size()) == 6,
+    ok &= check(sky_compile_rom(rom.data(), rom.size()) == 6,
                     "expected ARM and Thumb candidates for both executable regions");
     ok &= check(sky_decode_instruction(0x02000000, 0xea000000, false).branch_target == 0x02000008,
                 "ARM branch target must use the guest address");
@@ -36,6 +40,8 @@ int main() {
                 "an overlay at the same address must use the replacement bytes");
     ok &= check(sky_decode_instruction(0x02380002, 0xe000, true).branch_target == 0x02380006,
                 "Thumb branch target must use the aligned halfword address");
+    ok &= check(!sky_decode_instruction(0x02000000, 0xe000, false).thumb,
+                "the first fetch must decode as ARM");
     ok &= check(sky_decode_instruction(0x02000000, 0xe000, true).thumb,
                 "a mode switch at the same address must decode as Thumb");
     ok &= check(sky_compile_rom(rom.data(), rom.size() - 1) == 0,

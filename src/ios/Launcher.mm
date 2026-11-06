@@ -72,14 +72,12 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
 
 @interface SkyLauncher : UIViewController <UIDocumentPickerDelegate>
 @property(nonatomic, strong) NSURL* rom;
-@property(nonatomic, strong) NSURL* settings;
 @property(nonatomic, strong) UILabel* status;
 @property(nonatomic, strong) UIActivityIndicatorView* importProgress;
 @property(nonatomic, strong) UIButton* play;
 @property(nonatomic, strong) UIButton* importButton;
-@property(nonatomic) NSInteger resolution;
 @property(nonatomic) BOOL importing;
-@property(nonatomic, copy) void (^launchGame)(NSInteger);
+@property(nonatomic, copy) void (^launchGame)(void);
 @end
 
 @implementation SkyLauncher
@@ -112,18 +110,8 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
     [self.play addTarget:self action:@selector(startGame)
        forControlEvents:UIControlEventTouchUpInside];
 
-    UILabel* resolutionLabel = [[UILabel alloc] init];
-    resolutionLabel.text = @"Render resolution";
-    UISegmentedControl* resolution = [[UISegmentedControl alloc] initWithItems:@[@"1×", @"2×"]];
-    NSDictionary* settings = [NSDictionary dictionaryWithContentsOfURL:self.settings error:nil];
-    self.resolution = [settings[@"resolution"] isEqual:@2] ? 2 : 1;
-    resolution.selectedSegmentIndex = self.resolution - 1;
-    [resolution addTarget:self action:@selector(updateResolution:)
-         forControlEvents:UIControlEventValueChanged];
-
     UIStackView* stack = [[UIStackView alloc] initWithArrangedSubviews:
-        @[title, self.status, self.importProgress, self.importButton, self.play,
-          resolutionLabel, resolution]];
+        @[title, self.status, self.importProgress, self.importButton, self.play]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 14;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -150,17 +138,6 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
     else [self.importProgress stopAnimating];
     self.status.text = message ?: (installed ? @"ROM ready to compile."
         : @"Import your own Explorers of Sky ROM dump (USA or Europe).");
-}
-
-- (void)updateResolution:(UISegmentedControl*)control {
-    NSInteger resolution = control.selectedSegmentIndex + 1;
-    NSError* error = nil;
-    if ([@{@"resolution": @(resolution)} writeToURL:self.settings error:&error]) {
-        self.resolution = resolution;
-    } else {
-        control.selectedSegmentIndex = self.resolution - 1;
-        [self updateStatus:error.localizedDescription];
-    }
 }
 
 - (void)pickROM {
@@ -207,7 +184,7 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
     self.importButton.enabled = NO;
     self.status.text = @"Compiling ROM on this device…";
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.launchGame(self.resolution);
+        self.launchGame();
     });
 }
 
@@ -254,8 +231,9 @@ uint16_t sky_current_touch_keys() { return touchInput.current(); }
 uint16_t sky_begin_touch_frame() { return touchInput.beginFrame(); }
 void sky_clear_touch_keys() { touchInput.clear(); }
 
-@interface SkyDPad : UIControl
+@interface SkyDPad : UIView
 @property(nonatomic) uint16_t directions;
+@property(nonatomic, weak) UITouch* trackingTouch;
 @end
 
 @implementation SkyDPad
@@ -274,29 +252,32 @@ void sky_clear_touch_keys() { touchInput.clear(); }
     [self setNeedsDisplay];
 }
 
-- (BOOL)beginTracking:(UITouch*)touch withEvent:(UIEvent*)event {
-    [self trackPoint:[touch locationInView:self]];
-    return YES;
+- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    if (self.trackingTouch) return;
+    self.trackingTouch = touches.anyObject;
+    [self trackPoint:[self.trackingTouch locationInView:self]];
 }
 
-- (BOOL)continueTracking:(UITouch*)touch withEvent:(UIEvent*)event {
-    [self trackPoint:[touch locationInView:self]];
-    return YES;
+- (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    UITouch* touch = self.trackingTouch;
+    if (touch && [touches containsObject:touch])
+        [self trackPoint:[touch locationInView:self]];
 }
 
 - (void)releaseDirections {
+    self.trackingTouch = nil;
     self.directions = 0;
     touchInput.set(dpadButtons, 0);
     [self setNeedsDisplay];
 }
 
-- (void)endTracking:(UITouch*)touch withEvent:(UIEvent*)event {
-    [self releaseDirections];
+- (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    UITouch* touch = self.trackingTouch;
+    if (touch && [touches containsObject:touch]) [self releaseDirections];
 }
 
-- (void)cancelTrackingWithEvent:(UIEvent*)event {
-    [super cancelTrackingWithEvent:event];
-    [self releaseDirections];
+- (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    [self touchesEnded:touches withEvent:event];
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -437,7 +418,6 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
     }
     SkyLauncher* launcher = [[SkyLauncher alloc] init];
     launcher.rom = rom;
-    launcher.settings = child(documents, @"settings.plist");
     [launcher loadViewIfNeeded];
     [launcher updateStatus:message];
     if (storageError) launcher.view.userInteractionEnabled = NO;
@@ -450,7 +430,7 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
     [root.view addSubview:launcher.view];
     [launcher didMoveToParentViewController:root];
 
-    launcher.launchGame = ^(NSInteger resolution) {
+    launcher.launchGame = ^{
         SDL_DestroyWindow(window);
         SDL_Quit();
 
@@ -466,14 +446,14 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
             "--rom", rom.fileSystemRepresentation,
             "--save-path", child(saves, @"pmdsky.sav").fileSystemRepresentation,
             "--savestate-dir", saves.fileSystemRepresentation,
-            "--internal-resolution", std::to_string(resolution),
+            "--internal-resolution", "1",
             "--network", "off", "--local-wireless", "off",
             "--no-coverage-manifest"
         };
         std::vector<char*> argv;
         for (auto& arg : args) argv.push_back(arg.data());
         argv.push_back(nullptr);
-        std::fprintf(stderr, "[launcher] starting game at %ld× resolution\n", (long)resolution);
+        std::fprintf(stderr, "[launcher] starting game at 1× resolution\n");
         SDL_SetiOSEventPump(true);
         const int result = sky_run(static_cast<int>(args.size()), argv.data());
         SDL_SetiOSEventPump(false);

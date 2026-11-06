@@ -11,6 +11,7 @@ on:
       - 'scripts/setup_third_party.sh'
       - 'config/game.toml'
       - 'tests/ios_*_test.cpp'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:

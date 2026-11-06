@@ -96,9 +96,9 @@ Download and extract the workflow artifact to get the IPA.
    clean USA or Europe Explorers of Sky `.nds` dump. Tap **Compile and Play**.
    Use the on-screen controls or connect a controller. Tap **Launcher** to exit
    the game and flush pending saves.
-4. In **Files → On My iPhone/iPad → SkyRecompiled**, find `Logs/latest.log`,
-   and `Saves/pmdsky.sav`. After a successful render resolution change, the app
-   also saves `settings.plist` here.
+4. In **Files → On My iPhone/iPad → SkyRecompiled**, find `Logs/latest.log`
+   after launching the app and `Saves/pmdsky.sav` after the game creates a save.
+   The iOS software renderer uses the native 1× resolution.
 
 The iOS app reuses the desktop runner and compiles ROM instructions into portable
 intermediate code on the device. It can run without JIT signing privileges.
