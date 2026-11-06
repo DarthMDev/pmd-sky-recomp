@@ -39,6 +39,7 @@ target_include_directories(nds_runner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(nds_runner PRIVATE SKY_IOS=1)
 target_compile_options(nds_runner PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
 target_link_libraries(nds_runner PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
+target_link_options(nds_runner PRIVATE -Wl,-stack_size,0x4000000)
 set_target_properties(nds_runner PROPERTIES
     OUTPUT_NAME SkyRecompiled
     OBJCXX_STANDARD 20

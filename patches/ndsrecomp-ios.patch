@@ -12,14 +12,6 @@ diff --git a/runner/CMakeLists.txt b/runner/CMakeLists.txt
      if(NOT TARGET SDL3::SDL3)
          message(FATAL_ERROR "NDS_SDL_BACKEND=SDL3 requires target SDL3::SDL3")
      endif()
-@@ -1171,7 +1173,7 @@
- # macOS gives a process by default, faulting in ___chkstk_darwin before the
- # firmware hands off. Linux's 8 MB soft limit is raisable per-shell; the macOS
- # main thread size is fixed at link time, so ask for it here.
--if(APPLE)
-+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-     target_link_options(nds_runner PRIVATE -Wl,-stack_size,0x4000000)
- endif()
 
 diff --git a/runner/src/main.cpp b/runner/src/main.cpp
 --- a/runner/src/main.cpp

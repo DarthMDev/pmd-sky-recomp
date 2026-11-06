@@ -404,6 +404,9 @@ void sky_show_game_controls(SDL_Window* window) {
 
 namespace {
 
+void restore_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
+                      NSError* storageError, NSString* message);
+
 bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
                    NSError* storageError, NSString* message) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -436,8 +439,8 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
 
         NSURL* config = [[NSBundle mainBundle] URLForResource:@"game" withExtension:@"toml"];
         if (!config) {
-            show_launcher(rom, console, documents, saves, storageError,
-                          @"The app bundle is missing game.toml. Reinstall the IPA.");
+            restore_launcher(rom, console, documents, saves, storageError,
+                             @"The app bundle is missing game.toml. Reinstall the IPA.");
             return;
         }
         std::vector<std::string> args = {
@@ -458,10 +461,67 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
         const int result = sky_run(static_cast<int>(args.size()), argv.data());
         SDL_SetiOSEventPump(false);
         std::fprintf(stderr, "[launcher] game exited with status %d\n", result);
-        show_launcher(rom, console, documents, saves, storageError,
-                      result == 0 ? nil : @"The game stopped. See Files → SkyRecompiled → Logs.");
+        restore_launcher(rom, console, documents, saves, storageError,
+                         result == 0 ? nil : @"The game stopped. See Files → SkyRecompiled → Logs.");
     };
     return true;
+}
+
+void restore_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
+                      NSError* storageError, NSString* message) {
+    if (show_launcher(rom, console, documents, saves, storageError, message)) {
+        return;
+    }
+    std::fprintf(stderr, "[launcher] show_launcher failed, retrying\n");
+    SDL_Quit();
+    if (show_launcher(rom, console, documents, saves, storageError, message)) {
+        return;
+    }
+    std::fprintf(stderr, "[launcher] fallback to UIKit error presentation\n");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindowScene* scene = nil;
+        for (UIScene* s in UIApplication.sharedApplication.connectedScenes) {
+            if ([s isKindOfClass:[UIWindowScene class]] &&
+                s.activationState == UISceneActivationStateForegroundActive) {
+                scene = (UIWindowScene*)s;
+                break;
+            }
+        }
+        if (!scene) {
+            for (UIScene* s in UIApplication.sharedApplication.connectedScenes) {
+                if ([s isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene*)s;
+                    break;
+                }
+            }
+        }
+        static UIWindow* fallbackWindow = nil;
+        fallbackWindow = scene ? [[UIWindow alloc] initWithWindowScene:scene]
+                               : [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        UIViewController* fallbackRoot = [[UIViewController alloc] init];
+        fallbackRoot.view.backgroundColor = UIColor.systemBackgroundColor;
+        fallbackWindow.rootViewController = fallbackRoot;
+        [fallbackWindow makeKeyAndVisible];
+
+        const char* sdlError = SDL_GetError();
+        NSString* err = (sdlError && sdlError[0]) ? [NSString stringWithUTF8String:sdlError]
+                                                  : @"Unknown error";
+        NSString* alertMessage = message.length > 0
+            ? [NSString stringWithFormat:@"%@\n\n(SDL: %@)", message, err]
+            : [NSString stringWithFormat:@"Could not reopen launcher: %@", err];
+        UIAlertController* alert =
+            [UIAlertController alertControllerWithTitle:@"SkyRecompiled"
+                                                message:alertMessage
+                                         preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Retry"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction*) {
+            fallbackWindow.hidden = YES;
+            fallbackWindow = nil;
+            restore_launcher(rom, console, documents, saves, storageError, message);
+        }]];
+        [fallbackRoot presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 } // namespace
