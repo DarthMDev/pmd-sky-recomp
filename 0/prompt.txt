@@ -1,0 +1,19 @@
+# Files mentioned by the user:
+
+## codex-clipboard-2bf1d30b-1c26-46b1-960b-d677db19430a.png: /var/folders/9b/419m4hqs453_18_fftblwxhm0000gn/T/codex-clipboard-2bf1d30b-1c26-46b1-960b-d677db19430a.png
+Image attachment: true
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+the screen buttons are ugly and also dont seem to work (i press A and startup movies and menus dont advance)
+Can you fix layout and logic?
+Is there other recomps you can look at for how they do on screen controls?
+
+---
+
+sweet it works now
+
+---
+
+ok on physical iphone it seems its really delayed in receiving inputs from hands on the touch controls, either that or multiple tries, please look into it more

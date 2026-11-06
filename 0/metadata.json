@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6RWGC30M2RGV967X4NX55WJ",
+  "session_id": "01a1b15f-0f50-73f0-8f4b-ba092465db75",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-06T16:54:11.498576Z",
+  "branch": "feature/ios-alpha",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    ".github/workflows/ios.yml",
+    "scripts/build_ios.py",
+    "src/ios/Info.plist",
+    "src/ios/Launcher.mm"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "c705f80d0fed",
+  "checkpoint_transcript_start": 1227,
+  "transcript_lines_at_start": 1227,
+  "compact_transcript_start": 180,
+  "token_usage": {
+    "input_tokens": 355557,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6348672,
+    "output_tokens": 9411,
+    "api_call_count": 20,
+    "subagent_tokens_complete": true
+  },
+  "redaction": {
+    "replacements": 19122,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 19126,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 7
+  }
+}
