@@ -10,15 +10,17 @@ int main() {
     touch.set(dpad, dpad);
     touch.set(a, a);
     touch.set(a, 0);
-    if (touch.take() != (a | dpad)) return 1;
-    if (touch.take() != dpad) return 2;
+    if (touch.current() != (a | dpad)) return 1;
+    if (touch.beginFrame() != (a | dpad)) return 2;
+    if (touch.current() != (a | dpad)) return 3;
+    if (touch.beginFrame() != dpad) return 4;
 
     touch.set(dpad, right);
-    if (touch.take() != right) return 3;
+    if (touch.beginFrame() != right) return 5;
     touch.set(dpad, 0);
-    if (touch.take() != 0) return 4;
+    if (touch.beginFrame() != 0) return 6;
 
     touch.set(a, a);
     touch.clear();
-    if (touch.take() != 0) return 5;
+    if (touch.current() != 0 || touch.beginFrame() != 0) return 7;
 }

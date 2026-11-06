@@ -250,7 +250,8 @@ UIButton* game_button(NSString* title, CGFloat fontSize, bool accent = false) {
 
 } // namespace
 
-uint16_t sky_take_touch_keys() { return touchInput.take(); }
+uint16_t sky_current_touch_keys() { return touchInput.current(); }
+uint16_t sky_begin_touch_frame() { return touchInput.beginFrame(); }
 void sky_clear_touch_keys() { touchInput.clear(); }
 
 @interface SkyDPad : UIControl
