@@ -25,6 +25,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,14 +46,17 @@ for extra_path in ["/opt/homebrew/bin", "/usr/local/bin"]:
 
 
 def log(msg: str) -> None:
+    """Format and print an informational build status message."""
     print(f"\033[1;36m[SkyRecompiled:build]\033[0m {msg}", flush=True)
 
 
 def log_err(msg: str) -> None:
+    """Format and print an error message to standard error."""
     print(f"\033[1;31m[SkyRecompiled:build ERROR]\033[0m {msg}", file=sys.stderr, flush=True)
 
 
 def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    """Execute a subprocess command, exiting immediately on failure."""
     display_cmd = " ".join(cmd)
     log(f"Running: {display_cmd}")
     res = subprocess.run(cmd, cwd=cwd or REPO_ROOT, env=env)
@@ -62,6 +66,7 @@ def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None 
 
 
 def check_prerequisites() -> None:
+    """Verify that required build tools are installed and available on PATH."""
     log("Checking prerequisites...")
     required_tools = ["cmake", "ninja"]
     if sys.platform == "win32":
@@ -85,6 +90,7 @@ def windows_compiler_args() -> list[str]:
 
 
 def ensure_third_party() -> None:
+    """Verify pinned third-party dependencies, running setup script if missing."""
     ndsrecomp_dir = REPO_ROOT / "third_party" / "ndsrecomp"
     pmdsky_debug_dir = REPO_ROOT / "third_party" / "pmdsky-debug"
     recomp_ui_dir = REPO_ROOT / "third_party" / "recomp-ui"
@@ -101,6 +107,7 @@ def ensure_third_party() -> None:
 
 
 def build_recompiler(jobs: int, build_type: str) -> Path:
+    """Build the offline nds_recompile static recompiler executable."""
     log(f"Building nds_recompile ({build_type})...")
     RECOMPILER_BUILD_DIR.mkdir(parents=True, exist_ok=True)
     exe_name = "nds_recompile.exe" if sys.platform == "win32" else "nds_recompile"
@@ -124,52 +131,57 @@ def build_recompiler(jobs: int, build_type: str) -> Path:
     return recompiler_bin
 
 
-def generate_freebios(recompiler_bin: Path) -> None:
-    GENERATED_BIOS_DIR.mkdir(parents=True, exist_ok=True)
-    freebios_files = [
-        GENERATED_BIOS_DIR / "freebios_arm9.c",
-        GENERATED_BIOS_DIR / "freebios_arm9_dispatch.c",
-        GENERATED_BIOS_DIR / "freebios_arm7.c",
-        GENERATED_BIOS_DIR / "freebios_arm7_dispatch.c",
-        GENERATED_BIOS_DIR / "arm9_bios.c",
-        GENERATED_BIOS_DIR / "arm9_bios_dispatch.c",
-        GENERATED_BIOS_DIR / "arm7_bios.c",
-        GENERATED_BIOS_DIR / "arm7_bios_dispatch.c",
+def generate_freebios(
+    recompiler_bin: Path,
+    ndsrecomp_root: Path = REPO_ROOT / "third_party" / "ndsrecomp",
+    output_dir: Path = GENERATED_BIOS_DIR,
+) -> None:
+    """Generate FreeBIOS dispatch banks when their tool or inputs change."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cpus = (9, 7)
+    configs = [ndsrecomp_root / "bios" / f"freebios{cpu}.toml" for cpu in cpus]
+    binaries = [
+        ndsrecomp_root / "third_party" / "freebios" / f"drastic_bios_arm{cpu}.bin"
+        for cpu in cpus
     ]
-    if all(p.exists() for p in freebios_files):
+    generated = [
+        f"freebios_arm{cpu}{suffix}"
+        for cpu in cpus
+        for suffix in (".c", ".h", "_dispatch.c")
+    ]
+    fingerprint = "\n".join(
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (recompiler_bin, *configs, *binaries)
+    )
+    stamp = output_dir / ".freebios-inputs"
+    if (not stamp.is_file() or stamp.read_text() != fingerprint
+            or not all((output_dir / name).is_file() for name in generated)):
+        log("Generating FreeBIOS C dispatch banks...")
+        with tempfile.TemporaryDirectory(dir=output_dir) as scratch:
+            staging = Path(scratch)
+            for cpu, config, binary in zip(cpus, configs, binaries):
+                # Runner CMake expects a single unsharded translation unit per CPU.
+                run_cmd([
+                    str(recompiler_bin),
+                    "--config", str(config),
+                    "--bin", str(binary),
+                    "--out", scratch,
+                    "--bank", f"freebios_arm{cpu}",
+                    "--shards", "1",
+                ])
+            stamp.unlink(missing_ok=True)
+            for name in generated:
+                (staging / name).replace(output_dir / name)
+            (staging / stamp.name).write_text(fingerprint)
+            (staging / stamp.name).replace(stamp)
+        log("FreeBIOS generation complete.")
+    else:
         log("FreeBIOS C dispatch banks already generated.")
-        return
-
-    log("Generating FreeBIOS C dispatch banks...")
-    ndsrecomp_root = REPO_ROOT / "third_party" / "ndsrecomp"
-    bios9_toml = ndsrecomp_root / "bios" / "freebios9.toml"
-    bios7_toml = ndsrecomp_root / "bios" / "freebios7.toml"
-    freebios9_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm9.bin"
-    freebios7_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm7.bin"
-
-    # ARM9 FreeBIOS (single unsharded translation unit expected by runner CMake)
-    run_cmd([
-        str(recompiler_bin),
-        "--config", str(bios9_toml),
-        "--bin", str(freebios9_bin),
-        "--out", str(GENERATED_BIOS_DIR),
-        "--bank", "freebios_arm9",
-        "--shards", "1",
-    ])
-    # ARM7 FreeBIOS (single unsharded translation unit expected by runner CMake)
-    run_cmd([
-        str(recompiler_bin),
-        "--config", str(bios7_toml),
-        "--bin", str(freebios7_bin),
-        "--out", str(GENERATED_BIOS_DIR),
-        "--bank", "freebios_arm7",
-        "--shards", "1",
-    ])
 
     # Stub native BIOS dispatch files required by CMakeLists
     for name in ["arm9_bios", "arm7_bios"]:
-        c_file = GENERATED_BIOS_DIR / f"{name}.c"
-        disp_file = GENERATED_BIOS_DIR / f"{name}_dispatch.c"
+        c_file = output_dir / f"{name}.c"
+        disp_file = output_dir / f"{name}_dispatch.c"
         if not c_file.exists():
             c_file.write_text(f"// Clean-room stub for {name}\n#include <stddef.h>\n", encoding="utf-8")
         if not disp_file.exists():
@@ -179,10 +191,10 @@ def generate_freebios(recompiler_bin: Path) -> None:
                 f'const unsigned g_dispatch_{name}_len = 0;\n',
                 encoding="utf-8",
             )
-    log("FreeBIOS generation complete.")
 
 
 def find_rom(rom_arg: str | None) -> Path:
+    """Locate and return the path to the Explorers of Sky ROM image."""
     if rom_arg:
         p = Path(rom_arg).expanduser().resolve()
         if p.exists():
@@ -238,6 +250,7 @@ def build_runner(
     eu_banks = BUILD_DIR / "generated_sky_eu"
 
     def has_banks(bank_dir: Path) -> bool:
+        """Check whether the given directory contains generated dispatch banks."""
         return bank_dir.exists() and any(bank_dir.glob("*_dispatch.c"))
 
     is_apple = platform.system() == "Darwin"
@@ -296,6 +309,7 @@ def build_runner(
 
 
 def main() -> None:
+    """Parse command-line arguments and run the SkyRecompiled build orchestration pipeline."""
     parser = argparse.ArgumentParser(description="SkyRecompiled Top-Level Build Orchestrator")
     parser.add_argument("--rom", type=str, default=None, help="Path to Explorers of Sky (USA) .nds ROM")
     parser.add_argument("--clean", action="store_true", help="Clean build directory before building")

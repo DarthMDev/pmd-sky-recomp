@@ -7,8 +7,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TP_DIR="${REPO_ROOT}/third_party"
-PATCH_FILE="${REPO_ROOT}/patches/ndsrecomp-macos-arm64.patch"
+TP_DIR="${SKY_THIRD_PARTY_DIR:-${REPO_ROOT}/third_party}"
 
 NDSRECOMP_URL="https://github.com/RetroPortingToolKit/ndsrecomp.git"
 NDSRECOMP_SHA="54967a4e26bcd6ad46445d51bab3214decc3fd59"
@@ -21,6 +20,84 @@ RECOMP_UI_SHA="839a6f98c3014e7586ac942a66395ddaa6fc5bc5"
 
 TOMLPP_URL="https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp"
 TOMLPP_SHA256="6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e"
+TOMLPP_DEST="${TP_DIR}/ndsrecomp/recompiler/third_party/toml.hpp"
+
+tomlpp_valid() {
+    local digest
+    [[ -s "$1" ]] || return 1
+    if command -v sha256sum >/dev/null 2>&1; then
+        digest="$(sha256sum "$1")" || return 1
+    else
+        digest="$(shasum -a 256 "$1")" || return 1
+    fi
+    [[ "${digest%% *}" == "${TOMLPP_SHA256}" ]]
+}
+
+pinned_checkout() {
+    local dest="${TP_DIR}/$1"
+    local head deleted
+    [[ -d "${dest}/.git" ]] || return 1
+    head="$(git -C "${dest}" rev-parse HEAD)" || return 1
+    deleted="$(git -C "${dest}" ls-files --deleted)" || return 1
+    [[ "${head}" == "$2" && -z "${deleted}" ]]
+}
+
+cache_valid() {
+    local submodules
+    pinned_checkout ndsrecomp "${NDSRECOMP_SHA}" || return 1
+    pinned_checkout pmdsky-debug "${PMDSKY_DEBUG_SHA}" || return 1
+    pinned_checkout recomp-ui "${RECOMP_UI_SHA}" || return 1
+    submodules="$(git -C "${TP_DIR}/ndsrecomp" submodule status --recursive)" || return 1
+    if [[ "${submodules}" =~ (^|$'\n')[-+U] ]]; then
+        return 1
+    fi
+    git -C "${TP_DIR}/ndsrecomp" submodule foreach --quiet --recursive \
+        'deleted=$(git ls-files --deleted) && test -z "$deleted"' || return 1
+    tomlpp_valid "${TOMLPP_DEST}"
+}
+
+apply_patch() {
+    local dest="$1" patch="${REPO_ROOT}/patches/$2" required="${3:-optional}"
+    local files added removed path
+    local -a applied=()
+    if [[ ! -f "${patch}" ]]; then
+        if [[ "${required}" == "required" ]]; then
+            echo "[setup] ERROR: Required patch ${patch} is missing" >&2
+            exit 1
+        fi
+        return 0
+    fi
+    if git -C "${dest}" apply --reverse --check "${patch}" 2>/dev/null; then
+        return 0
+    fi
+
+    # Restoring a missing file can leave the other files already patched.
+    files="$(git -C "${dest}" apply --numstat "${patch}")"
+    while IFS=$'\t' read -r added removed path; do
+        if git -C "${dest}" apply --reverse --check --include="${path}" "${patch}" 2>/dev/null; then
+            applied+=("--exclude=${path}")
+        fi
+    done <<< "${files}"
+    echo "[setup] Applying $2..."
+    git -C "${dest}" apply "${applied[@]:+"${applied[@]}"}" "${patch}"
+}
+
+apply_patches() {
+    local ndsrecomp="${TP_DIR}/ndsrecomp"
+    apply_patch "${ndsrecomp}" ndsrecomp-macos-arm64.patch
+    apply_patch "${ndsrecomp}" ndsrecomp-msvc-tools.patch
+    apply_patch "${ndsrecomp}" ndsrecomp-window-title.patch
+    apply_patch "${ndsrecomp}/external/arm-recomp-core" arm-recomp-core-msvc-popcount.patch
+    if [[ "${1:-}" == "--ios" ]]; then
+        apply_patch "${ndsrecomp}" ndsrecomp-ios.patch required
+        apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch required
+    fi
+}
+
+if [[ "${1:-}" == "--ios" ]] && cache_valid; then
+    apply_patches "$@"
+    exit
+fi
 
 mkdir -p "${TP_DIR}"
 
@@ -36,70 +113,33 @@ clone_and_pin() {
     fi
 
     echo "[setup] Pinning ${name} to ${sha:0:10}..."
-    git -C "${dest}" fetch --quiet origin "${sha}" 2>/dev/null || true
+    if ! git -C "${dest}" cat-file -e "${sha}^{commit}"; then
+        git -C "${dest}" fetch --quiet origin "${sha}"
+    fi
     git -C "${dest}" checkout --quiet "${sha}"
+    git -C "${dest}" ls-files --deleted -z | git -C "${dest}" checkout-index -z --stdin
 }
 
 clone_and_pin "ndsrecomp" "${NDSRECOMP_URL}" "${NDSRECOMP_SHA}"
 git -C "${TP_DIR}/ndsrecomp" submodule update --init --recursive
+git -C "${TP_DIR}/ndsrecomp" submodule foreach --quiet --recursive \
+    'git ls-files --deleted -z | git checkout-index -z --stdin'
 
 clone_and_pin "pmdsky-debug" "${PMDSKY_DEBUG_URL}" "${PMDSKY_DEBUG_SHA}"
 clone_and_pin "recomp-ui" "${RECOMP_UI_URL}" "${RECOMP_UI_SHA}"
 
-TOMLPP_DEST="${TP_DIR}/ndsrecomp/recompiler/third_party/toml.hpp"
 mkdir -p "$(dirname "${TOMLPP_DEST}")"
-if [[ ! -s "${TOMLPP_DEST}" ]]; then
+if ! tomlpp_valid "${TOMLPP_DEST}"; then
     echo "[setup] Fetching toml++ v3.4.0 single header..."
-    curl -fsSL "${TOMLPP_URL}" -o "${TOMLPP_DEST}"
-fi
-if command -v sha256sum >/dev/null 2>&1; then
-    ACTUAL_SHA256="$(sha256sum "${TOMLPP_DEST}" | awk '{print $1}')"
-else
-    ACTUAL_SHA256="$(shasum -a 256 "${TOMLPP_DEST}" | awk '{print $1}')"
-fi
-if [[ "${ACTUAL_SHA256}" != "${TOMLPP_SHA256}" ]]; then
-    rm -f "${TOMLPP_DEST}"
-    echo "[setup] ERROR: toml.hpp SHA-256 mismatch (${ACTUAL_SHA256} != ${TOMLPP_SHA256})" >&2
-    exit 1
-fi
-
-if [[ -f "${PATCH_FILE}" ]]; then
-    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${PATCH_FILE}" 2>/dev/null; then
-        echo "[setup] macOS arm64 patch already applied to ndsrecomp."
-    else
-        echo "[setup] Applying patches/ndsrecomp-macos-arm64.patch..."
-        git -C "${TP_DIR}/ndsrecomp" apply "${PATCH_FILE}"
+    staged="$(mktemp "${TOMLPP_DEST}.XXXXXX")"
+    trap 'rm -f "${staged}"' EXIT
+    curl -fsSL "${TOMLPP_URL}" -o "${staged}"
+    if ! tomlpp_valid "${staged}"; then
+        echo "[setup] ERROR: toml.hpp SHA-256 mismatch" >&2
+        exit 1
     fi
+    mv "${staged}" "${TOMLPP_DEST}"
 fi
 
-MSVC_TOOLS_PATCH="${REPO_ROOT}/patches/ndsrecomp-msvc-tools.patch"
-if [[ -f "${MSVC_TOOLS_PATCH}" ]]; then
-    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${MSVC_TOOLS_PATCH}" 2>/dev/null; then
-        echo "[setup] MSVC tools patch already applied to ndsrecomp."
-    else
-        echo "[setup] Applying patches/ndsrecomp-msvc-tools.patch..."
-        git -C "${TP_DIR}/ndsrecomp" apply "${MSVC_TOOLS_PATCH}"
-    fi
-fi
-
-TITLE_PATCH="${REPO_ROOT}/patches/ndsrecomp-window-title.patch"
-if [[ -f "${TITLE_PATCH}" ]]; then
-    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${TITLE_PATCH}" 2>/dev/null; then
-        echo "[setup] Window title patch already applied to ndsrecomp."
-    else
-        echo "[setup] Applying patches/ndsrecomp-window-title.patch..."
-        git -C "${TP_DIR}/ndsrecomp" apply "${TITLE_PATCH}"
-    fi
-fi
-
-CORE_PATCH="${REPO_ROOT}/patches/arm-recomp-core-msvc-popcount.patch"
-if [[ -f "${CORE_PATCH}" ]]; then
-    if git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply --reverse --check "${CORE_PATCH}" 2>/dev/null; then
-        echo "[setup] MSVC popcount patch already applied to arm-recomp-core."
-    else
-        echo "[setup] Applying patches/arm-recomp-core-msvc-popcount.patch..."
-        git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply "${CORE_PATCH}"
-    fi
-fi
-
+apply_patches "$@"
 echo "[setup] All third_party dependencies verified and ready."

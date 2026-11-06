@@ -1,0 +1,141 @@
+diff --git a/runner/CMakeLists.txt b/runner/CMakeLists.txt
+--- a/runner/CMakeLists.txt
++++ b/runner/CMakeLists.txt
+@@ -1132,7 +1132,9 @@
+ # SDL is a host-only presentation layer. SDL3 is the default runtime frontend;
+ # SDL2 and a no-frontend headless build are explicit compatibility choices.
+ if(NDS_SDL_BACKEND STREQUAL "SDL3")
+-    find_package(SDL3 CONFIG REQUIRED)
++    if(NOT TARGET SDL3::SDL3)
++        find_package(SDL3 CONFIG REQUIRED)
++    endif()
+     if(NOT TARGET SDL3::SDL3)
+         message(FATAL_ERROR "NDS_SDL_BACKEND=SDL3 requires target SDL3::SDL3")
+     endif()
+
+diff --git a/runner/src/main.cpp b/runner/src/main.cpp
+--- a/runner/src/main.cpp
++++ b/runner/src/main.cpp
+@@ -345,6 +345,10 @@
+
+ }  // namespace
+
++#if defined(SKY_IOS)
++#include "RomCompiler.h"
++int sky_run(int argc, char** argv) {
++#else
+ int main(int argc, char** argv) {
+     // stderr is the runner's diagnostic stream and is read from files by
+     // harnesses and field-bundle collectors. Under Windows UCRT a redirected
+@@ -354,6 +358,7 @@
+     // cost the session an hour of phantom debugging. Unbuffered is what the C
+     // standard promises for stderr anyway; pay the syscall per line.
+     setvbuf(stderr, nullptr, _IONBF, 0);
++#endif
+     // Calibrate the dispatch-cost tick source before anything can dispatch.
+     // It is lazily self-calibrating as a fallback, but the lazy path would
+     // spend its calibration spin inside whichever dispatch happened to be
+@@ -392,8 +397,10 @@
+                      "refusing to start: Winsock initialization failed\n");
+         return 1;
+     }
++#if !defined(SKY_IOS)
+     std::atexit(nds_net_platform_shutdown);
+     std::atexit(live_overlay_shutdown);
++#endif
+
+     std::string dir = "bios";
+     std::string rom_path;
+@@ -1749,6 +1756,19 @@
+         rom_sha1 = gba::sha1(rom.data(), rom.size()).hex();
+         std::fprintf(stderr, "[load] cartridge: %zu bytes, SHA-1 %s\n",
+                      rom.size(), rom_sha1.c_str());
++#if defined(SKY_IOS)
++        if (!sky_supported_rom(rom_sha1)) {
++            std::fprintf(stderr, "refusing to start: expected a clean USA or Europe ROM\n");
++            return 1;
++        }
++        frontend_options.expected_rom_sha1 = rom_sha1;
++        const auto compiled = sky_compile_rom(rom.data(), rom.size());
++        if (!compiled) {
++            std::fprintf(stderr, "[compiler] invalid ROM executable regions\n");
++            return 1;
++        }
++        std::fprintf(stderr, "[compiler] lowered %zu ARM/Thumb instruction candidates to portable IR\n", compiled);
++#endif
+         if (!frontend_options.expected_rom_sha1.empty() &&
+             rom_sha1 != frontend_options.expected_rom_sha1) {
+             std::fprintf(stderr,
+@@ -2376,11 +2396,15 @@
+         // the socket, commands execute on the frontend thread between frames
+         // via debug_pump(). Execution stays frontend-owned (run_to_* are
+         // rejected); queries, rings, and touch/keys injection are live.
++#if !defined(SKY_IOS)
+         debug_set_reset_fn(boot);
+         debug_pump_start(port);
++#endif
+         std::fprintf(stderr, "[run] interactive SDL mode from reset\n");
+         const int rc = nds_run_interactive_frontend(frontend_options);
++#if !defined(SKY_IOS)
+         debug_pump_stop();
++#endif
+         // After the frontend has closed the performance log (and with it
+         // written the hostprof bundle), so the dump covers the whole session
+         // including its last frames.
+diff --git a/runner/src/tier3.cpp b/runner/src/tier3.cpp
+--- a/runner/src/tier3.cpp
++++ b/runner/src/tier3.cpp
+@@ -27,6 +27,10 @@
+ #include "coverage_manifest.h"
+ #include "live_overlay.h"
+ #include "emu_profile.h"
++
++#if defined(SKY_IOS)
++#include "RomCompiler.h"
++#endif
+
+ using armv4t::CPUState;
+ using armv4t::PackedCpuStateView;
+@@ -449,9 +453,15 @@
+         // is applied below only when the instruction does not branch.
+         const uint32_t code_correction = runtime_code_cycles(pc & ~1u);
+
++#if defined(SKY_IOS)
++        Instr in = sky_decode_instruction(
++            fetch_addr, thumb ? g_bus.read16(fetch_addr) : g_bus.read32(fetch_addr),
++            thumb);
++#else
+         Instr in = thumb
+             ? armv4t::ThumbDecoder::decode(g_bus.read16(pc & ~1u), pc & ~1u)
+             : armv4t::ArmDecoder::decode(g_bus.read32(pc & ~3u), pc & ~3u);
++#endif
+         const bool condition_passed = Interpreter::cond_passes(in.cond, ic.cpsr);
+         const bool traced =
+             g_runtime_deep_trace &&
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -2226,6 +2226,10 @@
+         SDL_Quit();
+         return 1;
+     }
++#if defined(SKY_IOS)
++    extern void sky_show_game_controls(SDL_Window*);
++    sky_show_game_controls(presentation.windows[0]);
++#endif
+     const int bottom_logical_width = presentation.separate
+         ? presentation.screen_widths[1]
+         : presentation.canvas_width;
+@@ -3260,6 +3264,12 @@
+         SDL_Event event{};
+         while (SDL_PollEvent(&event)) {
+             convert_mouse_event_to_logical_coordinates(event, presentation);
++#if defined(SKY_IOS)
++            if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND) {
++                nds_io_flush_cartridge_save();
++                nds_io_flush_firmware_save();
++            }
++#endif
+             if (event.type == SDL_QUIT) {
+                 release_relative_mouse();
+                 running = false;

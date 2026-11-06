@@ -28,6 +28,7 @@ generated_*/
 *.state
 savestates/
 saves/
+reference/
 
 # Build & runtime outputs
 build/
@@ -39,6 +40,7 @@ obj/
 .avalonia-build-tasks/
 *.app/
 *.dmg
+*.ipa
 *.exe
 *.dll
 *.so

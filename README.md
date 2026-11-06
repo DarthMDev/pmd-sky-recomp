@@ -98,6 +98,51 @@ After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that t
 
 ---
 
+## iPhone and iPad alpha
+
+Build on a Mac with Xcode, CMake, Ninja, and Python 3:
+
+```bash
+python3 scripts/build_ios.py
+```
+
+The build writes `build/ios/SkyRecompiled-iOS-alpha.ipa`. The **iOS alpha IPA**
+GitHub Actions workflow builds the same artifact without signing secrets or a ROM.
+Download and extract the workflow artifact to get the IPA.
+
+1. SkyRecompiled requires iOS or iPadOS 16.0 or later. Set up AltStore Classic
+   on your iPhone or iPad and enable Developer Mode. [AltStore setup for macOS](https://faq.altstore.io/altstore-classic/how-to-install-altstore-macos)
+2. Save the IPA to Files. In AltStore, open **My Apps**, tap **+**, and select
+   the IPA. AltStore signs it for your device. Refresh it before the signing
+   expires. [AltStore signing and refresh](https://faq.altstore.io/altstore-classic/your-altstore)
+3. Open SkyRecompiled, choose **Import ROM from Files**, and select your own
+   clean USA or Europe Explorers of Sky `.nds` dump. Tap **Compile and Play**.
+   Use the on-screen controls or connect a controller. Tap **Launcher** to exit
+   the game and flush pending saves.
+4. In **Files → On My iPhone/iPad → SkyRecompiled**, find `Logs/latest.log`
+   after launching the app and `Saves/pmdsky.sav` after the game creates a save.
+   The iOS software renderer uses the native 1× resolution.
+
+The iOS app reuses the desktop runner and compiles ROM instructions into portable
+intermediate code on the device. It can run without JIT signing privileges.
+This alpha uses the runner's interpreter for that code, so performance may
+differ from the native desktop build.
+
+For Apple silicon Mac testing, boot an iPhone or iPad in Simulator, then run
+these commands from the repository root. Simulator sets up the runtime the
+app needs at launch.
+
+```bash
+python3 scripts/build_ios.py --simulator
+xcrun simctl install booted build/ios/simulator/SkyRecompiled.app
+xcrun simctl launch booted dev.skyrecompiled.ios
+```
+
+Running the iOS build directly on an Apple silicon Mac requires Apple development
+or distribution signing. [Apple silicon iOS app testing](https://developer.apple.com/documentation/apple-silicon/running-your-ios-apps-in-macos)
+
+---
+
 ## AI Usage & Verification Disclaimer
 
 AI coding tools were used during the development of this project. All translated and recompiled output is rigorously verified against real Nintendo DS hardware and reference emulator behavior:

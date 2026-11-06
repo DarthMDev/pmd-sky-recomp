@@ -1,0 +1,40 @@
+name: iOS alpha IPA
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'src/ios/**'
+      - 'patches/**'
+      - 'scripts/build.py'
+      - 'scripts/build_ios.py'
+      - 'scripts/setup_third_party.sh'
+      - 'config/game.toml'
+      - 'tests/ios_*_test.cpp'
+      - 'LICENSE'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build ROM-free iOS IPA
+        run: python3 scripts/build_ios.py
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: SkyRecompiled-iOS-alpha
+          path: build/ios/SkyRecompiled-iOS-alpha.ipa
+          if-no-files-found: error
