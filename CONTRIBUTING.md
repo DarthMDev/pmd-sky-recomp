@@ -42,6 +42,7 @@ Any contribution touching the core runner, recompiler, or save system must prese
 
 # 2. Build via the unified build orchestrator
 python3 scripts/build.py --help
+# macOS and Linux; on Windows, use the Windows quickstart linked above.
 python3 scripts/build.py --rom "/path/to/Explorers of Sky.nds"
 ```
 
