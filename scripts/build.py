@@ -34,13 +34,14 @@ RUNNER_BUILD_DIR = BUILD_DIR / "runner"
 GENERATED_BIOS_DIR = BUILD_DIR / "generated_bios"
 GENERATED_BANKS_DIR = BUILD_DIR / "generated_sky_us"
 DEFAULT_ROM_PATH = REPO_ROOT / "roms" / "pmdsky.us.nds"
+SDL3_WINDOWS_DLL = Path("x86_64-w64-mingw32/bin/SDL3.dll")
 CLEAN_USA_SHA1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
 CLEAN_EU_SHA1 = "c838a5adf1ed32d2da8454976e5b1a1aa189c139"
 
 # Ensure Homebrew and standard tool paths are accessible
 for extra_path in ["/opt/homebrew/bin", "/usr/local/bin"]:
     if Path(extra_path).exists() and extra_path not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = f"{extra_path}:{os.environ.get('PATH', '')}"
+        os.environ["PATH"] = f"{extra_path}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
 def log(msg: str) -> None:
@@ -63,10 +64,24 @@ def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None 
 def check_prerequisites() -> None:
     log("Checking prerequisites...")
     required_tools = ["cmake", "ninja"]
+    if sys.platform == "win32":
+        required_tools += ["gcc", "g++"]
     for tool in required_tools:
         if not shutil.which(tool):
-            log_err(f"Missing required tool: '{tool}'. Please install it (e.g. brew install cmake ninja).")
+            log_err(f"Missing required tool on PATH: '{tool}'. See CONTRIBUTING.md.")
             sys.exit(1)
+
+
+def windows_compiler_args() -> list[str]:
+    """Return CMake compiler and linker flags for MinGW-w64 on Windows."""
+    if sys.platform != "win32":
+        return []
+    return [
+        "-DCMAKE_C_COMPILER=gcc",
+        "-DCMAKE_CXX_COMPILER=g++",
+        # Bundle the compiler runtime in the executable; SDL3 is staged separately.
+        "-DCMAKE_EXE_LINKER_FLAGS=-static -Wl,--stack,67108864",
+    ]
 
 
 def ensure_third_party() -> None:
@@ -97,6 +112,7 @@ def build_recompiler(jobs: int, build_type: str) -> Path:
         "-B", str(RECOMPILER_BUILD_DIR),
         "-G", "Ninja",
         f"-DCMAKE_BUILD_TYPE={build_type}",
+        *windows_compiler_args(),
     ]
     run_cmd(cmake_args)
     run_cmd(["cmake", "--build", str(RECOMPILER_BUILD_DIR), "--target", "nds_recompile", f"-j{jobs}"])
@@ -116,7 +132,9 @@ def generate_freebios(recompiler_bin: Path) -> None:
         GENERATED_BIOS_DIR / "freebios_arm7.c",
         GENERATED_BIOS_DIR / "freebios_arm7_dispatch.c",
         GENERATED_BIOS_DIR / "arm9_bios.c",
+        GENERATED_BIOS_DIR / "arm9_bios_dispatch.c",
         GENERATED_BIOS_DIR / "arm7_bios.c",
+        GENERATED_BIOS_DIR / "arm7_bios_dispatch.c",
     ]
     if all(p.exists() for p in freebios_files):
         log("FreeBIOS C dispatch banks already generated.")
@@ -157,7 +175,7 @@ def generate_freebios(recompiler_bin: Path) -> None:
         if not disp_file.exists():
             disp_file.write_text(
                 f'#include <stddef.h>\n#include "runtime_arm.h"\n'
-                f'const NdsDispatchEntry g_dispatch_{name}[] = {{}};\n'
+                f'const NdsDispatchEntry g_dispatch_{name}[1] = {{0}};\n'
                 f'const unsigned g_dispatch_{name}_len = 0;\n',
                 encoding="utf-8",
             )
@@ -182,7 +200,8 @@ def find_rom(rom_arg: str | None) -> Path:
     sys.exit(1)
 
 
-def compile_game_banks(rom_path: Path, forced_region: str | None = None) -> None:
+def compile_game_banks(rom_path: Path, recompiler_bin: Path, forced_region: str | None = None) -> None:
+    """Verify ROM checksum and trigger AOT recompilation of cartridge banks."""
     log(f"Verifying and extracting ROM: {rom_path}")
     rom_bytes = rom_path.read_bytes()
     sha1 = hashlib.sha1(rom_bytes).hexdigest()
@@ -198,12 +217,19 @@ def compile_game_banks(rom_path: Path, forced_region: str | None = None) -> None
 
     log(f"ROM SHA-1 verified: {sha1} (Region: {region})")
     prepare_script = REPO_ROOT / "tools" / "prepare_rom.py"
-    run_cmd([sys.executable, str(prepare_script), "--rom", str(rom_path), "--compile"])
+    run_cmd([
+        sys.executable, str(prepare_script), "--rom", str(rom_path),
+        "--compile", "--recompiler", str(recompiler_bin),
+    ])
 
 
-def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
+def build_runner(
+    jobs: int, build_type: str, region_mode: str = "auto",
+    *, sdl3_sdk: Path | None = None, without_game_banks: bool = False,
+) -> Path:
+    """Configure and build the native nds_runner executable."""
     log(f"Building nds_runner ({build_type}, region={region_mode})...")
-    RUNNER_BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    runner_build_dir = BUILD_DIR / "runner-fallback" if without_game_banks else RUNNER_BUILD_DIR
     runner_src_dir = REPO_ROOT / "third_party" / "ndsrecomp" / "runner"
 
     us_banks = BUILD_DIR / "generated_sky_us"
@@ -218,15 +244,19 @@ def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
     cmake_args = [
         "cmake",
         "-S", str(runner_src_dir),
-        "-B", str(RUNNER_BUILD_DIR),
+        "-B", str(runner_build_dir),
         "-G", "Ninja",
         f"-DCMAKE_BUILD_TYPE={build_type}",
-        "-DNDS_BOOTSTRAP_FIRMWARE=OFF",
-        f"-DNDS_ENABLE_COMPUTE_RENDERER={'OFF' if is_apple else 'ON'}",
+        "-DNDS_BOOTSTRAP_FIRMWARE=ON",
+        f"-DNDS_ENABLE_COMPUTE_RENDERER={'OFF' if is_apple or sys.platform == 'win32' else 'ON'}",
         f"-DNDS_GENERATED_DIR={GENERATED_BIOS_DIR}",
+        f"-DNDS_RECOMP_UI_ROOT={REPO_ROOT / 'third_party' / 'recomp-ui'}",
+        *windows_compiler_args(),
     ]
 
-    if region_mode == "dual" or (region_mode == "auto" and has_banks(us_banks) and has_banks(eu_banks)):
+    if without_game_banks:
+        log("Building a runner that uses runtime execution for the cartridge.")
+    elif region_mode == "dual" or (region_mode == "auto" and has_banks(us_banks) and has_banks(eu_banks)):
         log("Configuring dual-region runner (USA + Europe)...")
         cmake_args.extend([
             f"-DNDS_TITLE_BANK_DIRS={us_banks};{eu_banks}",
@@ -246,16 +276,21 @@ def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
         ])
     if is_apple and Path("/opt/homebrew").exists():
         cmake_args.append("-DCMAKE_PREFIX_PATH=/opt/homebrew")
+    if sdl3_sdk:
+        cmake_args.append(f"-DSDL3_DIR={sdl3_sdk / 'cmake'}")
 
     run_cmd(cmake_args)
-    run_cmd(["cmake", "--build", str(RUNNER_BUILD_DIR), "--target", "nds_runner", f"-j{jobs}"])
+    run_cmd(["cmake", "--build", str(runner_build_dir), "--target", "nds_runner", f"-j{jobs}"])
 
     exe_name = "nds_runner.exe" if sys.platform == "win32" else "nds_runner"
-    runner_bin = RUNNER_BUILD_DIR / exe_name
+    runner_bin = runner_build_dir / exe_name
     if not runner_bin.exists():
         log_err(f"Runner binary not found at {runner_bin}")
         sys.exit(1)
 
+    if sdl3_sdk:
+        shutil.copy2(sdl3_sdk / SDL3_WINDOWS_DLL, runner_build_dir)
+        shutil.copy2(sdl3_sdk / "LICENSE.txt", runner_build_dir / "SDL3-LICENSE.txt")
     log(f"Runner build SUCCESS: {runner_bin}")
     return runner_bin
 
@@ -268,8 +303,19 @@ def main() -> None:
     parser.add_argument("--jobs", "-j", type=int, default=multiprocessing.cpu_count(), help="Parallel build jobs")
     parser.add_argument("--region", choices=["NA", "EU", "dual", "auto"], default="auto", help="Cartridge region target")
     parser.add_argument("--skip-recompile", action="store_true", help="Skip prepare_rom.py if banks exist")
+    parser.add_argument("--sdl3-sdk", type=Path, help="Windows: extracted SDL3 MinGW development SDK folder")
+    parser.add_argument("--without-game-banks", action="store_true", help="Build in build/runner-fallback without a ROM or statically compiled game banks")
     parser.add_argument("--package", action="store_true", help="Package macOS SkyRecompiled.app bundle")
     args = parser.parse_args()
+    if sys.platform == "win32":
+        if args.sdl3_sdk is None:
+            parser.error("Windows builds require --sdl3-sdk pointing to the extracted SDL3 MinGW SDK.")
+        args.sdl3_sdk = args.sdl3_sdk.resolve()
+        for relative in ("cmake/SDL3Config.cmake", SDL3_WINDOWS_DLL, "LICENSE.txt"):
+            if not (args.sdl3_sdk / relative).is_file():
+                parser.error(f"SDL3 MinGW SDK file missing: {args.sdl3_sdk / relative}")
+    elif args.sdl3_sdk is not None:
+        parser.error("--sdl3-sdk is only used on Windows.")
 
     if args.clean:
         log("Cleaning build directory...")
@@ -283,15 +329,19 @@ def main() -> None:
     recompiler_bin = build_recompiler(args.jobs, args.build_type)
     generate_freebios(recompiler_bin)
 
-    if not args.skip_recompile or not any(GENERATED_BANKS_DIR.glob("*_dispatch.c")):
-        rom_path = find_rom(args.rom)
-        compile_game_banks(rom_path, forced_region=args.region if args.region in ("NA", "EU") else None)
-    else:
-        log("Skipping ROM extraction (game banks already present).")
+    if not args.without_game_banks:
+        if args.skip_recompile and any(GENERATED_BANKS_DIR.glob("*_dispatch.c")):
+            log("Skipping ROM extraction (game banks already present).")
+        else:
+            rom_path = find_rom(args.rom)
+            compile_game_banks(rom_path, recompiler_bin, forced_region=args.region if args.region in ("NA", "EU") else None)
 
-    runner_bin = build_runner(args.jobs, args.build_type, region_mode=args.region)
+    runner_bin = build_runner(
+        args.jobs, args.build_type, region_mode=args.region,
+        sdl3_sdk=args.sdl3_sdk, without_game_banks=args.without_game_banks,
+    )
 
-    if args.package or platform.system() == "Darwin":
+    if not args.without_game_banks and (args.package or platform.system() == "Darwin"):
         log("Packaging macOS application bundle...")
         package_script = REPO_ROOT / "scripts" / "package_macos_app.py"
         if package_script.exists():
@@ -301,7 +351,12 @@ def main() -> None:
 
     log("\033[1;32mSkyRecompiled build finished successfully!\033[0m")
     log(f"Executable: {runner_bin}")
-    log("Interactive launch: ./scripts/run_sky.sh")
+    if args.without_game_banks:
+        log(f'Launch check: "{runner_bin}" --help')
+    elif sys.platform == "win32":
+        log("Interactive launch from PowerShell: python scripts/launcher.py")
+    else:
+        log("Interactive launch: ./scripts/run_sky.sh")
 
 
 if __name__ == "__main__":

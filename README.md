@@ -75,6 +75,29 @@ cmake --build build/runner --target nds_runner
 
 ---
 
+## Quickstart (Windows x64)
+
+The original v0.1.0-alpha Windows ZIP contains a launcher but no `nds_runner.exe`. Build the runner locally with your own clean *Explorers of Sky* USA or Europe ROM. The Windows CI package runs cartridge code at runtime; a local build with your ROM adds statically recompiled game code.
+
+Install Python 3.12+, Git for Windows (with Git Bash available on PATH), and [MSYS2](https://www.msys2.org/). In the **MSYS2 MINGW64** shell, install the build tools:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+```
+
+Extract **`SDL3-devel-3.4.14-mingw.zip`** from the [SDL3 release page](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.14). In PowerShell, run these commands from the repository root. Adjust the paths to match your installation and ROM.
+
+```powershell
+& "${env:ProgramFiles}\Git\bin\bash.exe" scripts/setup_third_party.sh
+$env:Path = "C:\msys64\mingw64\bin;$env:Path"
+python scripts/build.py --sdl3-sdk "C:\path\to\SDL3-3.4.14" --rom "C:\path\to\Explorers of Sky.nds"
+python scripts/launcher.py --rom "C:\path\to\Explorers of Sky.nds"
+```
+
+After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that the runner starts. To create a local ZIP, run `python scripts/package_release.py --platform windows`. Extract the whole ZIP before opening `SkyRecompiled.bat`.
+
+---
+
 ## AI Usage & Verification Disclaimer
 
 AI coding tools were used during the development of this project. All translated and recompiled output is rigorously verified against real Nintendo DS hardware and reference emulator behavior:

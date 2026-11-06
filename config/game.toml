@@ -1,10 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# SkyRecompiled -- Runtime Configuration (Pokemon Mystery Dungeon: Explorers of Sky USA)
+# SkyRecompiled -- Runtime Configuration (Pokemon Mystery Dungeon: Explorers of Sky)
 # ─────────────────────────────────────────────────────────────────────────────
 
-[game]
-# Clean No-Intro USA ROM (C2SE, 134,217,728 bytes)
-sha1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
+# Launchers validate USA and Europe ROMs; the runner matches compiled game banks by SHA-1.
 
 [system]
 # BIOS-free direct boot: uses BSD-2-Clause FreeBIOS + synthesized firmware
