@@ -6,20 +6,20 @@ language: "en-US"
 early_access: false
 
 reviews:
-  profile: "chill"
+  # 'assertive' is CodeRabbit's standard, thorough review profile (catches bugs, security, edge cases)
+  profile: "assertive"
   request_changes_workflow: false
   high_level_summary: true
   auto_review:
     enabled: true
     drafts: false
   
-  # Project-specific review instructions
+  # Project-specific domain constraints appended to CodeRabbit's default review engine
   prompt_instructions: |
-    Strict Project Invariants:
-    1. Clean-Room Discipline: STRICT ZERO-TOLERANCE for proprietary Nintendo/Chunsoft ROM binaries (.nds), extracted binary assets (sprites/soundfonts/scripts), or raw decompiled leaks.
-    2. Save Safety: Strict EEPROM format (131072 bytes / 128KB), 4-page live validation cap, non-volatile state integrity.
-    3. Modern Architecture: Strict C++20, zero undefined behavior, multi-platform (macOS/Linux/Windows), BIOS-free direct boot.
-    4. Anti-Slop: Flag unnecessary wrapper boilerplate, unreferenced variables, hallucinated APIs, and placeholder comments.
+    Domain Invariants (Unique to SkyRecompiled):
+    1. Clean-Room Discipline: Under NO circumstances allow proprietary Nintendo/Chunsoft ROM binaries (.nds), extracted soundfonts/sprites, or raw script dumps to be committed.
+    2. Save System: Must adhere to 131072 bytes (128KB) EEPROM format with a 4-page live validation cap.
+    3. Architecture: Must maintain BIOS-free direct boot and strict C++20 standard compliance.
 
 chat:
   auto_reply: true
