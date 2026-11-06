@@ -4,13 +4,16 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
 
 #include "frontend.h"
 #include "RomCompiler.h"
+#include "TouchInput.h"
 #include "sha1.h"
 
 int sky_run(int argc, char** argv);
@@ -210,8 +213,120 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
 
 @end
 
-// A full-window overlay that passes unclaimed touches to SDL's DS touchscreen.
+namespace {
+
+SkyTouchInput touchInput;
+constexpr uint16_t dpadButtons =
+    kNdsButtonMasks[0] | kNdsButtonMasks[1] | kNdsButtonMasks[2] | kNdsButtonMasks[3];
+
+UIColor* control_surface() {
+    return [UIColor colorWithWhite:0.16 alpha:0.92];
+}
+
+UIColor* control_highlight() {
+    return [UIColor colorWithRed:0.48 green:0.78 blue:0.78 alpha:1];
+}
+
+UIButton* game_button(NSString* title, CGFloat fontSize, bool accent = false) {
+    UIButton* key = [UIButton buttonWithType:UIButtonTypeCustom];
+    [key setTitle:title forState:UIControlStateNormal];
+    [key setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [key setTitleColor:UIColor.blackColor forState:UIControlStateHighlighted];
+    key.titleLabel.font = [UIFont systemFontOfSize:fontSize weight:UIFontWeightSemibold];
+    key.titleLabel.adjustsFontSizeToFitWidth = YES;
+    key.titleLabel.minimumScaleFactor = 0.8;
+    key.titleLabel.lineBreakMode = NSLineBreakByClipping;
+    key.layer.borderWidth = 1;
+    key.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.18].CGColor;
+    UIColor* idle = accent ? [UIColor colorWithRed:0.13 green:0.34 blue:0.36 alpha:0.96]
+                           : control_surface();
+    key.backgroundColor = idle;
+    [key addAction:[UIAction actionWithHandler:^(UIAction* action) {
+        UIButton* sender = (UIButton*)action.sender;
+        sender.backgroundColor = sender.highlighted ? control_highlight() : idle;
+    }] forControlEvents:UIControlEventAllTouchEvents];
+    return key;
+}
+
+} // namespace
+
+uint16_t sky_take_touch_keys() { return touchInput.take(); }
+void sky_clear_touch_keys() { touchInput.clear(); }
+
+@interface SkyDPad : UIControl
+@property(nonatomic) uint16_t directions;
+@end
+
+@implementation SkyDPad
+
+- (void)trackPoint:(CGPoint)point {
+    CGFloat x = point.x - CGRectGetMidX(self.bounds);
+    CGFloat y = point.y - CGRectGetMidY(self.bounds);
+    CGFloat deadZone = CGRectGetWidth(self.bounds) / 8;
+    uint16_t next = 0;
+    if (std::abs(x) > deadZone && std::abs(x) >= std::abs(y) * 0.55)
+        next |= kNdsButtonMasks[x < 0 ? 2 : 3];
+    if (std::abs(y) > deadZone && std::abs(y) >= std::abs(x) * 0.55)
+        next |= kNdsButtonMasks[y < 0 ? 0 : 1];
+    self.directions = next;
+    touchInput.set(dpadButtons, next);
+    [self setNeedsDisplay];
+}
+
+- (BOOL)beginTracking:(UITouch*)touch withEvent:(UIEvent*)event {
+    [self trackPoint:[touch locationInView:self]];
+    return YES;
+}
+
+- (BOOL)continueTracking:(UITouch*)touch withEvent:(UIEvent*)event {
+    [self trackPoint:[touch locationInView:self]];
+    return YES;
+}
+
+- (void)releaseDirections {
+    self.directions = 0;
+    touchInput.set(dpadButtons, 0);
+    [self setNeedsDisplay];
+}
+
+- (void)endTracking:(UITouch*)touch withEvent:(UIEvent*)event {
+    [self releaseDirections];
+}
+
+- (void)cancelTrackingWithEvent:(UIEvent*)event {
+    [super cancelTrackingWithEvent:event];
+    [self releaseDirections];
+}
+
+- (void)drawRect:(CGRect)rect {
+    const CGFloat cell = CGRectGetWidth(self.bounds) / 3;
+    [control_surface() setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(cell, 0, cell, cell * 3)
+                               cornerRadius:10] fill];
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, cell, cell * 3, cell)
+                               cornerRadius:10] fill];
+
+    const CGPoint centers[] = {{1.5, 0.5}, {1.5, 2.5}, {0.5, 1.5}, {2.5, 1.5}};
+    NSArray<NSString*>* arrows = @[@"▲", @"▼", @"◀", @"▶"];
+    for (NSUInteger i = 0; i < arrows.count; ++i) {
+        UIColor* color = (self.directions & kNdsButtonMasks[i]) ? control_highlight()
+            : [UIColor colorWithWhite:0.85 alpha:1];
+        NSDictionary* style = @{
+            NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold],
+            NSForegroundColorAttributeName: color,
+        };
+        CGSize size = [arrows[i] sizeWithAttributes:style];
+        [arrows[i] drawAtPoint:CGPointMake(centers[i].x * cell - size.width / 2,
+                                         centers[i].y * cell - size.height / 2)
+               withAttributes:style];
+    }
+}
+
+@end
+
+// The clear space between controls still passes touches to the DS screen.
 @interface SkyControls : UIView
+@property(nonatomic, strong) SkyDPad* dpad;
 @property(nonatomic, strong) NSArray<UIButton*>* keys;
 @property(nonatomic, strong) UIButton* back;
 @property(nonatomic, strong) UIButton* toggle;
@@ -227,69 +342,75 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGRect safe = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
-    const CGFloat left = CGRectGetMinX(safe) + 10;
-    const CGFloat right = CGRectGetMaxX(safe) - 10;
-    const CGFloat top = CGRectGetMinY(safe) + 8;
+    const CGFloat left = CGRectGetMinX(safe) + 12;
+    const CGFloat right = CGRectGetMaxX(safe) - 12;
+    const CGFloat top = CGRectGetMinY(safe) + 6;
     const CGFloat bottom = CGRectGetMaxY(safe) - 8;
     const CGFloat center = CGRectGetMidX(safe);
-    const CGFloat key = 42;
-    self.back.frame = CGRectMake(left, top, 84, key);
-    self.toggle.frame = CGRectMake(right - 96, top, 96, key);
+    const CGFloat cell = std::clamp((right - left - 64) / 6, 36.0, 46.0);
+    const CGFloat padTop = bottom - cell * 3;
+    const CGFloat faceLeft = right - cell * 3;
+    self.dpad.frame = CGRectMake(left, padTop, cell * 3, cell * 3);
+    self.back.frame = CGRectMake(center - 80, top, 76, 44);
+    self.toggle.frame = CGRectMake(center + 4, top, 76, 44);
 
-    const CGPoint origins[] = {
-        {left + key, bottom - key * 3}, {left + key, bottom - key},
-        {left, bottom - key * 2}, {left + key * 2, bottom - key * 2},
-        {right - key, bottom - key * 2}, {right - key * 2, bottom - key},
-        {right - key * 2, bottom - key * 3}, {right - key * 3, bottom - key * 2},
-        {left, top + key + 4}, {right - key, top + key + 4},
-        {center - key / 2, bottom - key * 2}, {center - key / 2, bottom - key}
+    const CGRect frames[] = {
+        CGRectMake(faceLeft + 2 * cell, padTop + cell, cell, cell), // A
+        CGRectMake(faceLeft + cell, padTop + 2 * cell, cell, cell), // B
+        CGRectMake(faceLeft + cell, padTop, cell, cell), // X
+        CGRectMake(faceLeft, padTop + cell, cell, cell), // Y
+        CGRectMake(left, top, 56, 44), CGRectMake(right - 56, top, 56, 44), // L / R
+        CGRectMake(center - 28, bottom - 92, 56, 44), // Start
+        CGRectMake(center - 28, bottom - 44, 56, 44), // Select
     };
     for (NSUInteger i = 0; i < self.keys.count; ++i) {
-        self.keys[i].frame = CGRectMake(origins[i].x, origins[i].y, key, key);
+        self.keys[i].frame = frames[i];
+        self.keys[i].layer.cornerRadius = i < 4 ? cell / 2 : 11;
     }
+    self.back.layer.cornerRadius = self.toggle.layer.cornerRadius = 11;
 }
 
 @end
 
 void sky_show_game_controls(SDL_Window* window) {
+    sky_clear_touch_keys();
     UIWindow* host = native_window(window);
     SkyControls* controls = [[SkyControls alloc] initWithFrame:host.bounds];
     controls.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     controls.multipleTouchEnabled = YES;
-    controls.back = button(@"Launcher");
+    controls.back = game_button(@"Launcher", 13);
     [controls.back addAction:[UIAction actionWithHandler:^(UIAction*) {
         nds_frontend_request_exit();
     }] forControlEvents:UIControlEventTouchUpInside];
     [controls addSubview:controls.back];
 
-    controls.toggle = button(@"Controls");
+    controls.dpad = [[SkyDPad alloc] init];
+    controls.dpad.backgroundColor = UIColor.clearColor;
+    controls.dpad.contentMode = UIViewContentModeRedraw;
+    controls.dpad.accessibilityLabel = @"Direction pad";
+    [controls addSubview:controls.dpad];
+
+    controls.toggle = game_button(@"Hide pad", 13);
     __weak SkyControls* weakControls = controls;
     [controls.toggle addAction:[UIAction actionWithHandler:^(UIAction*) {
         SkyControls* overlay = weakControls;
-        for (UIButton* key in overlay.keys) key.hidden = !key.hidden;
+        BOOL hidden = !overlay.dpad.hidden;
+        overlay.dpad.hidden = hidden;
+        [overlay.dpad releaseDirections];
+        for (UIButton* key in overlay.keys) key.hidden = hidden;
+        [overlay.toggle setTitle:(hidden ? @"Show pad" : @"Hide pad") forState:UIControlStateNormal];
+        sky_clear_touch_keys();
     }] forControlEvents:UIControlEventTouchUpInside];
     [controls addSubview:controls.toggle];
 
-    NSArray<NSString*>* labels = @[@"↑", @"↓", @"←", @"→", @"A", @"B", @"X",
-                                   @"Y", @"L", @"R", @"St", @"Se"];
+    NSArray<NSString*>* labels = @[@"A", @"B", @"X", @"Y", @"L", @"R", @"Start", @"Select"];
     NSMutableArray<UIButton*>* keys = [NSMutableArray arrayWithCapacity:labels.count];
-    SDL_WindowID windowID = SDL_GetWindowID(window);
     for (NSUInteger i = 0; i < labels.count; ++i) {
-        UIButton* key = button(labels[i]);
-        key.accessibilityLabel = @(kNdsButtonNames[i]);
-        key.alpha = 0.82;
-        const SDL_Scancode scancode = static_cast<SDL_Scancode>(kNdsDefaultKeys[i]);
-        auto postKey = ^(bool down) {
-            SDL_Event event{};
-            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
-            event.key.windowID = windowID;
-            event.key.scancode = scancode;
-            event.key.down = down;
-            SDL_PushEvent(&event);
-        };
-        [key addAction:[UIAction actionWithHandler:^(UIAction*) { postKey(true); }]
+        UIButton* key = game_button(labels[i], i < 4 ? 19 : 13, i == 0);
+        const uint16_t mask = kNdsButtonMasks[i + 4];
+        [key addAction:[UIAction actionWithHandler:^(UIAction*) { touchInput.set(mask, mask); }]
          forControlEvents:UIControlEventTouchDown];
-        [key addAction:[UIAction actionWithHandler:^(UIAction*) { postKey(false); }]
+        [key addAction:[UIAction actionWithHandler:^(UIAction*) { touchInput.set(mask, 0); }]
          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
                           UIControlEventTouchCancel];
         [keys addObject:key];

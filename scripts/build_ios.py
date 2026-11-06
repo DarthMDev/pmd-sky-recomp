@@ -29,11 +29,12 @@ def setup_dependencies(deps: Path) -> tuple[Path, Path, Path]:
         run_cmd(["bash", str(REPO_ROOT / "scripts" / "setup_third_party.sh")], env=env)
         (deps / ".bootstrapped").touch()
 
-    patch = REPO_ROOT / "patches" / "ndsrecomp-ios.patch"
     apply = ["git", "-C", str(ndsrecomp), "apply"]
-    if subprocess.run([*apply, "--reverse", "--check", str(patch)],
-                      capture_output=True).returncode != 0:
-        run_cmd([*apply, str(patch)])
+    for name in ("ndsrecomp-ios.patch", "ndsrecomp-ios-touch.patch"):
+        patch = REPO_ROOT / "patches" / name
+        if subprocess.run([*apply, "--reverse", "--check", str(patch)],
+                          capture_output=True).returncode != 0:
+            run_cmd([*apply, str(patch)])
 
     sdl = deps / f"SDL-release-{SDL_VERSION}"
     if not (sdl / "CMakeLists.txt").is_file():
@@ -95,6 +96,13 @@ def main() -> None:
         "-o", str(test),
     ])
     run_cmd([str(test)])
+    touch_test = host / "ios_touch_input_test"
+    run_cmd([
+        "xcrun", "--sdk", "macosx", "clang++", "-std=c++20",
+        "-I", str(SOURCE_DIR), str(REPO_ROOT / "tests" / "ios_touch_input_test.cpp"),
+        "-o", str(touch_test),
+    ])
+    run_cmd([str(touch_test)])
     bios = IOS_DIR / "freebios"
     generate_freebios(host / "nds_recompile", ndsrecomp, bios)
 

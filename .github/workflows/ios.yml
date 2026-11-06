@@ -10,7 +10,7 @@ on:
       - 'scripts/build_ios.py'
       - 'scripts/setup_third_party.sh'
       - 'config/game.toml'
-      - 'tests/ios_rom_compiler_test.cpp'
+      - 'tests/ios_*_test.cpp'
   workflow_dispatch:
 
 permissions:
