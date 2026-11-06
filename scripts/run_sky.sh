@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# SkyRecompiled — Interactive macOS Launch Helper
+# SkyRecompiled -- Interactive macOS Launch Helper
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 

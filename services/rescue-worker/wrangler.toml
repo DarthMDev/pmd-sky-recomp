@@ -6,7 +6,7 @@ compatibility_date = "2024-04-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "sky_rescues_d1"
-database_id = "local-sky-rescues-db"
+database_id = "dcad7e7e-be7c-4cf6-b28c-9d4302e1538d"
 
 [vars]
 ENVIRONMENT = "production"

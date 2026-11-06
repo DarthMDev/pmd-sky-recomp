@@ -1,8 +1,8 @@
-# SkyRecompiled — Architecture & Engineering Specification
+# SkyRecompiled -- Architecture & Engineering Specification
 
 **SkyRecompiled** is an ahead-of-time (AOT) static recompilation PC port of *Pokémon Mystery Dungeon: Explorers of Sky* (`C2SE` / `C2SP`), inspired by *Mario Kart WiiCompiled* and *Zelda 64: Recompiled*.
 
-Players supply **only** their legally owned *Explorers of Sky* `.nds` ROM—no proprietary Nintendo DS BIOS or firmware dumps are required, and zero Nintendo copyrighted assets or ROM-derived C sources are ever stored in Git.
+Players supply **only** their legally owned *Explorers of Sky* `.nds` ROM--no proprietary Nintendo DS BIOS or firmware dumps are required, and zero Nintendo copyrighted assets or ROM-derived C sources are ever stored in Git.
 
 ---
 
@@ -70,12 +70,12 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 
 ### Milestone 2: Cross-Platform Windows & Linux Builds
 - Top-level `CMakeLists.txt` + `CMakePresets.json` orchestrating `nds_recompile`, `generated_bios`, `prepare_rom.py`, and `SkyRecompiled` across:
-  - **macOS (`arm64` / Universal)** — AppleClang + Ninja + SDL3 Metal
-  - **Windows (`x86_64`)** — MSVC / MinGW-w64 + Ninja + SDL3 Direct3D12/Vulkan/OpenGL4.3
-  - **Linux (`x86_64` / `aarch64`)** — Clang/GCC + Ninja + SDL3 Vulkan/OpenGL4.3
+  - **macOS (`arm64` / Universal)** -- AppleClang + Ninja + SDL3 Metal
+  - **Windows (`x86_64`)** -- MSVC / MinGW-w64 + Ninja + SDL3 Direct3D12/Vulkan/OpenGL4.3
+  - **Linux (`x86_64` / `aarch64`)** -- Clang/GCC + Ninja + SDL3 Vulkan/OpenGL4.3
 
 ### Milestone 3: Performance & Graphics Beyond Emulators
-- **Note on Frame Rate:** Vanilla *Explorers of Sky* already runs natively at **60 FPS** (`59.8261 Hz`), NOT 30 FPS! Therefore, instead of a "30->60 FPS patch", our standout smoothness upgrade is **High-Refresh-Rate (`120Hz` / `144Hz` / `240Hz`) Sub-Pixel Camera & Entity Interpolation**—reading camera/entity coordinates from `DUNGEON_PTR_MASTER` (`overlay29`) and `GROUND_STATE_PTRS` (`overlay11`) at $t-1$ and $t$ to render silky-smooth intermediate frames on ProMotion / high-Hz monitors with zero added input latency.
+- **Note on Frame Rate:** Vanilla *Explorers of Sky* already runs natively at **60 FPS** (`59.8261 Hz`), NOT 30 FPS! Therefore, instead of a "30->60 FPS patch", our standout smoothness upgrade is **High-Refresh-Rate (`120Hz` / `144Hz` / `240Hz`) Sub-Pixel Camera & Entity Interpolation**--reading camera/entity coordinates from `DUNGEON_PTR_MASTER` (`overlay29`) and `GROUND_STATE_PTRS` (`overlay11`) at $t-1$ and $t$ to render silky-smooth intermediate frames on ProMotion / high-Hz monitors with zero added input latency.
 - **True Native Widescreen (`16:9` `342x192`, `16:10` `308x192`, `21:9` `448x192`):**
   - Extend `gpu2d.cpp` scanline/BG/OAM rasterizer from `256` px to `W` px (`512x256` virtual BG tilemaps already exist in VRAM!).
   - Hook `overlay29` tile-column upload & entity visibility culling (`pmdsky-debug` camera symbols) to stream extra tile columns on the left/right margins.
@@ -89,7 +89,7 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
   2. **SkyTemple ROM Hack AOT Support:** `tools/prepare_rom.py --allow-custom-rom` automatically BLZ-decompresses modified `arm9`/overlays and recompiles custom ASM hacks (`extra_space` overlay `36` if present) into native code.
 - **Online Rescue Overhaul (*Rescue Team DX* Style on Near-\$0 Hosting):**
   - Read/inject vanilla **Wonder Mail S / SOS Mail / A-OK Mail / Thank-You Mail** structs directly in guest RAM (with classic 54-char Wonder Mail S passwords preserved forever as an offline/serverless fallback!).
-  - Lightweight open-source REST/WebSocket rescue bulletin board targetable to **Cloudflare Workers + Cloudflare D1 (SQLite)** free tier (\$0/month for tens of thousands of daily rescues).
+  - Lightweight open-source REST/WebSocket rescue bulletin board targetable to **Cloudflare Workers + Cloudflare D1 (SQLite)** free tier (\$0/month for tens of thousands of daily rescues). Live production deployment: `https://sky-rescue-worker.darthanonymous1.workers.dev/`.
 
 ---
 

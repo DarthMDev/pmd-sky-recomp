@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Wonder Mail S & Online Rescue Codec
+SkyRecompiled -- Wonder Mail S & Online Rescue Codec
 ===================================================
 Bitstream codec, checksum verifier, and 54-character password encoder/decoder
 for Pokémon Mystery Dungeon: Explorers of Sky.

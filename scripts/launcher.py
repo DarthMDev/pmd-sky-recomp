@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Cross-Platform Native Launcher & ROM Setup
+SkyRecompiled -- Cross-Platform Native Launcher & ROM Setup
 ===========================================================
 Universal GUI launcher and first-run ROM selector for:
   - macOS (Apple Silicon & Intel)
@@ -307,7 +307,7 @@ def pick_rom() -> Optional[str]:
 
     # Terminal / headless fallback
     print("\n" + "=" * 60)
-    print("  SkyRecompiled — Initial Setup")
+    print("  SkyRecompiled -- Initial Setup")
     print("=" * 60)
     print(f"{prompt}\n")
     try:

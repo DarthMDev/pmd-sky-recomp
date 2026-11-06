@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Layered NitroFS Mod Loader & Virtual Filesystem Packer
+SkyRecompiled -- Layered NitroFS Mod Loader & Virtual Filesystem Packer
 =====================================================================
 A zero-dependency, pure-Python NitroFS (FNT + FAT) reader, unpacker, repacker,
 and layered mod builder for Pokémon Mystery Dungeon: Explorers of Sky.

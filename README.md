@@ -10,10 +10,10 @@
 
 ## Features & Roadmap
 
-- **Milestone 1 (Pre-Alpha — Active):** Native **macOS Apple Silicon (`arm64`)** static recompilation of all **34 executable modules** (`arm9`, `itcm`, `arm7` + WRAM/RAM drivers, and all 32 active overlays — `91,872` recompiled functions), BIOS-free direct boot, 128 KiB FRAM/EEPROM saves, savestates, audio, and controller support.
+- **Milestone 1 (Pre-Alpha -- Active):** Native **macOS Apple Silicon (`arm64`)** static recompilation of all **34 executable modules** (`arm9`, `itcm`, `arm7` + WRAM/RAM drivers, and all 32 active overlays -- `91,872` recompiled functions), BIOS-free direct boot, 128 KiB FRAM/EEPROM saves, savestates, audio, and controller support.
 - **Milestone 2:** Native **Windows (`x86_64`)** and **Linux (`x86_64` / `arm64`)** builds & packaging.
-- **Milestone 3:** **Beyond-Emulator Graphics & Smoothness** — True `16:9` / `21:9` native 2D widescreen (`overlay29` & `overlay11` camera/tile hooks + anchored HUD), **120Hz / 144Hz / 240Hz** sub-pixel camera & sprite interpolation, and custom Apple Metal / `SDL_GPU` pixel-art & weather shaders.
-- **Milestone 4:** **Launcher, SkyTemple Mod Loader & Online Rescue Board** — Zero-recompile layered NitroFS mod overrides, SkyTemple custom ASM hack recompilation, and an asynchronous *Rescue Team DX*-style Online Rescue Bulletin Board backed by vanilla **Wonder Mail S / SOS / A-OK Mail** structs (with 54-character passwords preserved forever as an offline fallback).
+- **Milestone 3:** **Beyond-Emulator Graphics & Smoothness** -- True `16:9` / `21:9` native 2D widescreen (`overlay29` & `overlay11` camera/tile hooks + anchored HUD), **120Hz / 144Hz / 240Hz** sub-pixel camera & sprite interpolation, and custom Apple Metal / `SDL_GPU` pixel-art & weather shaders.
+- **Milestone 4:** **Launcher, SkyTemple Mod Loader & Online Rescue Board** -- Zero-recompile layered NitroFS mod overrides, SkyTemple custom ASM hack recompilation, and an asynchronous *Rescue Team DX*-style Online Rescue Bulletin Board backed by vanilla **Wonder Mail S / SOS / A-OK Mail** structs (with 54-character passwords preserved forever as an offline fallback).
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 
@@ -64,16 +64,16 @@ cmake --build build/runner --target nds_runner
 ## AI Usage & Verification Disclaimer
 
 AI coding tools were used during the development of this project. All translated and recompiled output is rigorously verified against real Nintendo DS hardware and reference emulator behavior:
-- **100% Executable Coverage:** All 34 executable modules (`arm9`, `itcm`, `arm7` + WRAM/RAM drivers, and all 32 active overlays — 91,872 functions) compile natively with zero unimplemented instructions.
+- **100% Executable Coverage:** All 34 executable modules (`arm9`, `itcm`, `arm7` + WRAM/RAM drivers, and all 32 active overlays -- 91,872 functions) compile natively with zero unimplemented instructions.
 - **Hardware-Synced Logic:** Over 99.9% of guest instructions execute through native static C code with zero RAM code rejects. Game logic, turn execution, deterministic RNG, and cartridge FRAM/EEPROM saves are verified against hardware behavior and melonDS references via automated test suites.
 
 ---
 
 ## Credits & Acknowledgments
 
-- [`RetroPortingToolKit/ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) & [`recomp-ui`](https://github.com/RetroPortingToolKit/recomp-ui) — Nintendo DS static recompilation framework & runtime
-- [`UsernameFodder/pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug) — *Explorers of Sky* symbol tables & C headers
-- [`pret/pmd-sky`](https://github.com/pret/pmd-sky) — Decompilation reference for game engine structures
+- [`RetroPortingToolKit/ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) & [`recomp-ui`](https://github.com/RetroPortingToolKit/recomp-ui) -- Nintendo DS static recompilation framework & runtime
+- [`UsernameFodder/pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug) -- *Explorers of Sky* symbol tables & C headers
+- [`pret/pmd-sky`](https://github.com/pret/pmd-sky) -- Decompilation reference for game engine structures
 - `FreeBIOS` (`BSD-2-Clause`) & `melonDS` (`GPL-3.0-or-later`)
 
 ---

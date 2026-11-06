@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — macOS Application Packager
+SkyRecompiled -- macOS Application Packager
 ==========================================
 Packages SkyRecompiled into a native macOS Application Bundle (`SkyRecompiled.app`):
   - Contents/Info.plist (Retina-ready, category: games)

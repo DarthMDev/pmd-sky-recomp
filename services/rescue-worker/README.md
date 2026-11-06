@@ -11,6 +11,11 @@ An asynchronous online rescue board for *Pokémon Mystery Dungeon: Explorers of 
 - **Rescue Claim Leases:** 24-hour claim leases automatically revert back to `open` if a rescuer abandons a mission.
 - **CORS Enabled:** Seamlessly queried from the native `SkyRecompiled` launcher, a web portal, or Discord bots.
 
+## Live Production Endpoint
+
+- **Production API URL:** `https://sky-rescue-worker.darthanonymous1.workers.dev/`
+- **Health Check:** `https://sky-rescue-worker.darthanonymous1.workers.dev/health`
+
 ## Endpoints
 
 | Method | Endpoint | Description |

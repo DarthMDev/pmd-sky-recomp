@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Automated Headless Smoke & Static Coverage Verification
+SkyRecompiled -- Automated Headless Smoke & Static Coverage Verification
 ========================================================================
 Runs the natively recompiled macOS runner for a deterministic ARM9 cycle budget
 using BIOS-free direct boot and verifies:

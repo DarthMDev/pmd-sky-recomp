@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Multi-Platform Alpha Release Packager
+SkyRecompiled -- Multi-Platform Alpha Release Packager
 =====================================================
 Packages SkyRecompiled for distribution across macOS, Linux, and Windows.
 Every package includes:
@@ -39,7 +39,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 """
 
-WINDOWS_PS1 = """# SkyRecompiled — Windows Native Launcher & ROM Setup
+WINDOWS_PS1 = """# SkyRecompiled -- Windows Native Launcher & ROM Setup
 $ErrorActionPreference = "Stop"
 
 $CleanUsaSha1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
@@ -123,7 +123,7 @@ exit $LASTEXITCODE
 """
 
 LINUX_LAUNCHER = """#!/usr/bin/env bash
-# SkyRecompiled — Linux Native Launcher & ROM Setup
+# SkyRecompiled -- Linux Native Launcher & ROM Setup
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -141,7 +141,7 @@ LINUX_DESKTOP = """[Desktop Entry]
 Version=1.0
 Type=Application
 Name=SkyRecompiled
-Comment=Pokémon Mystery Dungeon: Explorers of Sky — Native Static Recompilation PC Port
+Comment=Pokémon Mystery Dungeon: Explorers of Sky -- Native Static Recompilation PC Port
 Exec=SkyRecompiled
 Icon=applications-games
 Terminal=false

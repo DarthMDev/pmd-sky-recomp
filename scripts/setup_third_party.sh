@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# SkyRecompiled — Deterministic Third-Party Bootstrap Script
+# SkyRecompiled -- Deterministic Third-Party Bootstrap Script
 # Clones & pins exact commit SHAs for ndsrecomp (+ submodules), pmdsky-debug,
 # and recomp-ui, stages toml++ v3.4.0, and applies macOS arm64 fixes.
 # ─────────────────────────────────────────────────────────────────────────────

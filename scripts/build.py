@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SkyRecompiled — Top-Level Build Orchestrator
+SkyRecompiled -- Top-Level Build Orchestrator
 ===========================================
 Automates the full build pipeline for Pokémon Mystery Dungeon: Explorers of Sky
 Static Recompilation:
