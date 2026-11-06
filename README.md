@@ -105,8 +105,16 @@ intermediate code on the device. It can run without JIT signing privileges.
 This alpha uses the runner's interpreter for that code, so performance may
 differ from the native desktop build.
 
-For Apple silicon Mac testing, build with `python3 scripts/build_ios.py --simulator`
-and install `build/ios/simulator/SkyRecompiled.app` on a booted iOS Simulator.
+For Apple silicon Mac testing, boot an iPhone or iPad in Simulator, then run
+these commands from the repository root. Simulator sets up the runtime the
+app needs at launch.
+
+```bash
+python3 scripts/build_ios.py --simulator
+xcrun simctl install booted build/ios/simulator/SkyRecompiled.app
+xcrun simctl launch booted dev.skyrecompiled.ios
+```
+
 Running the iOS build directly on an Apple silicon Mac requires Apple development
 or distribution signing. [Apple silicon iOS app testing](https://developer.apple.com/documentation/apple-silicon/running-your-ios-apps-in-macos)
 
