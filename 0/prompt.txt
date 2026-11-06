@@ -1,0 +1,36 @@
+coderabbit will make a summary so help me change the pr description to sentences , like a human would write it
+
+---
+
+before we fix the coderabbit suggestions, something is wrong with the rom importer, when i select a rom nothing is happening, no feedback , nothing , look into it please
+
+---
+
+DYLD_ROOT_PATH not set for simulator program
+(when i tried to run simulator app)
+
+---
+
+im not seeing the app in my docker?
+
+---
+
+Help me by putting the .nds (in roms root folder) into the simulated iphone's files that can be accessed by the simulator (no icloud)
+
+---
+
+btw whats the minimum ios my ipa supports
+
+---
+
+simulator works but physical iphone is still giving the same issue when i select a .nds file (unless the rom im selecting is modified?) (but its not giving any feedback in the files picker)
+
+---
+
+<send_user_message_question_reply>
+[{"questionItemId":"[\"request_user_input_async\",\"call_9152e33f71c8435390f2b743bda851a0\",0]","question":"On the physical iPhone, what happens when you tap the .nds file?","answer":"The Files picker stays open"},{"questionItemId":"[\"request_user_input_async\",\"call_9152e33f71c8435390f2b743bda851a0\",1]","question":"Where is the ROM stored on the physical iPhone?","answer":"On My iPhone"}]
+</send_user_message_question_reply>
+
+---
+
+now it working what was the issue
