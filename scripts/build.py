@@ -73,6 +73,7 @@ def check_prerequisites() -> None:
 
 
 def windows_compiler_args() -> list[str]:
+    """Return CMake compiler and linker flags for MinGW-w64 on Windows."""
     if sys.platform != "win32":
         return []
     return [
@@ -200,6 +201,7 @@ def find_rom(rom_arg: str | None) -> Path:
 
 
 def compile_game_banks(rom_path: Path, recompiler_bin: Path, forced_region: str | None = None) -> None:
+    """Verify ROM checksum and trigger AOT recompilation of cartridge banks."""
     log(f"Verifying and extracting ROM: {rom_path}")
     rom_bytes = rom_path.read_bytes()
     sha1 = hashlib.sha1(rom_bytes).hexdigest()
@@ -225,6 +227,7 @@ def build_runner(
     jobs: int, build_type: str, region_mode: str = "auto",
     *, sdl3_sdk: Path | None = None, without_game_banks: bool = False,
 ) -> Path:
+    """Configure and build the native nds_runner executable."""
     log(f"Building nds_runner ({build_type}, region={region_mode})...")
     runner_build_dir = BUILD_DIR / "runner-fallback" if without_game_banks else RUNNER_BUILD_DIR
     runner_src_dir = REPO_ROOT / "third_party" / "ndsrecomp" / "runner"

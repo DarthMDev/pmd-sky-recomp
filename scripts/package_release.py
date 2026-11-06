@@ -260,6 +260,7 @@ def package_linux() -> Path:
 
 
 def package_windows(*, without_game_banks: bool = False) -> Path:
+    """Package the standalone Windows x64 ZIP distribution with runner, launcher, and SDL3 DLL."""
     runner_dir = BUILD_DIR / ("runner-fallback" if without_game_banks else "runner")
     required_files = ("nds_runner.exe", "SDL3.dll", "SDL3-LICENSE.txt")
     for name in required_files:

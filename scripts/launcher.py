@@ -51,6 +51,7 @@ def get_user_data_dir() -> Path:
 
 
 def find_binary_and_config() -> tuple[Path, Path]:
+    """Locate the nds_runner executable and game.toml configuration across package and repo layouts."""
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
 
@@ -65,6 +66,7 @@ def find_binary_and_config() -> tuple[Path, Path]:
         script_dir / exe_name,
         # Repository layout
         repo_root / "build" / "runner" / exe_name,
+        repo_root / "build" / "runner-fallback" / exe_name,
         repo_root / "build" / exe_name,
     ]
     runner_bin = next((p for p in runner_candidates if p.is_file()), None)

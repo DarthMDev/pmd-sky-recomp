@@ -35,7 +35,9 @@ Any contribution touching the core runner, recompiler, or save system must prese
 - **Linux:** GCC/Clang, `cmake`, `ninja-build`, `libgl1-mesa-dev`, `libasound2-dev`
 - **Windows:** See the [Windows quickstart](README.md#quickstart-windows-x64) for prerequisites and build commands.
 
-### Quick Setup & Build
+### Quick Setup & Build (macOS & Linux)
+On Windows, follow the [Windows quickstart](README.md#quickstart-windows-x64) instead.
+
 ```bash
 # 1. Bootstrap pinned dependencies
 ./scripts/setup_third_party.sh

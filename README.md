@@ -88,7 +88,7 @@ pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-
 Extract **`SDL3-devel-3.4.14-mingw.zip`** from the [SDL3 release page](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.14). In PowerShell, run these commands from the repository root. Adjust the paths to match your installation and ROM.
 
 ```powershell
-bash scripts/setup_third_party.sh
+& "${env:ProgramFiles}\Git\bin\bash.exe" scripts/setup_third_party.sh
 $env:Path = "C:\msys64\mingw64\bin;$env:Path"
 python scripts/build.py --sdl3-sdk "C:\path\to\SDL3-3.4.14" --rom "C:\path\to\Explorers of Sky.nds"
 python scripts/launcher.py --rom "C:\path\to\Explorers of Sky.nds"
