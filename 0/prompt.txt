@@ -1,0 +1,2 @@
+Compile a simple launcher, the compiler and the game (compile on device, must provide your own rom), and output an ipa that can also be built in github actions , give permission for files access (logs in alpha are useful, plus setting saves) ,new branch so we can pr and review at the end,  sideload instructions as well, keep other non important documentation local, no codex prefix with the branch 
+Use macOS app as a base since same architecture and the apple silicon feature for iphone apps on mac
