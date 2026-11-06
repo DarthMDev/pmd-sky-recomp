@@ -752,8 +752,9 @@ def prepare_rom(
         arm9_raw_entries, arm9_raw_dr, arm9_valid_ranges
     )
 
-    arm9_bin_path = bins_dir / "sky_arm9_main.bin"
-    arm9_toml_path = cfgs_dir / "sky_arm9_main.toml"
+    reg_suffix = f"_{region.lower()}"
+    arm9_bin_path = bins_dir / f"sky_arm9_main{reg_suffix}.bin"
+    arm9_toml_path = cfgs_dir / f"sky_arm9_main{reg_suffix}.toml"
     arm9_bin_path.write_bytes(arm9_bytes)
     arm9_sha1 = hashlib.sha1(arm9_bytes).hexdigest()
     arm9_md5 = hashlib.md5(arm9_bytes).hexdigest()
@@ -772,7 +773,7 @@ def prepare_rom(
     )
     banks.append(
         BankSpec(
-            bank_name="sky_arm9_main",
+            bank_name=f"sky_arm9_main{reg_suffix}",
             cpu="arm9",
             bin_path=arm9_bin_path,
             toml_path=arm9_toml_path,
@@ -839,8 +840,8 @@ def prepare_rom(
         arm7_raw_entries, arm7_raw_dr, arm7_valid_ranges
     )
 
-    arm7_bin_path = bins_dir / "sky_arm7_main.bin"
-    arm7_toml_path = cfgs_dir / "sky_arm7_main.toml"
+    arm7_bin_path = bins_dir / f"sky_arm7_main{reg_suffix}.bin"
+    arm7_toml_path = cfgs_dir / f"sky_arm7_main{reg_suffix}.toml"
     arm7_bin_path.write_bytes(arm7_bytes)
     arm7_sha1 = hashlib.sha1(arm7_bytes).hexdigest()
     arm7_md5 = hashlib.md5(arm7_bytes).hexdigest()
@@ -859,7 +860,7 @@ def prepare_rom(
     )
     banks.append(
         BankSpec(
-            bank_name="sky_arm7_main",
+            bank_name=f"sky_arm7_main{reg_suffix}",
             cpu="arm7",
             bin_path=arm7_bin_path,
             toml_path=arm7_toml_path,
@@ -930,7 +931,7 @@ def prepare_rom(
         )
         first_entry_pc = ov_entries[0][0]
 
-        bank_name = f"sky_arm9_ov{oid:02d}"
+        bank_name = f"sky_arm9_ov{oid:02d}{reg_suffix}"
         ov_bin_path = bins_dir / f"{bank_name}.bin"
         ov_toml_path = cfgs_dir / f"{bank_name}.toml"
         ov_bin_path.write_bytes(ov_bytes)
@@ -1076,10 +1077,24 @@ def main() -> int:
         print(f"[prepare_rom] ERROR: ROM file not found: {args.rom}", file=sys.stderr)
         return 1
 
+    default_out_us = repo_root / "build" / "extracted_sky_us"
+    default_gen_us = repo_root / "build" / "generated_sky_us"
+    is_default_out = (args.out_dir == default_out_us)
+    is_default_gen = (args.gen_dir == default_gen_us)
+
+    # Detect region early to adjust default dirs if Europe
+    rom_head = args.rom.read_bytes()
+    rom_sha1 = hashlib.sha1(rom_head).hexdigest()
+    detected_region = KNOWN_ROMS.get(rom_sha1, (args.region or "NA", ""))[0]
+
+    reg_code = "us" if detected_region in ("NA", "US") else detected_region.lower()
+    out_dir = (repo_root / "build" / f"extracted_sky_{reg_code}") if is_default_out else args.out_dir
+    gen_dir = (repo_root / "build" / f"generated_sky_{reg_code}") if is_default_gen else args.gen_dir
+
     _sha1, _region, banks = prepare_rom(
         args.rom,
         args.symbols_dir,
-        args.out_dir,
+        out_dir,
         allow_custom_rom=args.allow_custom_rom,
         forced_region=args.region,
     )
@@ -1092,9 +1107,9 @@ def main() -> int:
         return 1
 
     if args.compile:
-        args.gen_dir.mkdir(parents=True, exist_ok=True)
+        gen_dir.mkdir(parents=True, exist_ok=True)
 
-    mode_label = "Auditing" if args.audit else f"Recompiling -> {args.gen_dir}"
+    mode_label = "Auditing" if args.audit else f"Recompiling -> {gen_dir}"
     print(f"[prepare_rom] {mode_label} {len(banks)} banks using {args.jobs} threads...")
 
     failures = 0
@@ -1105,7 +1120,7 @@ def main() -> int:
                 run_recompiler_for_bank,
                 args.recompiler,
                 b,
-                args.gen_dir,
+                gen_dir,
                 args.audit,
                 args.max_function_bytes,
             ): b

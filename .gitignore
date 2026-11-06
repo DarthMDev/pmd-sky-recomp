@@ -34,6 +34,9 @@ build/
 build-*/
 out/
 dist/
+bin/
+obj/
+.avalonia-build-tasks/
 *.app/
 *.dmg
 *.exe
@@ -58,6 +61,8 @@ third_party/
 .DS_Store
 Thumbs.db
 __pycache__/
+node_modules/
+.wrangler/
 *.py[cod]
 .vscode/
 .idea/

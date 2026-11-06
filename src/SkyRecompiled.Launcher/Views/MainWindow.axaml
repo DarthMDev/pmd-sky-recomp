@@ -1,0 +1,134 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SkyRecompiled.Launcher.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="460"
+        Width="700" Height="460"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        x:Class="SkyRecompiled.Launcher.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="SkyRecompiled Launcher"
+        Background="#181825">
+
+    <Window.Styles>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#3B82F6"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="18,10"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover">
+            <Setter Property="Background" Value="#2563EB"/>
+        </Style>
+        <Style Selector="Button.success">
+            <Setter Property="Background" Value="#10B981"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Padding" Value="24,12"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="Button.success:pointerover">
+            <Setter Property="Background" Value="#059669"/>
+        </Style>
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="#313244"/>
+            <Setter Property="Foreground" Value="#CDD6F4"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.secondary:pointerover">
+            <Setter Property="Background" Value="#45475A"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="24">
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="SkyRecompiled" FontSize="26" FontWeight="Bold" Foreground="#89B4FA"/>
+            <TextBlock Text="Pokémon Mystery Dungeon: Explorers of Sky -- Native Static Recompilation"
+                       FontSize="13" Foreground="#A6ADC8" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Main Card Area -->
+        <Border Grid.Row="1" Background="#1E1E2E" CornerRadius="12" Padding="20" BorderBrush="#313244" BorderThickness="1">
+            <Grid>
+                <!-- Initial Setup State (No ROM loaded) -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14"
+                            IsVisible="{Binding !IsRomLoaded}">
+                    <TextBlock Text="Select Cartridge ROM" FontSize="18" FontWeight="SemiBold"
+                               Foreground="#CDD6F4" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Please choose your legally owned Pokémon Mystery Dungeon: Explorers of Sky .nds ROM.&#x0a;Static recompilation and save data will be configured on your device."
+                               TextAlignment="Center" Foreground="#BAC2DE" MaxWidth="520" TextWrapping="Wrap"/>
+                    <Button Classes="primary" Content="Browse ROM (.nds)..."
+                            Click="OnBrowseRomClicked" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                </StackPanel>
+
+                <!-- ROM Loaded & Ready State -->
+                <Grid RowDefinitions="Auto,Auto,*,Auto" IsVisible="{Binding IsRomLoaded}">
+                    <!-- Game Info Header -->
+                    <StackPanel Grid.Row="0" Spacing="4">
+                        <TextBlock Text="Pokémon Mystery Dungeon: Explorers of Sky"
+                                   FontSize="18" FontWeight="Bold" Foreground="#F5E0DC"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Background="#313244" CornerRadius="4" Padding="6,2">
+                                <TextBlock Text="{Binding RomRegion, StringFormat='Region: {0}'}" FontSize="12" Foreground="#89DCEB"/>
+                            </Border>
+                            <Border Background="#1C382A" CornerRadius="4" Padding="6,2">
+                                <TextBlock Text="✓ Verified Clean Dump" FontSize="12" Foreground="#A6E3A1"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- File Path display -->
+                    <Border Grid.Row="1" Background="#181825" CornerRadius="6" Padding="10,6" Margin="0,12,0,0">
+                        <TextBlock Text="{Binding RomPath}" FontSize="11" Foreground="#A6ADC8"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </Border>
+
+                    <!-- Status Text in Card -->
+                    <StackPanel Grid.Row="2" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding StatusMessage}" FontSize="13" Foreground="#CDD6F4"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <!-- Action Buttons -->
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="12">
+                        <Button Classes="success" Content="▶ Launch SkyRecompiled"
+                                Command="{Binding LaunchGameCommand}"
+                                IsEnabled="{Binding !IsProcessing}"/>
+                        <Button Classes="secondary" Content="Change ROM..."
+                                Click="OnBrowseRomClicked"
+                                IsEnabled="{Binding !IsProcessing}"/>
+                        <Button Classes="secondary" Content="Open Saves Folder"
+                                Command="{Binding OpenSaveFolderCommand}"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Progress Section -->
+        <StackPanel Grid.Row="2" Margin="0,16,0,8" Spacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding ProgressText}" FontSize="12" Foreground="#CDD6F4"/>
+                <TextBlock Grid.Column="1" Text="{Binding ProgressValue, StringFormat='{}{0:0}%'}" FontSize="12" Foreground="#89B4FA"
+                           IsVisible="{Binding IsProcessing}"/>
+            </Grid>
+            <ProgressBar Height="6" Maximum="100" Value="{Binding ProgressValue}"
+                         Foreground="#89B4FA" Background="#313244" CornerRadius="3"/>
+        </StackPanel>
+
+        <!-- Footer / Legal Note -->
+        <TextBlock Grid.Row="3"
+                   Text="Clean-Room Notice: No proprietary Nintendo DS ROMs, assets, or firmware are bundled. Static recompilation executes locally on your device."
+                   FontSize="10" Foreground="#6C7086" HorizontalAlignment="Center"/>
+    </Grid>
+
+</Window>

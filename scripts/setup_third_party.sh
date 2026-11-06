@@ -52,7 +52,11 @@ if [[ ! -s "${TOMLPP_DEST}" ]]; then
     echo "[setup] Fetching toml++ v3.4.0 single header..."
     curl -fsSL "${TOMLPP_URL}" -o "${TOMLPP_DEST}"
 fi
-ACTUAL_SHA256="$(shasum -a 256 "${TOMLPP_DEST}" | awk '{print $1}')"
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "${TOMLPP_DEST}" | awk '{print $1}')"
+else
+    ACTUAL_SHA256="$(shasum -a 256 "${TOMLPP_DEST}" | awk '{print $1}')"
+fi
 if [[ "${ACTUAL_SHA256}" != "${TOMLPP_SHA256}" ]]; then
     rm -f "${TOMLPP_DEST}"
     echo "[setup] ERROR: toml.hpp SHA-256 mismatch (${ACTUAL_SHA256} != ${TOMLPP_SHA256})" >&2
@@ -65,6 +69,36 @@ if [[ -f "${PATCH_FILE}" ]]; then
     else
         echo "[setup] Applying patches/ndsrecomp-macos-arm64.patch..."
         git -C "${TP_DIR}/ndsrecomp" apply "${PATCH_FILE}"
+    fi
+fi
+
+MSVC_TOOLS_PATCH="${REPO_ROOT}/patches/ndsrecomp-msvc-tools.patch"
+if [[ -f "${MSVC_TOOLS_PATCH}" ]]; then
+    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${MSVC_TOOLS_PATCH}" 2>/dev/null; then
+        echo "[setup] MSVC tools patch already applied to ndsrecomp."
+    else
+        echo "[setup] Applying patches/ndsrecomp-msvc-tools.patch..."
+        git -C "${TP_DIR}/ndsrecomp" apply "${MSVC_TOOLS_PATCH}"
+    fi
+fi
+
+TITLE_PATCH="${REPO_ROOT}/patches/ndsrecomp-window-title.patch"
+if [[ -f "${TITLE_PATCH}" ]]; then
+    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${TITLE_PATCH}" 2>/dev/null; then
+        echo "[setup] Window title patch already applied to ndsrecomp."
+    else
+        echo "[setup] Applying patches/ndsrecomp-window-title.patch..."
+        git -C "${TP_DIR}/ndsrecomp" apply "${TITLE_PATCH}"
+    fi
+fi
+
+CORE_PATCH="${REPO_ROOT}/patches/arm-recomp-core-msvc-popcount.patch"
+if [[ -f "${CORE_PATCH}" ]]; then
+    if git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply --reverse --check "${CORE_PATCH}" 2>/dev/null; then
+        echo "[setup] MSVC popcount patch already applied to arm-recomp-core."
+    else
+        echo "[setup] Applying patches/arm-recomp-core-msvc-popcount.patch..."
+        git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply "${CORE_PATCH}"
     fi
 fi
 

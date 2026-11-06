@@ -1,0 +1,207 @@
+name: SkyRecompiled CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── macOS (Apple Silicon arm64) ───────────────────────────────────────────
+  build-macos:
+    name: macOS (Apple Silicon arm64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Homebrew Dependencies
+        run: |
+          brew install cmake ninja sdl3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Bootstrap Third-Party Dependencies
+        run: |
+          ./scripts/setup_third_party.sh
+
+      - name: Run PMDSky Bindings Generator & Full Test Suite
+        run: |
+          python3 tools/gen_pmdsky_bindings.py
+          python3 -m unittest discover tests/
+
+      - name: Build Static Recompiler & Run Test Suite
+        run: |
+          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/recompiler
+          ctest --test-dir build/recompiler --output-on-failure
+
+      - name: Generate FreeBIOS Banks
+        run: |
+          mkdir -p build/generated_bios
+          build/recompiler/nds_recompile --config third_party/ndsrecomp/bios/freebios9.toml \
+            --bin third_party/ndsrecomp/third_party/freebios/drastic_bios_arm9.bin \
+            --out build/generated_bios --bank freebios_arm9 --shards 1
+          build/recompiler/nds_recompile --config third_party/ndsrecomp/bios/freebios7.toml \
+            --bin third_party/ndsrecomp/third_party/freebios/drastic_bios_arm7.bin \
+            --out build/generated_bios --bank freebios_arm7 --shards 1
+          echo "// Clean-room stub" > build/generated_bios/arm9_bios.c
+          echo "// Clean-room stub" > build/generated_bios/arm7_bios.c
+          echo '#include "runtime_arm.h"' > build/generated_bios/arm9_bios_dispatch.c
+          echo 'const NdsDispatchEntry g_dispatch_arm9_bios[] = {}; const unsigned g_dispatch_arm9_bios_len = 0;' >> build/generated_bios/arm9_bios_dispatch.c
+          echo '#include "runtime_arm.h"' > build/generated_bios/arm7_bios_dispatch.c
+          echo 'const NdsDispatchEntry g_dispatch_arm7_bios[] = {}; const unsigned g_dispatch_arm7_bios_len = 0;' >> build/generated_bios/arm7_bios_dispatch.c
+
+      - name: Package macOS Application Distribution
+        run: |
+          python3 scripts/package_release.py --platform macos
+
+      - name: Upload macOS Recompiler Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-recompiler-macos-arm64
+          path: build/recompiler/nds_recompile
+          if-no-files-found: warn
+
+      - name: Upload macOS Application Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-app-macos-arm64
+          path: build/dist/SkyRecompiled-*-macos-arm64.zip
+          if-no-files-found: warn
+
+  # ── Linux (Ubuntu 24.04 x86_64) ───────────────────────────────────────────
+  build-linux:
+    name: Linux (Ubuntu 24.04 x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential libgl1-mesa-dev libasound2-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Bootstrap Third-Party Dependencies
+        run: |
+          ./scripts/setup_third_party.sh
+
+      - name: Run PMDSky Bindings Generator & Full Test Suite
+        run: |
+          python3 tools/gen_pmdsky_bindings.py
+          python3 -m unittest discover tests/
+
+      - name: Build Static Recompiler & Run Test Suite
+        run: |
+          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/recompiler
+          ctest --test-dir build/recompiler --output-on-failure
+
+      - name: Package Linux Standalone Distribution
+        run: |
+          python3 scripts/package_release.py --platform linux
+
+      - name: Upload Linux Recompiler Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-recompiler-linux-x86_64
+          path: build/recompiler/nds_recompile
+          if-no-files-found: warn
+
+      - name: Upload Linux Distribution Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-dist-linux-x86_64
+          path: build/dist/SkyRecompiled-*-linux-x86_64.tar.gz
+          if-no-files-found: warn
+
+  # ── Windows (x86_64 MSVC) ─────────────────────────────────────────────────
+  build-windows:
+    name: Windows (x86_64 MSVC)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Set up Ninja
+        uses: ashutoshvarma/setup-ninja@master
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bootstrap Third-Party Dependencies
+        shell: bash
+        run: |
+          bash ./scripts/setup_third_party.sh
+
+      - name: Run PMDSky Bindings Generator & Full Test Suite
+        shell: bash
+        run: |
+          python3 tools/gen_pmdsky_bindings.py
+          python3 -m unittest discover tests/
+
+      - name: Build Static Recompiler & Run Test Suite
+        shell: bash
+        run: |
+          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/recompiler
+          ctest --test-dir build/recompiler --output-on-failure
+
+      - name: Package Windows Standalone Distribution
+        shell: bash
+        run: |
+          python3 scripts/package_release.py --platform windows
+
+      - name: Upload Windows Recompiler Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-recompiler-windows-x64
+          path: build/recompiler/nds_recompile.exe
+          if-no-files-found: warn
+
+      - name: Upload Windows Distribution Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrecompiled-dist-windows-x64
+          path: build/dist/SkyRecompiled-*-windows-x64.zip
+          if-no-files-found: warn
