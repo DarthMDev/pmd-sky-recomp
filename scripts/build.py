@@ -108,22 +108,25 @@ def build_recompiler(jobs: int, build_type: str) -> Path:
     return recompiler_bin
 
 
-def generate_freebios(recompiler_bin: Path) -> None:
-    GENERATED_BIOS_DIR.mkdir(parents=True, exist_ok=True)
+def generate_freebios(
+    recompiler_bin: Path,
+    ndsrecomp_root: Path = REPO_ROOT / "third_party" / "ndsrecomp",
+    output_dir: Path = GENERATED_BIOS_DIR,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
     freebios_files = [
-        GENERATED_BIOS_DIR / "freebios_arm9.c",
-        GENERATED_BIOS_DIR / "freebios_arm9_dispatch.c",
-        GENERATED_BIOS_DIR / "freebios_arm7.c",
-        GENERATED_BIOS_DIR / "freebios_arm7_dispatch.c",
-        GENERATED_BIOS_DIR / "arm9_bios.c",
-        GENERATED_BIOS_DIR / "arm7_bios.c",
+        output_dir / "freebios_arm9.c",
+        output_dir / "freebios_arm9_dispatch.c",
+        output_dir / "freebios_arm7.c",
+        output_dir / "freebios_arm7_dispatch.c",
+        output_dir / "arm9_bios.c",
+        output_dir / "arm7_bios.c",
     ]
     if all(p.exists() for p in freebios_files):
         log("FreeBIOS C dispatch banks already generated.")
         return
 
     log("Generating FreeBIOS C dispatch banks...")
-    ndsrecomp_root = REPO_ROOT / "third_party" / "ndsrecomp"
     bios9_toml = ndsrecomp_root / "bios" / "freebios9.toml"
     bios7_toml = ndsrecomp_root / "bios" / "freebios7.toml"
     freebios9_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm9.bin"
@@ -134,7 +137,7 @@ def generate_freebios(recompiler_bin: Path) -> None:
         str(recompiler_bin),
         "--config", str(bios9_toml),
         "--bin", str(freebios9_bin),
-        "--out", str(GENERATED_BIOS_DIR),
+        "--out", str(output_dir),
         "--bank", "freebios_arm9",
         "--shards", "1",
     ])
@@ -143,15 +146,15 @@ def generate_freebios(recompiler_bin: Path) -> None:
         str(recompiler_bin),
         "--config", str(bios7_toml),
         "--bin", str(freebios7_bin),
-        "--out", str(GENERATED_BIOS_DIR),
+        "--out", str(output_dir),
         "--bank", "freebios_arm7",
         "--shards", "1",
     ])
 
     # Stub native BIOS dispatch files required by CMakeLists
     for name in ["arm9_bios", "arm7_bios"]:
-        c_file = GENERATED_BIOS_DIR / f"{name}.c"
-        disp_file = GENERATED_BIOS_DIR / f"{name}_dispatch.c"
+        c_file = output_dir / f"{name}.c"
+        disp_file = output_dir / f"{name}_dispatch.c"
         if not c_file.exists():
             c_file.write_text(f"// Clean-room stub for {name}\n#include <stddef.h>\n", encoding="utf-8")
         if not disp_file.exists():

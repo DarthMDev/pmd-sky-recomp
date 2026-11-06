@@ -39,6 +39,7 @@ obj/
 .avalonia-build-tasks/
 *.app/
 *.dmg
+*.ipa
 *.exe
 *.dll
 *.so

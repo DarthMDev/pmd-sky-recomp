@@ -7,7 +7,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TP_DIR="${REPO_ROOT}/third_party"
+TP_DIR="${SKY_THIRD_PARTY_DIR:-${REPO_ROOT}/third_party}"
 PATCH_FILE="${REPO_ROOT}/patches/ndsrecomp-macos-arm64.patch"
 
 NDSRECOMP_URL="https://github.com/RetroPortingToolKit/ndsrecomp.git"
