@@ -77,7 +77,7 @@ cmake --build build/runner --target nds_runner
 
 ## Quickstart (Windows x64)
 
-The original v0.1.0-alpha Windows ZIP contains a launcher but no `nds_runner.exe`. Build the runner locally with your own clean *Explorers of Sky* USA or Europe ROM. The Windows CI package runs cartridge code at runtime; a local build with your ROM adds statically recompiled game code.
+You can download the pre-packaged Windows release above (which runs cartridge code at runtime) or build the runner locally with your own clean *Explorers of Sky* USA or Europe ROM to include statically recompiled game code.
 
 Install Python 3.12+, Git for Windows (with Git Bash available on PATH), and [MSYS2](https://www.msys2.org/). In the **MSYS2 MINGW64** shell, install the build tools:
 
