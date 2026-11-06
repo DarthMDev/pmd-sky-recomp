@@ -97,7 +97,8 @@ Download and extract the workflow artifact to get the IPA.
    Use the on-screen controls or connect a controller. Tap **Launcher** to exit
    the game and flush pending saves.
 4. In **Files → On My iPhone/iPad → SkyRecompiled**, find `Logs/latest.log`,
-   `Saves/pmdsky.sav`, and `settings.plist`.
+   and `Saves/pmdsky.sav`. After a successful render resolution change, the app
+   also saves `settings.plist` here.
 
 The iOS app reuses the desktop runner and compiles ROM instructions into portable
 intermediate code on the device. It can run without JIT signing privileges.
