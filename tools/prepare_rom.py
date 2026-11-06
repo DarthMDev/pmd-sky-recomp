@@ -1060,7 +1060,7 @@ def main() -> int:
     parser.add_argument(
         "--recompiler",
         type=Path,
-        default=repo_root / "build" / "recompiler" / "nds_recompile",
+        default=repo_root / "build" / "recompiler" / ("nds_recompile.exe" if os.name == "nt" else "nds_recompile"),
         help="Path to built nds_recompile binary",
     )
     parser.add_argument(

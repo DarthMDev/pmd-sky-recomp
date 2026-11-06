@@ -75,6 +75,29 @@ cmake --build build/runner --target nds_runner
 
 ---
 
+## Quickstart (Windows x64)
+
+You can download the pre-packaged Windows release above (which runs cartridge code at runtime) or build the runner locally with your own clean *Explorers of Sky* USA or Europe ROM to include statically recompiled game code.
+
+Install Python 3.12+, Git for Windows (with Git Bash available on PATH), and [MSYS2](https://www.msys2.org/). In the **MSYS2 MINGW64** shell, install the build tools:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+```
+
+Extract **`SDL3-devel-3.4.14-mingw.zip`** from the [SDL3 release page](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.14). In PowerShell, run these commands from the repository root. Adjust the paths to match your installation and ROM.
+
+```powershell
+& "${env:ProgramFiles}\Git\bin\bash.exe" scripts/setup_third_party.sh
+$env:Path = "C:\msys64\mingw64\bin;$env:Path"
+python scripts/build.py --sdl3-sdk "C:\path\to\SDL3-3.4.14" --rom "C:\path\to\Explorers of Sky.nds"
+python scripts/launcher.py --rom "C:\path\to\Explorers of Sky.nds"
+```
+
+After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that the runner starts. To create a local ZIP, run `python scripts/package_release.py --platform windows`. Extract the whole ZIP before opening `SkyRecompiled.bat`.
+
+---
+
 ## iPhone and iPad alpha
 
 Build on a Mac with Xcode, CMake, Ninja, and Python 3:

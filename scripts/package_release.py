@@ -34,13 +34,34 @@ WINDOWS_BAT = """@echo off
 setlocal
 cd /d "%~dp0"
 powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0SkyRecompiled.ps1" %*
-if %ERRORLEVEL% NEQ 0 (
+set "exit_code=%ERRORLEVEL%"
+if %exit_code% NEQ 0 (
     pause
 )
+exit /b %exit_code%
 """
 
 WINDOWS_PS1 = """# SkyRecompiled -- Windows Native Launcher & ROM Setup
+param([switch]$CheckRunner)
+
 $ErrorActionPreference = "Stop"
+
+$RunnerExe = Join-Path $PSScriptRoot "bin\\nds_runner.exe"
+if (-not (Test-Path -LiteralPath $RunnerExe -PathType Leaf)) {
+    Write-Error "Missing bin\\nds_runner.exe. Extract the entire Windows ZIP before launching. If the ZIP has no runner, follow the Windows source build instructions in the project README."
+}
+$SdlDll = Join-Path $PSScriptRoot "bin\\SDL3.dll"
+if (-not (Test-Path -LiteralPath $SdlDll -PathType Leaf)) {
+    Write-Error "Missing bin\\SDL3.dll. Extract the entire Windows ZIP before launching."
+}
+$GameToml = Join-Path $PSScriptRoot "config\\game.toml"
+if (-not (Test-Path -LiteralPath $GameToml -PathType Leaf)) {
+    Write-Error "Missing config\\game.toml. Extract the entire Windows ZIP before launching."
+}
+if ($CheckRunner) {
+    & $RunnerExe --help
+    exit $LASTEXITCODE
+}
 
 $CleanUsaSha1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
 $CleanEuSha1  = "c838a5adf1ed32d2da8454976e5b1a1aa189c139"
@@ -54,19 +75,9 @@ $SettingsFile = Join-Path $UserDir "settings.toml"
 New-Item -ItemType Directory -Force -Path $SavesDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConsoleDir | Out-Null
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$RunnerExe = Join-Path $ScriptDir "bin\\nds_runner.exe"
-if (-not (Test-Path $RunnerExe)) {
-    $RunnerExe = Join-Path $ScriptDir "nds_runner.exe"
-}
-$GameToml = Join-Path $ScriptDir "config\\game.toml"
-if (-not (Test-Path $GameToml)) {
-    $GameToml = Join-Path $ScriptDir "game.toml"
-}
-
 function Test-RomSha1($path) {
-    if (-not (Test-Path $path)) { return $false }
-    $hash = (Get-FileHash -Path $path -Algorithm SHA1).Hash.ToLower()
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA1).Hash.ToLower()
     return ($hash -eq $CleanUsaSha1 -or $hash -eq $CleanEuSha1)
 }
 
@@ -248,7 +259,17 @@ def package_linux() -> Path:
     return tar_path
 
 
-def package_windows() -> Path:
+def package_windows(*, without_game_banks: bool = False) -> Path:
+    """Package the standalone Windows x64 ZIP distribution with runner, launcher, and SDL3 DLL."""
+    runner_dir = BUILD_DIR / ("runner-fallback" if without_game_banks else "runner")
+    required_files = ("nds_runner.exe", "SDL3.dll", "SDL3-LICENSE.txt")
+    for name in required_files:
+        if not (runner_dir / name).is_file():
+            raise SystemExit(
+                f"Cannot package Windows: missing {runner_dir / name}. "
+                "Build on Windows with scripts/build.py and --sdl3-sdk before packaging."
+            )
+
     print(f"\033[1;36m[package:windows]\033[0m Packaging Windows x64 Distribution...")
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     pkg_dir = BUILD_DIR / f"SkyRecompiled-v{VERSION}-windows-x64"
@@ -264,7 +285,7 @@ def package_windows() -> Path:
 
     # 1. Native Windows Launchers
     (pkg_dir / "SkyRecompiled.bat").write_text(WINDOWS_BAT, encoding="utf-8")
-    (pkg_dir / "SkyRecompiled.ps1").write_text(WINDOWS_PS1, encoding="utf-8")
+    (pkg_dir / "SkyRecompiled.ps1").write_text(WINDOWS_PS1, encoding="utf-8-sig")
 
     # 2. Python launcher core
     shutil.copy2(REPO_ROOT / "scripts" / "launcher.py", scripts_dir / "launcher.py")
@@ -273,12 +294,17 @@ def package_windows() -> Path:
     shutil.copy2(CONFIG_DIR / "game.toml", cfg_dir / "game.toml")
     shutil.copy2(CONFIG_DIR / "controls_preset.toml", cfg_dir / "controls_preset.toml")
 
-    # 4. Binary if present
-    runner_src = BUILD_DIR / "runner" / "nds_runner.exe"
-    if runner_src.exists():
-        shutil.copy2(runner_src, bin_dir / "nds_runner.exe")
+    for name in required_files:
+        shutil.copy2(runner_dir / name, bin_dir / name)
 
-    (pkg_dir / "README.txt").write_text(README_TEXT, encoding="utf-8")
+    readme = README_TEXT
+    if without_game_banks:
+        readme += (
+            "\nThis Windows build runs cartridge code at runtime. It does not include\n"
+            "statically recompiled game code. See the project README for a native\n"
+            "build using your own ROM.\n"
+        )
+    (pkg_dir / "README.txt").write_text(readme, encoding="utf-8")
 
     zip_path = DIST_DIR / f"SkyRecompiled-v{VERSION}-windows-x64.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -295,7 +321,10 @@ def package_windows() -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="SkyRecompiled Release Packager")
     parser.add_argument("--platform", choices=["macos", "linux", "windows", "all"], default="all")
+    parser.add_argument("--without-game-banks", action="store_true", help="Windows: package the build from build/runner-fallback")
     args = parser.parse_args()
+    if args.without_game_banks and args.platform != "windows":
+        parser.error("--without-game-banks requires --platform windows")
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -304,7 +333,7 @@ def main() -> None:
     if args.platform in ("linux", "all"):
         package_linux()
     if args.platform in ("windows", "all"):
-        package_windows()
+        package_windows(without_game_banks=args.without_game_banks)
 
     print("\n\033[1;32mAll release packages generated in build/dist/\033[0m")
     for f in DIST_DIR.iterdir():
