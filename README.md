@@ -1,8 +1,20 @@
 # SkyRecompiled
 
+[![Latest Release](https://img.shields.io/github/v/release/DarthMDev/pmd-sky-recomp?label=Latest%20Release&color=blue)](https://github.com/DarthMDev/pmd-sky-recomp/releases/latest)
+[![macOS Download](https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-brightgreen?logo=apple)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-macos-arm64.zip)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/DarthMDev/pmd-sky-recomp/ci.yml?branch=main&label=CI)](https://github.com/DarthMDev/pmd-sky-recomp/actions)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Join our Discord](https://discord.com/api/guilds/1568078365087367280/widget.png?style=banner2)](https://discord.gg/neWFpX9ps7)
 
 **SkyRecompiled** is a native ahead-of-time (AOT) static recompilation PC port of *Pokémon Mystery Dungeon: Explorers of Sky*, built on [`ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) and [`pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug).
+
+### Downloads (v0.1.0 Alpha)
+
+| Platform | Build Status | Package |
+| :--- | :--- | :--- |
+| **macOS Apple Silicon (`arm64`)** | Verified Working | [SkyRecompiled-v0.1.0-alpha-macos-arm64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-macos-arm64.zip) |
+| **Windows (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-windows-x64.zip) |
+| **Linux (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz) |
 
 > **Clean-Room & Legal Notice:** This repository contains **zero** copyrighted Nintendo DS ROMs, extracted assets, BIOS/firmware dumps, or ROM-derived C code. Players must supply their own legally dumped *Pokémon Mystery Dungeon: Explorers of Sky* `.nds` cartridge image. No Nintendo DS BIOS or firmware files are required (`FreeBIOS` + synthesized NVRAM direct boot).
 
