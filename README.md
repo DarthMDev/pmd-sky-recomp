@@ -15,7 +15,7 @@
 | Platform | Build Status | Package |
 | :--- | :--- | :--- |
 | **macOS Apple Silicon (`arm64`)** | Verified Working | [SkyRecompiled-v0.1.0-alpha-macos-arm64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-macos-arm64.zip) |
-| **Windows (`x86_64`)** | Alpha ZIP missing the runner; [source build instructions](#quickstart-windows-x64) | [SkyRecompiled-v0.1.0-alpha-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-windows-x64.zip) |
+| **Windows (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-windows-x64.zip) |
 | **Linux (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz) |
 
 > **Clean-Room & Legal Notice:** This repository contains **zero** copyrighted Nintendo DS ROMs, extracted assets, BIOS/firmware dumps, or ROM-derived C code. Players must supply their own legally dumped *Pokémon Mystery Dungeon: Explorers of Sky* `.nds` cartridge image. No Nintendo DS BIOS or firmware files are required (`FreeBIOS` + synthesized NVRAM direct boot).
