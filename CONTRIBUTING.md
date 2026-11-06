@@ -32,7 +32,7 @@ Any contribution touching the core runner, recompiler, or save system must prese
 
 ### Prerequisites
 - **macOS:** Xcode command line tools, `cmake`, `ninja`, `sdl3` (`brew install cmake ninja sdl3`)
-- **Linux:** GCC/Clang, `cmake`, `ninja-build`, `libgl1-mesa-dev`, `libasound2-dev`
+- **Linux:** GCC/Clang, `cmake`, `ninja-build`, `libgl1-mesa-dev`, `libasound2-dev`, `libsdl3-dev`
 - **Windows:** See the [Windows quickstart](README.md#quickstart-windows-x64) for prerequisites and build commands.
 
 ### Quick Setup & Build (macOS & Linux)
