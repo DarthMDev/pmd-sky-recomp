@@ -102,10 +102,17 @@ class NitroFS:
         return fs
 
     def unpack(self, out_dir: Path) -> None:
-        """Extract all files in the virtual filesystem to disk."""
-        out_dir.mkdir(parents=True, exist_ok=True)
+        """Extract all files in the virtual filesystem to disk safely."""
+        out_resolved = out_dir.resolve()
+        out_resolved.mkdir(parents=True, exist_ok=True)
         for rel_path, data in self.files.items():
-            dest = out_dir / rel_path
+            # Prevent absolute paths or directory traversal (..)
+            norm_rel = os.path.normpath(rel_path).replace("\\", "/")
+            if norm_rel.startswith("/") or norm_rel.startswith("../") or "/../" in norm_rel or norm_rel == "..":
+                continue
+            dest = (out_resolved / norm_rel).resolve()
+            if not str(dest).startswith(str(out_resolved) + os.sep) and dest != out_resolved:
+                continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
 
@@ -188,14 +195,17 @@ class NitroFS:
         next_dir_id = 0xF001
 
         all_nodes: List[Tuple[int, dict, int]] = [(0xF000, tree, 0xF000)]  # (dir_id, node, parent_id)
+        node_path_map: dict[int, str] = {id(tree): ""}
         while queue:
             parent_path, parent_node, parent_id = queue.pop(0)
             for dname in sorted(parent_node["dirs"].keys()):
                 cur_node = parent_node["dirs"][dname]
                 cur_id = next_dir_id
                 next_dir_id += 1
+                cur_path = f"{parent_path}/{dname}" if parent_path else dname
+                node_path_map[id(cur_node)] = cur_path
                 all_nodes.append((cur_id, cur_node, parent_id))
-                queue.append((f"{parent_path}/{dname}" if parent_path else dname, cur_node, cur_id))
+                queue.append((cur_path, cur_node, cur_id))
 
         total_dirs = len(all_nodes)
         dir_table_size = total_dirs * 8
@@ -205,21 +215,22 @@ class NitroFS:
         cur_sub_off = dir_table_size
         dir_entries_meta: List[Tuple[int, int, int]] = []  # (sub_off, first_fid, parent_id)
 
-        file_id_map: List[str] = []
+        ordered_files: List[str] = []
         cur_fid = 0
 
         # Build sub-table for each directory
         for dir_id, node, parent_id in all_nodes:
             first_fid = cur_fid
             buf = bytearray()
+            dpath = node_path_map.get(id(node), "")
 
             # Files first
             for fname in sorted(node["files"]):
                 enc_name = fname.encode("latin-1", errors="replace")
                 buf.append(len(enc_name) & 0x7F)
                 buf.extend(enc_name)
-                # Find full path
-                # Reconstruct full path
+                full_path = f"{dpath}/{fname}" if dpath else fname
+                ordered_files.append(full_path)
                 cur_fid += 1
 
             # Sub-directories
@@ -247,13 +258,12 @@ class NitroFS:
         while len(fnt_buf) % 4 != 0:
             fnt_buf.append(0x00)
 
-        # 3. Assemble FAT and payload data
-        # Flatten all files in sorted order
+        # 3. Assemble FAT and payload data in the EXACT same order as FNT IDs
         payload_buf = bytearray()
         fat_buf = bytearray()
         cur_file_data_off = base_file_offset
 
-        for file_path in sorted(self.files.keys()):
+        for file_path in ordered_files:
             data = self.files[file_path]
             start_off = cur_file_data_off
             end_off = start_off + len(data)
@@ -284,6 +294,7 @@ def main():
     p_build.add_argument("--mods-dir", required=True, type=Path, help="Directory containing mod folders")
     p_build.add_argument("--out-fnt", required=True, type=Path, help="Output FNT binary path")
     p_build.add_argument("--out-fat", required=True, type=Path, help="Output FAT binary path")
+    p_build.add_argument("--out-payload", type=Path, default=None, help="Output merged payload binary path (defaults to <out_fat_dir>/payload.bin)")
 
     args = parser.parse_args()
     if not args.command:
@@ -311,9 +322,13 @@ def main():
         for mod_id, count in applied:
             print(f"[sky_mod_packer] Applied mod '{mod_id}': {count} files overridden")
         fnt, fat, payload = fs.build_fnt_and_fat()
+        args.out_fnt.parent.mkdir(parents=True, exist_ok=True)
         args.out_fnt.write_bytes(fnt)
+        args.out_fat.parent.mkdir(parents=True, exist_ok=True)
         args.out_fat.write_bytes(fat)
-        print(f"[sky_mod_packer] Wrote FNT ({len(fnt)} B) and FAT ({len(fat)} B)")
+        payload_dest = args.out_payload or (args.out_fat.parent / "payload.bin")
+        payload_dest.write_bytes(payload)
+        print(f"[sky_mod_packer] Wrote FNT ({len(fnt)} B), FAT ({len(fat)} B), and Payload ({len(payload)} B) to {payload_dest}")
 
 
 if __name__ == "__main__":

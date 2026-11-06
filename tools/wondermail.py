@@ -18,6 +18,7 @@ on online servers!
 from __future__ import annotations
 
 import argparse
+import binascii
 import struct
 import sys
 from dataclasses import dataclass
@@ -144,15 +145,21 @@ def encode_wondermail_s(mission: MissionData) -> str:
     bw.write_bits(mission.restriction_type & 0xF, 4)
     bw.write_bits(mission.restriction & 0x7FF, 11)
 
-    raw_symbols = bw.to_5bit_symbols()
-    # Pad to 32 data symbols (160 bits)
-    while len(raw_symbols) < 32:
-        raw_symbols.append(0)
+    # Pad payload to exactly 136 bits (17 bytes)
+    while len(bw.bits) < 136:
+        bw.bits.append(0)
 
-    # 10-bit checksum -> 2 symbols
-    chk = compute_checksum(raw_symbols[:32])
-    raw_symbols.append((chk >> 5) & 0x1F)
-    raw_symbols.append(chk & 0x1F)
+    # 136-bit payload -> 17 bytes for 32-bit CRC (CRC32)
+    payload_bytes = bw.to_bytes()[:17]
+    crc = binascii.crc32(payload_bytes) & 0xFFFFFFFF
+
+    # Append 32-bit CRC
+    bw.write_bits(crc, 32)
+    # Append 2 padding bits to reach 170 bits (34 * 5-bit symbols)
+    bw.write_bits(0, 2)
+
+    raw_symbols = bw.to_5bit_symbols()
+    assert len(raw_symbols) == 34
 
     # Apply official 34-position bit swap
     scrambled = [0] * 34
@@ -173,18 +180,31 @@ def decode_wondermail_s(password: str) -> MissionData:
     for i, target_pos in enumerate(BITS_SWAP):
         unscrambled[i] = scrambled[target_pos]
 
-    expected_chk = (unscrambled[32] << 5) | unscrambled[33]
-    actual_chk = compute_checksum(unscrambled[:32])
-    if actual_chk != expected_chk:
-        raise ValueError("Invalid Wonder Mail S checksum")
-
-    # Unpack bits
+    # Convert 34 symbols to 170 bits
     bits: list[int] = []
-    for s in unscrambled[:32]:
+    for s in unscrambled:
         for i in range(4, -1, -1):
             bits.append((s >> i) & 1)
 
-    br = BitReader(bits)
+    # Extract 136-bit payload (17 bytes)
+    payload_bytes = bytearray()
+    for i in range(0, 136, 8):
+        byte_val = 0
+        for b in bits[i : i + 8]:
+            byte_val = (byte_val << 1) | b
+        payload_bytes.append(byte_val)
+
+    # Extract 32-bit CRC32 (bits 136..168)
+    expected_crc = 0
+    for b in bits[136:168]:
+        expected_crc = (expected_crc << 1) | b
+
+    actual_crc = binascii.crc32(bytes(payload_bytes)) & 0xFFFFFFFF
+    if actual_crc != expected_crc:
+        raise ValueError("Invalid Wonder Mail S checksum (CRC32 mismatch)")
+
+    # Unpack mission fields from the 136-bit payload
+    br = BitReader(bits[:136])
     m = MissionData()
     m.type = br.read_bits(4)
     m.subtype = br.read_bits(4)

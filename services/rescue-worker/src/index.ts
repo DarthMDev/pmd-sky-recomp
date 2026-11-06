@@ -12,15 +12,70 @@ export interface Env {
   MAX_CLAIM_DURATION_HOURS?: string;
 }
 
-const WONDER_MAIL_CHARSET = new Set("&67NPR89F0+#STXY45MCHJ-K12=%3Q@W");
+const WONDER_MAIL_CHARSET_STR = "&67NPR89F0+#STXY45MCHJ-K12=%3Q@W";
+const WONDER_MAIL_CHARSET = new Set(WONDER_MAIL_CHARSET_STR);
+const CHAR_MAP = new Map<string, number>();
+for (let i = 0; i < WONDER_MAIL_CHARSET_STR.length; i++) {
+  CHAR_MAP.set(WONDER_MAIL_CHARSET_STR[i], i);
+}
 
-function isValidPassword(pwd: string, expectedLen: number): boolean {
-  const clean = pwd.replace(/[\s\r\n-]/g, "").toUpperCase();
+function normalizePassword(pwd: string): string {
+  // Only strip whitespace and newlines; preserve '-' as it is a valid charset symbol!
+  return pwd.replace(/[\s\r\n]/g, "").toUpperCase();
+}
+
+function isValidPassword(clean: string, expectedLen: number): boolean {
   if (clean.length !== expectedLen) return false;
   for (let i = 0; i < clean.length; i++) {
     if (!WONDER_MAIL_CHARSET.has(clean[i])) return false;
   }
   return true;
+}
+
+function computeChecksum(symbols: number[]): number {
+  let c1 = 0;
+  let c2 = 0;
+  for (let i = 0; i < 52; i++) {
+    c1 = (c1 + symbols[i]) & 0x1F;
+    c2 = (c2 + c1) & 0x1F;
+  }
+  return (c1 << 5) | c2;
+}
+
+function parseRescueMail(clean: string): { kind: number; dungeonId: number; floor: number; rescueId: number } | null {
+  if (clean.length !== 54) return null;
+  const symbols: number[] = [];
+  for (let i = 0; i < clean.length; i++) {
+    const val = CHAR_MAP.get(clean[i]);
+    if (val === undefined) return null;
+    symbols.push(val);
+  }
+
+  const expectedChk = (symbols[52] << 5) | symbols[53];
+  const actualChk = computeChecksum(symbols);
+  if (expectedChk !== actualChk) return null;
+
+  // Read bits
+  let bitBuf = 0;
+  let bitCount = 0;
+  let symIdx = 0;
+  function readBits(n: number): number {
+    while (bitCount < n && symIdx < 52) {
+      bitBuf = (bitBuf << 5) | symbols[symIdx++];
+      bitCount += 5;
+    }
+    const val = (bitBuf >> (bitCount - n)) & ((1 << n) - 1);
+    bitCount -= n;
+    return val;
+  }
+
+  const kind = readBits(3); // 1 = SOS, 2 = A-OK
+  const dungeonId = readBits(7);
+  const floor = readBits(7);
+  readBits(11); // client_species
+  const rescueId = readBits(32);
+
+  return { kind, dungeonId, floor, rescueId };
 }
 
 const CORS_HEADERS = {
@@ -86,9 +141,17 @@ export default {
           return errorResponse("Missing required fields (dungeon_id, floor, team_name, client_species, sos_password)");
         }
 
-        const cleanSos = body.sos_password.replace(/[\s\r\n-]/g, "").toUpperCase();
+        const cleanSos = normalizePassword(body.sos_password);
         if (!isValidPassword(cleanSos, 54)) {
           return errorResponse("Invalid SOS password: must be 54 characters from Explorers of Sky charset");
+        }
+
+        const sosInfo = parseRescueMail(cleanSos);
+        if (!sosInfo || sosInfo.kind !== 1) {
+          return errorResponse("Invalid SOS password: checksum verification failed or not an SOS request");
+        }
+        if (sosInfo.dungeonId !== body.dungeon_id || sosInfo.floor !== body.floor) {
+          return errorResponse("SOS password dungeon/floor does not match submission metadata");
         }
 
         const id = crypto.randomUUID();
@@ -215,9 +278,28 @@ export default {
             return errorResponse("Missing required field: aok_password");
           }
 
-          const cleanAok = body.aok_password.replace(/[\s\r\n-]/g, "").toUpperCase();
+          const cleanAok = normalizePassword(body.aok_password);
           if (!isValidPassword(cleanAok, 54)) {
             return errorResponse("Invalid A-OK password: must be 54 characters from Explorers of Sky charset");
+          }
+
+          const aokInfo = parseRescueMail(cleanAok);
+          if (!aokInfo || aokInfo.kind !== 2) {
+            return errorResponse("Invalid A-OK password: checksum verification failed or not an A-OK completion");
+          }
+
+          const rescue = await env.DB.prepare(
+            "SELECT * FROM rescues WHERE id = ?"
+          ).bind(rescueId).first<{ dungeon_id: number; floor: number; status: string }>();
+
+          if (!rescue) {
+            return errorResponse("Rescue not found", 404);
+          }
+          if (rescue.status === "completed") {
+            return errorResponse("Rescue is already completed", 409);
+          }
+          if (aokInfo.dungeonId !== rescue.dungeon_id || aokInfo.floor !== rescue.floor) {
+            return errorResponse("A-OK password does not match this rescue mission's dungeon or floor");
           }
 
           const res = await env.DB.prepare(

@@ -74,6 +74,8 @@ import sys
 from pathlib import Path
 
 CLEAN_USA_SHA1 = "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
+CLEAN_EU_SHA1 = "c838a5adf1ed32d2da8454976e5b1a1aa189c139"
+VALID_ROM_SHA1S = {CLEAN_USA_SHA1, CLEAN_EU_SHA1}
 BUNDLE_CONTENTS = Path(__file__).resolve().parent.parent
 NDS_RUNNER = BUNDLE_CONTENTS / "MacOS" / "nds_runner"
 GAME_TOML = BUNDLE_CONTENTS / "Resources" / "game.toml"
@@ -94,7 +96,7 @@ def alert(title: str, message: str) -> None:
 def pick_rom() -> str | None:
     apple_script = (
         'try\\n'
-        '  set f to choose file with prompt "Select your legally owned Pokémon Mystery Dungeon: Explorers of Sky (USA) .nds ROM" of type {"nds"}\\n'
+        '  set f to choose file with prompt "Select your legally owned Pokémon Mystery Dungeon: Explorers of Sky (USA or Europe) .nds ROM" of type {"nds"}\\n'
         '  return POSIX path of f\\n'
         'on error\\n'
         '  return ""\\n'
@@ -130,7 +132,7 @@ def verify_sha1(path_str: str) -> bool:
     with p.open("rb") as f:
         while chunk := f.read(65536):
             h.update(chunk)
-    return h.hexdigest() == CLEAN_USA_SHA1
+    return h.hexdigest().lower() in VALID_ROM_SHA1S
 
 
 def main():
@@ -143,7 +145,7 @@ def main():
 
     while not rom_path or not verify_sha1(rom_path):
         if rom_path and not verify_sha1(rom_path):
-            alert("Invalid ROM Selected", "The selected file does not match the clean Explorers of Sky (USA) ROM (SHA-1 mismatch).")
+            alert("Invalid ROM Selected", "The selected file does not match a verified clean Explorers of Sky ROM (USA or Europe SHA-1 mismatch).")
         chosen = pick_rom()
         if not chosen:
             # User canceled

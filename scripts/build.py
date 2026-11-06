@@ -88,7 +88,8 @@ def ensure_third_party() -> None:
 def build_recompiler(jobs: int, build_type: str) -> Path:
     log(f"Building nds_recompile ({build_type})...")
     RECOMPILER_BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    recompiler_bin = RECOMPILER_BUILD_DIR / "nds_recompile"
+    exe_name = "nds_recompile.exe" if sys.platform == "win32" else "nds_recompile"
+    recompiler_bin = RECOMPILER_BUILD_DIR / exe_name
 
     cmake_args = [
         "cmake",
@@ -128,23 +129,23 @@ def generate_freebios(recompiler_bin: Path) -> None:
     freebios9_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm9.bin"
     freebios7_bin = ndsrecomp_root / "third_party" / "freebios" / "drastic_bios_arm7.bin"
 
-    # ARM9 FreeBIOS
+    # ARM9 FreeBIOS (single unsharded translation unit expected by runner CMake)
     run_cmd([
         str(recompiler_bin),
         "--config", str(bios9_toml),
         "--bin", str(freebios9_bin),
         "--out", str(GENERATED_BIOS_DIR),
         "--bank", "freebios_arm9",
-        "--shards", "2",
+        "--shards", "1",
     ])
-    # ARM7 FreeBIOS
+    # ARM7 FreeBIOS (single unsharded translation unit expected by runner CMake)
     run_cmd([
         str(recompiler_bin),
         "--config", str(bios7_toml),
         "--bin", str(freebios7_bin),
         "--out", str(GENERATED_BIOS_DIR),
         "--bank", "freebios_arm7",
-        "--shards", "2",
+        "--shards", "1",
     ])
 
     # Stub native BIOS dispatch files required by CMakeLists
@@ -155,8 +156,8 @@ def generate_freebios(recompiler_bin: Path) -> None:
             c_file.write_text(f"// Clean-room stub for {name}\n#include <stddef.h>\n", encoding="utf-8")
         if not disp_file.exists():
             disp_file.write_text(
-                f'#include <stddef.h>\n#include "nds_core.h"\n'
-                f'const DispatchEntry g_dispatch_{name}[] = {{}};\n'
+                f'#include <stddef.h>\n#include "runtime_arm.h"\n'
+                f'const NdsDispatchEntry g_dispatch_{name}[] = {{}};\n'
                 f'const unsigned g_dispatch_{name}_len = 0;\n',
                 encoding="utf-8",
             )
@@ -206,7 +207,12 @@ def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
     runner_src_dir = REPO_ROOT / "third_party" / "ndsrecomp" / "runner"
 
     us_banks = BUILD_DIR / "generated_sky_us"
+    if not us_banks.exists() and (BUILD_DIR / "generated_sky_na").exists():
+        us_banks = BUILD_DIR / "generated_sky_na"
     eu_banks = BUILD_DIR / "generated_sky_eu"
+
+    def has_banks(bank_dir: Path) -> bool:
+        return bank_dir.exists() and any(bank_dir.glob("*_dispatch.c"))
 
     is_apple = platform.system() == "Darwin"
     cmake_args = [
@@ -215,17 +221,18 @@ def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
         "-B", str(RUNNER_BUILD_DIR),
         "-G", "Ninja",
         f"-DCMAKE_BUILD_TYPE={build_type}",
+        "-DNDS_BOOTSTRAP_FIRMWARE=OFF",
         f"-DNDS_ENABLE_COMPUTE_RENDERER={'OFF' if is_apple else 'ON'}",
         f"-DNDS_GENERATED_DIR={GENERATED_BIOS_DIR}",
     ]
 
-    if region_mode == "dual" or (region_mode == "auto" and (us_banks / "sky_arm9_main.c").exists() and (eu_banks / "sky_arm9_main.c").exists()):
+    if region_mode == "dual" or (region_mode == "auto" and has_banks(us_banks) and has_banks(eu_banks)):
         log("Configuring dual-region runner (USA + Europe)...")
         cmake_args.extend([
             f"-DNDS_TITLE_BANK_DIRS={us_banks};{eu_banks}",
             f"-DNDS_TITLE_ROM_SHA1S={CLEAN_USA_SHA1};{CLEAN_EU_SHA1}",
         ])
-    elif region_mode == "EU" or (not (us_banks / "sky_arm9_main.c").exists() and (eu_banks / "sky_arm9_main.c").exists()):
+    elif region_mode == "EU" or (not has_banks(us_banks) and has_banks(eu_banks)):
         log("Configuring Europe (EU) runner...")
         cmake_args.extend([
             f"-DNDS_TITLE_BANK_DIR={eu_banks}",
@@ -243,7 +250,8 @@ def build_runner(jobs: int, build_type: str, region_mode: str = "auto") -> Path:
     run_cmd(cmake_args)
     run_cmd(["cmake", "--build", str(RUNNER_BUILD_DIR), "--target", "nds_runner", f"-j{jobs}"])
 
-    runner_bin = RUNNER_BUILD_DIR / "nds_runner"
+    exe_name = "nds_runner.exe" if sys.platform == "win32" else "nds_runner"
+    runner_bin = RUNNER_BUILD_DIR / exe_name
     if not runner_bin.exists():
         log_err(f"Runner binary not found at {runner_bin}")
         sys.exit(1)
@@ -275,7 +283,7 @@ def main() -> None:
     recompiler_bin = build_recompiler(args.jobs, args.build_type)
     generate_freebios(recompiler_bin)
 
-    if not args.skip_recompile or not (GENERATED_BANKS_DIR / "sky_arm9_main.c").exists():
+    if not args.skip_recompile or not any(GENERATED_BANKS_DIR.glob("*_dispatch.c")):
         rom_path = find_rom(args.rom)
         compile_game_banks(rom_path, forced_region=args.region if args.region in ("NA", "EU") else None)
     else:
