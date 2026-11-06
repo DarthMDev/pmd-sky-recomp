@@ -420,6 +420,11 @@ def main() -> None:
     parser.add_argument("--reset-rom", action="store_true", help="Prompt to select a new ROM")
     args = parser.parse_args()
 
+    try:
+        runner_bin, config_file = find_binary_and_config()
+    except FileNotFoundError as exc:
+        parser.exit(1, f"[SkyRecompiled] {exc}\n")
+
     user_dir = get_user_data_dir()
     user_dir.mkdir(parents=True, exist_ok=True)
     saves_dir = user_dir / "saves"
@@ -467,7 +472,6 @@ def main() -> None:
 
     progress.update(90, "Launching game engine...")
 
-    runner_bin, config_file = find_binary_and_config()
     save_path = saves_dir / "pmdsky.sav"
     savestate_dir = user_dir / "savestates"
     savestate_dir.mkdir(parents=True, exist_ok=True)

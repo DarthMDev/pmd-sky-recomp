@@ -33,7 +33,7 @@ Any contribution touching the core runner, recompiler, or save system must prese
 ### Prerequisites
 - **macOS:** Xcode command line tools, `cmake`, `ninja`, `sdl3` (`brew install cmake ninja sdl3`)
 - **Linux:** GCC/Clang, `cmake`, `ninja-build`, `libgl1-mesa-dev`, `libasound2-dev`
-- **Windows:** Visual Studio 2022/2026 (MSVC C++20), Ninja, CMake, Python 3.12+
+- **Windows:** See the [Windows quickstart](README.md#quickstart-windows-x64) for prerequisites and build commands.
 
 ### Quick Setup & Build
 ```bash
@@ -42,7 +42,7 @@ Any contribution touching the core runner, recompiler, or save system must prese
 
 # 2. Build via the unified build orchestrator
 python3 scripts/build.py --help
-python3 scripts/build.py --preset macos-arm64-release
+python3 scripts/build.py --rom "/path/to/Explorers of Sky.nds"
 ```
 
 ### Running Test Suites

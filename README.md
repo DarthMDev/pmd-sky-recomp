@@ -15,7 +15,7 @@
 | Platform | Build Status | Package |
 | :--- | :--- | :--- |
 | **macOS Apple Silicon (`arm64`)** | Verified Working | [SkyRecompiled-v0.1.0-alpha-macos-arm64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-macos-arm64.zip) |
-| **Windows (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-windows-x64.zip) |
+| **Windows (`x86_64`)** | Alpha ZIP missing the runner; [source build instructions](#quickstart-windows-x64) | [SkyRecompiled-v0.1.0-alpha-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-windows-x64.zip) |
 | **Linux (`x86_64`)** | Untested Alpha (Testers Needed!) | [SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.1.0-alpha/SkyRecompiled-v0.1.0-alpha-linux-x86_64.tar.gz) |
 
 > **Clean-Room & Legal Notice:** This repository contains **zero** copyrighted Nintendo DS ROMs, extracted assets, BIOS/firmware dumps, or ROM-derived C code. Players must supply their own legally dumped *Pokémon Mystery Dungeon: Explorers of Sky* `.nds` cartridge image. No Nintendo DS BIOS or firmware files are required (`FreeBIOS` + synthesized NVRAM direct boot).
@@ -72,6 +72,29 @@ cmake --build build/runner --target nds_runner
   --config config/game.toml \
   --rom "/path/to/Pokemon Mystery Dungeon - Explorers of Sky (USA).nds"
 ```
+
+---
+
+## Quickstart (Windows x64)
+
+The original v0.1.0-alpha Windows ZIP contains a launcher but no `nds_runner.exe`. Build the runner locally with your own clean *Explorers of Sky* USA or Europe ROM. The Windows CI package runs cartridge code at runtime; a local build with your ROM adds statically recompiled game code.
+
+Install Python 3.12+, Git for Windows (with Git Bash available on PATH), and [MSYS2](https://www.msys2.org/). In the **MSYS2 MINGW64** shell, install the build tools:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+```
+
+Extract **`SDL3-devel-3.4.14-mingw.zip`** from the [SDL3 release page](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.14). In PowerShell, run these commands from the repository root. Adjust the paths to match your installation and ROM.
+
+```powershell
+bash scripts/setup_third_party.sh
+$env:Path = "C:\msys64\mingw64\bin;$env:Path"
+python scripts/build.py --sdl3-sdk "C:\path\to\SDL3-3.4.14" --rom "C:\path\to\Explorers of Sky.nds"
+python scripts/launcher.py --rom "C:\path\to\Explorers of Sky.nds"
+```
+
+After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that the runner starts. To create a local ZIP, run `python scripts/package_release.py --platform windows`. Extract the whole ZIP before opening `SkyRecompiled.bat`.
 
 ---
 

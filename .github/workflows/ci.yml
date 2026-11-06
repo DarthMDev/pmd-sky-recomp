@@ -143,9 +143,9 @@ jobs:
           path: build/dist/SkyRecompiled-*-linux-x86_64.tar.gz
           if-no-files-found: warn
 
-  # ── Windows (x86_64 MSVC) ─────────────────────────────────────────────────
+  # ── Windows (x86_64 MinGW) ────────────────────────────────────────────────
   build-windows:
-    name: Windows (x86_64 MSVC)
+    name: Windows (x86_64 MinGW)
     runs-on: windows-latest
     steps:
       - name: Checkout Repository
@@ -163,11 +163,21 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Set up Ninja
-        uses: ashutoshvarma/setup-ninja@master
+      - name: Set up MinGW
+        uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
 
-      - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Add MinGW tools to PATH
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: Join-Path $env:MSYS2_LOCATION "mingw64/bin" >> $env:GITHUB_PATH
 
       - name: Bootstrap Third-Party Dependencies
         shell: bash
@@ -180,17 +190,39 @@ jobs:
           python3 tools/gen_pmdsky_bindings.py
           python3 -m unittest discover tests/
 
-      - name: Build Static Recompiler & Run Test Suite
-        shell: bash
+      - name: Set up SDL3 MinGW SDK
+        shell: pwsh
         run: |
-          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/recompiler
-          ctest --test-dir build/recompiler --output-on-failure
+          $archive = Join-Path $env:RUNNER_TEMP "SDL3-devel-3.4.14-mingw.zip"
+          Invoke-WebRequest "https://github.com/libsdl-org/SDL/releases/download/release-3.4.14/SDL3-devel-3.4.14-mingw.zip" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne "5f43d6dfadaf13c63c8f52a9f8a31bcfd497faeb569cae9ba6165126d1ebb960") {
+            throw "SDL3 SDK checksum mismatch"
+          }
+          Expand-Archive $archive -DestinationPath $env:RUNNER_TEMP
 
-      - name: Package Windows Standalone Distribution
-        shell: bash
+      # CI has no ROM. The Windows ZIP runs cartridge code through the runtime.
+      - name: Build, Package, and Smoke Test Windows Distribution
+        shell: pwsh
         run: |
-          python3 scripts/package_release.py --platform windows
+          python scripts/build.py --without-game-banks --sdl3-sdk "$env:RUNNER_TEMP/SDL3-3.4.14"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/package_release.py --platform windows --without-game-banks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $zip = Get-Item "build/dist/SkyRecompiled-*-windows-x64.zip"
+          $testDir = Join-Path $env:RUNNER_TEMP "Windows package test"
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $testDir
+          $launcher = Join-Path $testDir "$($zip.BaseName)/SkyRecompiled.ps1"
+          # Check that the executable loads with its bundled DLL and Windows system DLLs.
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $launcher -CheckRunner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Static Recompiler Test Suite
+        shell: pwsh
+        run: |
+          cmake --build build/recompiler
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/recompiler --output-on-failure
 
       - name: Upload Windows Recompiler Binary
         uses: actions/upload-artifact@v4
@@ -204,4 +236,4 @@ jobs:
         with:
           name: skyrecompiled-dist-windows-x64
           path: build/dist/SkyRecompiled-*-windows-x64.zip
-          if-no-files-found: warn
+          if-no-files-found: error
