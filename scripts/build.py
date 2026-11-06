@@ -46,14 +46,17 @@ for extra_path in ["/opt/homebrew/bin", "/usr/local/bin"]:
 
 
 def log(msg: str) -> None:
+    """Format and print an informational build status message."""
     print(f"\033[1;36m[SkyRecompiled:build]\033[0m {msg}", flush=True)
 
 
 def log_err(msg: str) -> None:
+    """Format and print an error message to standard error."""
     print(f"\033[1;31m[SkyRecompiled:build ERROR]\033[0m {msg}", file=sys.stderr, flush=True)
 
 
 def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    """Execute a subprocess command, exiting immediately on failure."""
     display_cmd = " ".join(cmd)
     log(f"Running: {display_cmd}")
     res = subprocess.run(cmd, cwd=cwd or REPO_ROOT, env=env)
@@ -63,6 +66,7 @@ def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None 
 
 
 def check_prerequisites() -> None:
+    """Verify that required build tools are installed and available on PATH."""
     log("Checking prerequisites...")
     required_tools = ["cmake", "ninja"]
     if sys.platform == "win32":
@@ -86,6 +90,7 @@ def windows_compiler_args() -> list[str]:
 
 
 def ensure_third_party() -> None:
+    """Verify pinned third-party dependencies, running setup script if missing."""
     ndsrecomp_dir = REPO_ROOT / "third_party" / "ndsrecomp"
     pmdsky_debug_dir = REPO_ROOT / "third_party" / "pmdsky-debug"
     recomp_ui_dir = REPO_ROOT / "third_party" / "recomp-ui"
@@ -102,6 +107,7 @@ def ensure_third_party() -> None:
 
 
 def build_recompiler(jobs: int, build_type: str) -> Path:
+    """Build the offline nds_recompile static recompiler executable."""
     log(f"Building nds_recompile ({build_type})...")
     RECOMPILER_BUILD_DIR.mkdir(parents=True, exist_ok=True)
     exe_name = "nds_recompile.exe" if sys.platform == "win32" else "nds_recompile"
@@ -188,6 +194,7 @@ def generate_freebios(
 
 
 def find_rom(rom_arg: str | None) -> Path:
+    """Locate and return the path to the Explorers of Sky ROM image."""
     if rom_arg:
         p = Path(rom_arg).expanduser().resolve()
         if p.exists():
@@ -243,6 +250,7 @@ def build_runner(
     eu_banks = BUILD_DIR / "generated_sky_eu"
 
     def has_banks(bank_dir: Path) -> bool:
+        """Check whether the given directory contains generated dispatch banks."""
         return bank_dir.exists() and any(bank_dir.glob("*_dispatch.c"))
 
     is_apple = platform.system() == "Darwin"
@@ -301,6 +309,7 @@ def build_runner(
 
 
 def main() -> None:
+    """Parse command-line arguments and run the SkyRecompiled build orchestration pipeline."""
     parser = argparse.ArgumentParser(description="SkyRecompiled Top-Level Build Orchestrator")
     parser.add_argument("--rom", type=str, default=None, help="Path to Explorers of Sky (USA) .nds ROM")
     parser.add_argument("--clean", action="store_true", help="Clean build directory before building")

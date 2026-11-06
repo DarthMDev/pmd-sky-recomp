@@ -57,10 +57,16 @@ cache_valid() {
 }
 
 apply_patch() {
-    local dest="$1" patch="${REPO_ROOT}/patches/$2"
+    local dest="$1" patch="${REPO_ROOT}/patches/$2" required="${3:-optional}"
     local files added removed path
     local -a applied=()
-    [[ -f "${patch}" ]] || return 0
+    if [[ ! -f "${patch}" ]]; then
+        if [[ "${required}" == "required" ]]; then
+            echo "[setup] ERROR: Required patch ${patch} is missing" >&2
+            exit 1
+        fi
+        return 0
+    fi
     if git -C "${dest}" apply --reverse --check "${patch}" 2>/dev/null; then
         return 0
     fi
@@ -83,8 +89,8 @@ apply_patches() {
     apply_patch "${ndsrecomp}" ndsrecomp-window-title.patch
     apply_patch "${ndsrecomp}/external/arm-recomp-core" arm-recomp-core-msvc-popcount.patch
     if [[ "${1:-}" == "--ios" ]]; then
-        apply_patch "${ndsrecomp}" ndsrecomp-ios.patch
-        apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch
+        apply_patch "${ndsrecomp}" ndsrecomp-ios.patch required
+        apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch required
     fi
 }
 

@@ -46,5 +46,20 @@ int main() {
                 "a mode switch at the same address must decode as Thumb");
     ok &= check(sky_compile_rom(rom.data(), rom.size() - 1) == 0,
                 "a truncated executable region must fail preparation");
+
+    auto unaligned_pc = rom;
+    write32(unaligned_pc.data() + 0x28, 0x02000001);
+    ok &= check(sky_compile_rom(unaligned_pc.data(), unaligned_pc.size()) == 0,
+                "an unaligned PC must fail preparation");
+
+    auto offset_beyond_rom = rom;
+    write32(offset_beyond_rom.data() + 0x20, 0x50);
+    ok &= check(sky_compile_rom(offset_beyond_rom.data(), offset_beyond_rom.size()) == 0,
+                "an offset beyond the ROM size must fail preparation");
+
+    auto pc_length_overflow = rom;
+    write32(pc_length_overflow.data() + 0x28, 0xfffffffc);
+    ok &= check(sky_compile_rom(pc_length_overflow.data(), pc_length_overflow.size()) == 0,
+                "a PC + length overflow must fail preparation");
     return ok ? 0 : 1;
 }

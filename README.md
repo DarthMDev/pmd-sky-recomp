@@ -110,8 +110,8 @@ The build writes `build/ios/SkyRecompiled-iOS-alpha.ipa`. The **iOS alpha IPA**
 GitHub Actions workflow builds the same artifact without signing secrets or a ROM.
 Download and extract the workflow artifact to get the IPA.
 
-1. Set up AltStore Classic on your iPhone or iPad and enable Developer Mode on
-   iOS or iPadOS 16 and later. [AltStore setup for macOS](https://faq.altstore.io/altstore-classic/how-to-install-altstore-macos)
+1. SkyRecompiled requires iOS or iPadOS 16.0 or later. Set up AltStore Classic
+   on your iPhone or iPad and enable Developer Mode. [AltStore setup for macOS](https://faq.altstore.io/altstore-classic/how-to-install-altstore-macos)
 2. Save the IPA to Files. In AltStore, open **My Apps**, tap **+**, and select
    the IPA. AltStore signs it for your device. Refresh it before the signing
    expires. [AltStore signing and refresh](https://faq.altstore.io/altstore-classic/your-altstore)
