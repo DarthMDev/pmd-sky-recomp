@@ -82,6 +82,16 @@ if [[ -f "${MSVC_TOOLS_PATCH}" ]]; then
     fi
 fi
 
+TITLE_PATCH="${REPO_ROOT}/patches/ndsrecomp-window-title.patch"
+if [[ -f "${TITLE_PATCH}" ]]; then
+    if git -C "${TP_DIR}/ndsrecomp" apply --reverse --check "${TITLE_PATCH}" 2>/dev/null; then
+        echo "[setup] Window title patch already applied to ndsrecomp."
+    else
+        echo "[setup] Applying patches/ndsrecomp-window-title.patch..."
+        git -C "${TP_DIR}/ndsrecomp" apply "${TITLE_PATCH}"
+    fi
+fi
+
 CORE_PATCH="${REPO_ROOT}/patches/arm-recomp-core-msvc-popcount.patch"
 if [[ -f "${CORE_PATCH}" ]]; then
     if git -C "${TP_DIR}/ndsrecomp/external/arm-recomp-core" apply --reverse --check "${CORE_PATCH}" 2>/dev/null; then

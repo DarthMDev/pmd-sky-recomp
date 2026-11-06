@@ -1,0 +1,45 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+index 7d9d4eb..8cbd6a2 100644
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -1783,8 +1783,8 @@ bool create_presentation(const NdsFrontendOptions& options,
+         (presentation.gl_top
+              ? static_cast<uint64_t>(SDL_WINDOW_OPENGL) : 0u);
+     presentation.windows[0] = create_window(
+-        presentation.separate ? "ndsrecomp - Top Screen"
+-                               : "ndsrecomp firmware preview",
++        presentation.separate ? "SkyRecompiled - Top Screen"
++                               : "SkyRecompiled",
+         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+         (presentation.separate ? presentation.screen_widths[0]
+                                : presentation.canvas_width) * kWindowScale,
+@@ -1845,7 +1845,7 @@ bool create_presentation(const NdsFrontendOptions& options,
+         int top_y = 0;
+         SDL_GetWindowPosition(presentation.windows[0], &top_x, &top_y);
+         presentation.windows[1] = create_window(
+-            "ndsrecomp - Bottom Screen",
++            "SkyRecompiled - Bottom Screen",
+             top_x + initial_size.top_width + 32,
+             top_y,
+             initial_size.bottom_width,
+@@ -4463,16 +4463,16 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                           (perf_governor.stage2_held ? " held" : "")
+                     : "";
+             const std::string top_title = !savestate_notice.empty()
+-                ? "ndsrecomp - " + savestate_notice
++                ? "SkyRecompiled - " + savestate_notice
+                 : presentation.separate
+-                ? "ndsrecomp - Top Screen - " + fps_text + governor_text
+-                : "ndsrecomp firmware preview - " + fps_text +
++                ? "SkyRecompiled - Top Screen - " + fps_text + governor_text
++                : "SkyRecompiled - " + fps_text +
+                       governor_text;
+             SDL_SetWindowTitle(presentation.windows[0],
+                                top_title.c_str());
+             if (presentation.separate) {
+                 const std::string bottom_title =
+-                    "ndsrecomp - Bottom Screen - " + fps_text +
++                    "SkyRecompiled - Bottom Screen - " + fps_text +
+                     governor_text;
+                 SDL_SetWindowTitle(presentation.windows[1],
+                                    bottom_title.c_str());
