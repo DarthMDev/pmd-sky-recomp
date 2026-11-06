@@ -1,17 +1,10 @@
 name: iOS alpha IPA
 
 on:
+  push:
+    branches: [main]
   pull_request:
-    paths:
-      - '.github/workflows/ios.yml'
-      - 'src/ios/**'
-      - 'patches/**'
-      - 'scripts/build.py'
-      - 'scripts/build_ios.py'
-      - 'scripts/setup_third_party.sh'
-      - 'config/game.toml'
-      - 'tests/ios_*_test.cpp'
-      - 'LICENSE'
+    branches: [main]
   workflow_dispatch:
 
 permissions:

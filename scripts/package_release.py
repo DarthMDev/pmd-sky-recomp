@@ -193,6 +193,7 @@ audio, or assets. Players must provide their own legally owned cartridge dump.
 
 
 def package_macos() -> Path:
+    """Package the macOS application bundle into a distribution ZIP."""
     print(f"\033[1;36m[package:macos]\033[0m Packaging macOS Application Bundle...")
     package_script = REPO_ROOT / "scripts" / "package_macos_app.py"
     subprocess.run([sys.executable, str(package_script)], check=True)
@@ -214,6 +215,7 @@ def package_macos() -> Path:
 
 
 def package_linux() -> Path:
+    """Package the Linux standalone distribution into a tar.gz archive."""
     print(f"\033[1;36m[package:linux]\033[0m Packaging Linux Standalone Distribution...")
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     pkg_dir = BUILD_DIR / f"SkyRecompiled-v{VERSION}-linux-x86_64"
@@ -318,9 +320,27 @@ def package_windows(*, without_game_banks: bool = False) -> Path:
     return zip_path
 
 
+def package_ios() -> Path:
+    """Package the ROM-free iOS alpha IPA for distribution."""
+    print(f"\033[1;36m[package:ios]\033[0m Packaging iOS Alpha IPA Distribution...")
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    ipa_source = BUILD_DIR / "ios" / "SkyRecompiled-iOS-alpha.ipa"
+    if not ipa_source.is_file():
+        build_ios_script = REPO_ROOT / "scripts" / "build_ios.py"
+        subprocess.run([sys.executable, str(build_ios_script)], check=True)
+    if not ipa_source.is_file():
+        raise SystemExit(f"Cannot package iOS: missing {ipa_source}")
+
+    ipa_dist = DIST_DIR / f"SkyRecompiled-v{VERSION}-ios.ipa"
+    shutil.copy2(ipa_source, ipa_dist)
+    print(f"\033[1;32m[package:ios:done]\033[0m {ipa_dist} ({ipa_dist.stat().st_size / 1024 / 1024:.1f} MB)")
+    return ipa_dist
+
+
 def main() -> None:
+    """Parse arguments and create distribution packages for specified platforms."""
     parser = argparse.ArgumentParser(description="SkyRecompiled Release Packager")
-    parser.add_argument("--platform", choices=["macos", "linux", "windows", "all"], default="all")
+    parser.add_argument("--platform", choices=["macos", "linux", "windows", "ios", "all"], default="all")
     parser.add_argument("--without-game-banks", action="store_true", help="Windows: package the build from build/runner-fallback")
     args = parser.parse_args()
     if args.without_game_banks and args.platform != "windows":
@@ -334,6 +354,8 @@ def main() -> None:
         package_linux()
     if args.platform in ("windows", "all"):
         package_windows(without_game_banks=args.without_game_banks)
+    if args.platform in ("ios", "all") and platform.system() == "Darwin":
+        package_ios()
 
     print("\n\033[1;32mAll release packages generated in build/dist/\033[0m")
     for f in DIST_DIR.iterdir():

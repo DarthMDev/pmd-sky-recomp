@@ -100,15 +100,14 @@ After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that t
 
 ## iPhone and iPad alpha
 
-Build on a Mac with Xcode, CMake, Ninja, and Python 3:
+Download the pre-built `SkyRecompiled-v0.1.0-alpha-ios.ipa` from the [latest GitHub Releases](https://github.com/DarthMDev/pmd-sky-recomp/releases/tag/v0.1.0-alpha), or build from source on a Mac with Xcode, CMake, Ninja, and Python 3:
 
 ```bash
 python3 scripts/build_ios.py
 ```
 
-The build writes `build/ios/SkyRecompiled-iOS-alpha.ipa`. The **iOS alpha IPA**
-GitHub Actions workflow builds the same artifact without signing secrets or a ROM.
-Download and extract the workflow artifact to get the IPA.
+The build writes `build/ios/SkyRecompiled-iOS-alpha.ipa` (or package for distribution with `python3 scripts/package_release.py --platform ios`). The **iOS alpha IPA**
+GitHub Actions workflow builds and verifies this same artifact on push to `main` and pull requests.
 
 1. SkyRecompiled requires iOS or iPadOS 16.0 or later. Set up AltStore Classic
    on your iPhone or iPad and enable Developer Mode. [AltStore setup for macOS](https://faq.altstore.io/altstore-classic/how-to-install-altstore-macos)
