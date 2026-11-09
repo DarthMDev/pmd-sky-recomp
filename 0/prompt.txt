@@ -1,0 +1,23 @@
+Read TASKS_FLASH_MEDIUM and lets accomplish these , do this in a new branch so we can pr this with coderabbit reviews
+No codex prefix branch
+Stop and let me know when we can switch back to medium usage 
+Oh yeah arm-recomp-core got merged so idk if we still need the patch
+Also document adding support for changing languages in-game 
+Someone asked "Tried to tinker a bit but I don't see any way to change language using an european ROM. In my hardware DS, the game chooses the language the NDS firmware is in (English, French, German, Spanish and Italian). Is the firmware generated only in English?""
+
+---
+
+Read TASKS_FLASH_MEDIUM and lets accomplish these , do this in a new branch so we can pr this with coderabbit reviews
+No codex prefix branch
+Stop and let me know when we can switch back to medium usage 
+Oh yeah my pr for arm-recomp-core got merged so idk if we still need the patch
+Also document adding support for changing languages in-game 
+Someone asked "Tried to tinker a bit but I don't see any way to change language using an european ROM. In my hardware DS, the game chooses the language the NDS firmware is in (English, French, German, Spanish and Italian). Is the firmware generated only in English?""
+
+---
+
+can u update the `arm-recomp-core` pinned revision then please?
+
+---
+
+should language-support.md stay local and not be pushed to git? only keep useful files for developers and users
