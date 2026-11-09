@@ -1,0 +1,12 @@
+using low cellular usage if possible:
+fix this issue:
+"When running on Windows I get "nds_runner.exe" is not recognized or ObjectNotFound. Unable to compile or proceed on windows"
+Actually are we able to test windows via wine?
+
+---
+
+i dont like u removing the download, if anything we just need to upload a hotfix after we make the proper ci change
+
+---
+
+No codex prefix please, also let me know if a git push would use low amount of data
