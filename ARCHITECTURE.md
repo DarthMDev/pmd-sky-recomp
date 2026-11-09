@@ -94,11 +94,12 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 - **Custom Apple Metal / `SDL_GPU` HD Shader Pipeline:**
   - Crisp pixel-art AA (`pixellate` / `sharp-bilinear`), optional CRT/LCD subpixel grid, and per-weather dungeon ambient bloom/color grading driven by `GetWeatherColorTable` (`0x022DE620` NA).
 
-- **In-game language (planned):** Expose **Game language** in the
-  `recomp-ui` overlay for every supported cartridge. Show the languages
+- **In-game language (planned):** Add **Game language** to Explorers of Sky’s
+  own options menu for every supported cartridge. Show the languages
   available for the active ROM. The USA release contains English, and the
   European release contains English, French, German, Italian, and Spanish.
-  Persist the preference in host settings and apply it on the next launch so
+  Pass the confirmed choice from the game menu to the runtime and persist it
+  in host settings. Apply it on the next launch so
   the game loads the matching resources during startup. If the active ROM
   lacks the preferred language, use English for that session and retain the
   saved preference.
