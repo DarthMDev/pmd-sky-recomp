@@ -11,6 +11,9 @@ TP_DIR="${SKY_THIRD_PARTY_DIR:-${REPO_ROOT}/third_party}"
 
 NDSRECOMP_URL="https://github.com/RetroPortingToolKit/ndsrecomp.git"
 NDSRECOMP_SHA="54967a4e26bcd6ad46445d51bab3214decc3fd59"
+# ndsrecomp's gitlink predates mstan/arm-recomp-core#8 (MSVC std::popcount).
+ARM_CORE_SUBMODULE="external/arm-recomp-core"
+ARM_CORE_SHA="a52db07db5c0d920a34de7148874a3176195ee69"
 
 PMDSKY_DEBUG_URL="https://github.com/UsernameFodder/pmdsky-debug.git"
 PMDSKY_DEBUG_SHA="64979c3df12d59dfc6788140fc1eca4c36ef2a5c"
@@ -36,7 +39,7 @@ tomlpp_valid() {
 pinned_checkout() {
     local dest="${TP_DIR}/$1"
     local head deleted
-    [[ -d "${dest}/.git" ]] || return 1
+    [[ -e "${dest}/.git" ]] || return 1
     head="$(git -C "${dest}" rev-parse HEAD)" || return 1
     deleted="$(git -C "${dest}" ls-files --deleted)" || return 1
     [[ "${head}" == "$2" && -z "${deleted}" ]]
@@ -45,9 +48,10 @@ pinned_checkout() {
 cache_valid() {
     local submodules
     pinned_checkout ndsrecomp "${NDSRECOMP_SHA}" || return 1
+    pinned_checkout "ndsrecomp/${ARM_CORE_SUBMODULE}" "${ARM_CORE_SHA}" || return 1
     pinned_checkout pmdsky-debug "${PMDSKY_DEBUG_SHA}" || return 1
     pinned_checkout recomp-ui "${RECOMP_UI_SHA}" || return 1
-    submodules="$(git -C "${TP_DIR}/ndsrecomp" submodule status --recursive)" || return 1
+    submodules="$(git -C "${TP_DIR}/ndsrecomp" submodule status --recursive -- third_party/freebios)" || return 1
     if [[ "${submodules}" =~ (^|$'\n')[-+U] ]]; then
         return 1
     fi
@@ -87,7 +91,6 @@ apply_patches() {
     apply_patch "${ndsrecomp}" ndsrecomp-macos-arm64.patch
     apply_patch "${ndsrecomp}" ndsrecomp-msvc-tools.patch
     apply_patch "${ndsrecomp}" ndsrecomp-window-title.patch
-    apply_patch "${ndsrecomp}/external/arm-recomp-core" arm-recomp-core-msvc-popcount.patch
     if [[ "${1:-}" == "--ios" ]]; then
         apply_patch "${ndsrecomp}" ndsrecomp-ios.patch required
         apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch required
@@ -120,8 +123,30 @@ clone_and_pin() {
     git -C "${dest}" ls-files --deleted -z | git -C "${dest}" checkout-index -z --stdin
 }
 
+pin_arm_core() {
+    local ndsrecomp="$1" core="$1/${ARM_CORE_SUBMODULE}"
+    local interpreter=common/interpreter_impl.h
+    if [[ ! -e "${core}/.git" ]]; then
+        git -C "${ndsrecomp}" submodule update --init -- "${ARM_CORE_SUBMODULE}"
+    fi
+    if ! git -C "${core}" cat-file -e "${ARM_CORE_SHA}^{commit}"; then
+        git -C "${core}" fetch --quiet origin "${ARM_CORE_SHA}"
+    fi
+
+    # Older setups patched this header in place. Clear that edit only when
+    # the file already matches the upstream version and has no staged edits.
+    if git -C "${core}" diff --cached --quiet -- "${interpreter}" &&
+        git -C "${core}" diff --quiet "${ARM_CORE_SHA}" -- "${interpreter}" &&
+        ! git -C "${core}" diff --quiet -- "${interpreter}"; then
+        git -C "${core}" restore -- "${interpreter}"
+    fi
+    echo "[setup] Pinning arm-recomp-core to ${ARM_CORE_SHA:0:10}..."
+    git -C "${core}" checkout --quiet "${ARM_CORE_SHA}"
+}
+
 clone_and_pin "ndsrecomp" "${NDSRECOMP_URL}" "${NDSRECOMP_SHA}"
-git -C "${TP_DIR}/ndsrecomp" submodule update --init --recursive
+git -C "${TP_DIR}/ndsrecomp" submodule update --init --recursive -- third_party/freebios
+pin_arm_core "${TP_DIR}/ndsrecomp"
 git -C "${TP_DIR}/ndsrecomp" submodule foreach --quiet --recursive \
     'git ls-files --deleted -z | git checkout-index -z --stdin'
 
