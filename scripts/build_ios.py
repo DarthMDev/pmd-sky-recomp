@@ -13,7 +13,7 @@ from pathlib import Path
 from build import BUILD_DIR, REPO_ROOT, generate_freebios, log, run_cmd
 
 IOS_DIR = BUILD_DIR / "ios"
-SOURCE_DIR = REPO_ROOT / "src" / "ios"
+SOURCE_DIR = REPO_ROOT / "runtime" / "ios"
 SDL_VERSION = "3.4.14"
 SDL_SHA256 = "9d57b178fb297e121ef2605275937b7afaa7cd24d99ce1f95953e69e7a2535d6"
 SDL_URL = f"https://codeload.github.com/libsdl-org/SDL/tar.gz/refs/tags/release-{SDL_VERSION}"
@@ -100,15 +100,17 @@ def main() -> None:
     generate_freebios(host / "nds_recompile", ndsrecomp, bios)
 
     target = IOS_DIR / ("simulator" if args.simulator else "device")
+    cmake_dir = IOS_DIR / "cmake" / target.name
     run_cmd([
-        "cmake", "-S", str(SOURCE_DIR), "-B", str(target), "-G", "Ninja",
+        "cmake", "-S", str(SOURCE_DIR), "-B", str(cmake_dir), "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_SYSTEM_NAME=iOS",
         f"-DCMAKE_OSX_SYSROOT={sdk}", "-DCMAKE_OSX_ARCHITECTURES=arm64",
         "-DCMAKE_OSX_DEPLOYMENT_TARGET=16.0",
+        f"-DSKY_IOS_OUTPUT_DIR={target}",
         f"-DSKY_NDSRECOMP_DIR={ndsrecomp}", f"-DSKY_SDL_DIR={sdl}",
         f"-DNDS_RECOMP_UI_ROOT={ui}", f"-DNDS_GENERATED_DIR={bios}",
     ])
-    run_cmd(["cmake", "--build", str(target), "--target", "nds_runner"])
+    run_cmd(["cmake", "--build", str(cmake_dir), "--target", "nds_runner"])
     app = target / "SkyRecompiled.app"
     if args.simulator:
         stage_resources(app, ndsrecomp, ui, sdl)

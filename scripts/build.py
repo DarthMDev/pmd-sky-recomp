@@ -30,6 +30,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = REPO_ROOT / "build"
+CMAKE_BUILD_DIR = BUILD_DIR / "cmake"
 RECOMPILER_BUILD_DIR = BUILD_DIR / "recompiler"
 RUNNER_BUILD_DIR = BUILD_DIR / "runner"
 GENERATED_BIOS_DIR = BUILD_DIR / "generated_bios"
@@ -90,20 +91,17 @@ def windows_compiler_args() -> list[str]:
 
 
 def ensure_third_party() -> None:
-    """Verify pinned third-party dependencies, running setup script if missing."""
-    ndsrecomp_dir = REPO_ROOT / "third_party" / "ndsrecomp"
-    pmdsky_debug_dir = REPO_ROOT / "third_party" / "pmdsky-debug"
-    recomp_ui_dir = REPO_ROOT / "third_party" / "recomp-ui"
-
-    if not (ndsrecomp_dir.exists() and pmdsky_debug_dir.exists() and recomp_ui_dir.exists()):
-        log("Third-party dependencies missing. Running scripts/setup_third_party.sh...")
-        setup_script = REPO_ROOT / "scripts" / "setup_third_party.sh"
-        if not setup_script.exists():
-            log_err(f"Cannot find {setup_script}")
-            sys.exit(1)
-        run_cmd(["bash", str(setup_script)])
-    else:
-        log("Third-party dependencies verified.")
+    """Verify and update pinned dependencies before building."""
+    bash = shutil.which("bash")
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+        if git_bash.is_file():
+            bash = str(git_bash)
+    if not bash:
+        log_err("Bash is required to verify third-party dependencies. See README.md.")
+        sys.exit(1)
+    env = {**os.environ, "SKY_THIRD_PARTY_DIR": (REPO_ROOT / "third_party").as_posix()}
+    run_cmd([bash, str(REPO_ROOT / "scripts" / "setup_third_party.sh")], env=env)
 
 
 def build_recompiler(jobs: int, build_type: str) -> Path:
@@ -115,14 +113,15 @@ def build_recompiler(jobs: int, build_type: str) -> Path:
 
     cmake_args = [
         "cmake",
-        "-S", str(REPO_ROOT / "third_party" / "ndsrecomp" / "recompiler"),
-        "-B", str(RECOMPILER_BUILD_DIR),
+        "-S", str(REPO_ROOT / "translator"),
+        "-B", str(CMAKE_BUILD_DIR / "recompiler"),
+        f"-DSKY_RECOMPILER_OUTPUT_DIR={RECOMPILER_BUILD_DIR}",
         "-G", "Ninja",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         *windows_compiler_args(),
     ]
     run_cmd(cmake_args)
-    run_cmd(["cmake", "--build", str(RECOMPILER_BUILD_DIR), "--target", "nds_recompile", f"-j{jobs}"])
+    run_cmd(["cmake", "--build", str(CMAKE_BUILD_DIR / "recompiler"), "--target", "nds_recompile", f"-j{jobs}"])
 
     if not recompiler_bin.exists():
         log_err(f"Expected recompiler binary not found at {recompiler_bin}")
@@ -228,7 +227,7 @@ def compile_game_banks(rom_path: Path, recompiler_bin: Path, forced_region: str 
         sys.exit(1)
 
     log(f"ROM SHA-1 verified: {sha1} (Region: {region})")
-    prepare_script = REPO_ROOT / "tools" / "prepare_rom.py"
+    prepare_script = REPO_ROOT / "translator" / "prepare_rom.py"
     run_cmd([
         sys.executable, str(prepare_script), "--rom", str(rom_path),
         "--compile", "--recompiler", str(recompiler_bin),
@@ -242,7 +241,7 @@ def build_runner(
     """Configure and build the native nds_runner executable."""
     log(f"Building nds_runner ({build_type}, region={region_mode})...")
     runner_build_dir = BUILD_DIR / "runner-fallback" if without_game_banks else RUNNER_BUILD_DIR
-    runner_src_dir = REPO_ROOT / "third_party" / "ndsrecomp" / "runner"
+    runner_cmake_dir = CMAKE_BUILD_DIR / runner_build_dir.name
 
     us_banks = BUILD_DIR / "generated_sky_us"
     if not us_banks.exists() and (BUILD_DIR / "generated_sky_na").exists():
@@ -256,9 +255,12 @@ def build_runner(
     is_apple = platform.system() == "Darwin"
     cmake_args = [
         "cmake",
-        "-S", str(runner_src_dir),
-        "-B", str(runner_build_dir),
+        "-S", str(REPO_ROOT),
+        "-B", str(runner_cmake_dir),
+        f"-DSKY_RUNNER_OUTPUT_DIR={runner_build_dir}",
         "-G", "Ninja",
+        # Clear stale bank settings before selecting the requested region.
+        "-U", "NDS_TITLE_BANK_DIR*", "-U", "NDS_TITLE_ROM_SHA1*",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         "-DNDS_BOOTSTRAP_FIRMWARE=ON",
         f"-DNDS_ENABLE_COMPUTE_RENDERER={'OFF' if is_apple or sys.platform == 'win32' else 'ON'}",
@@ -293,7 +295,7 @@ def build_runner(
         cmake_args.append(f"-DSDL3_DIR={sdl3_sdk / 'cmake'}")
 
     run_cmd(cmake_args)
-    run_cmd(["cmake", "--build", str(runner_build_dir), "--target", "nds_runner", f"-j{jobs}"])
+    run_cmd(["cmake", "--build", str(runner_cmake_dir), "--target", "nds_runner", f"-j{jobs}"])
 
     exe_name = "nds_runner.exe" if sys.platform == "win32" else "nds_runner"
     runner_bin = runner_build_dir / exe_name

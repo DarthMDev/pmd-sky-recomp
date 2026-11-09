@@ -42,14 +42,15 @@ jobs:
 
       - name: Run PMDSky Bindings Generator & Full Test Suite
         run: |
-          python3 tools/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py
           python3 -m unittest discover tests/
 
       - name: Build Static Recompiler & Run Test Suite
         run: |
-          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/recompiler
-          ctest --test-dir build/recompiler --output-on-failure
+          cmake -S translator -B build/cmake/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSKY_RECOMPILER_OUTPUT_DIR="$PWD/build/recompiler"
+          cmake --build build/cmake/recompiler
+          ctest --test-dir build/cmake/recompiler --output-on-failure
 
       - name: Generate FreeBIOS Banks
         run: |
@@ -116,14 +117,15 @@ jobs:
 
       - name: Run PMDSky Bindings Generator & Full Test Suite
         run: |
-          python3 tools/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py
           python3 -m unittest discover tests/
 
       - name: Build Static Recompiler & Run Test Suite
         run: |
-          cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/recompiler
-          ctest --test-dir build/recompiler --output-on-failure
+          cmake -S translator -B build/cmake/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSKY_RECOMPILER_OUTPUT_DIR="$PWD/build/recompiler"
+          cmake --build build/cmake/recompiler
+          ctest --test-dir build/cmake/recompiler --output-on-failure
 
       - name: Package Linux Standalone Distribution
         run: |
@@ -187,7 +189,7 @@ jobs:
       - name: Run PMDSky Bindings Generator & Full Test Suite
         shell: bash
         run: |
-          python3 tools/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py
           python3 -m unittest discover tests/
 
       - name: Set up SDL3 MinGW SDK
@@ -220,9 +222,9 @@ jobs:
       - name: Run Static Recompiler Test Suite
         shell: pwsh
         run: |
-          cmake --build build/recompiler
+          cmake --build build/cmake/recompiler
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ctest --test-dir build/recompiler --output-on-failure
+          ctest --test-dir build/cmake/recompiler --output-on-failure
 
       - name: Upload Windows Recompiler Binary
         uses: actions/upload-artifact@v4
