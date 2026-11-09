@@ -36,7 +36,8 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 The European cartridge includes English, French, German, Italian, and Spanish.
 SkyRecompiled's generated firmware currently selects English, so the European
 game starts in English. A language picker is planned for the in-game settings
-overlay and will apply the selected language on the next boot.
+overlay. It will show the languages available on your cartridge and apply
+your choice on the next launch. The USA release contains English game text.
 
 ---
 

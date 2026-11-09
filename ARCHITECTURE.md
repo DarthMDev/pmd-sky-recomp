@@ -94,13 +94,17 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 - **Custom Apple Metal / `SDL_GPU` HD Shader Pipeline:**
   - Crisp pixel-art AA (`pixellate` / `sharp-bilinear`), optional CRT/LCD subpixel grid, and per-weather dungeon ambient bloom/color grading driven by `GetWeatherColorTable` (`0x022DE620` NA).
 
-- **In-game language (planned):** For the verified European cartridge, expose
-  English, French, German, Italian, and Spanish in the `recomp-ui` overlay.
-  Persist the choice in host settings and apply it on the next launch so the
-  game loads the matching resources during startup. Default to English.
+- **In-game language (planned):** Expose **Game language** in the
+  `recomp-ui` overlay for every supported cartridge. Show the languages
+  available for the active ROM. The USA release contains English, and the
+  European release contains English, French, German, Italian, and Spanish.
+  Persist the preference in host settings and apply it on the next launch so
+  the game loads the matching resources during startup. If the active ROM
+  lacks the preferred language, use English for that session and retain the
+  saved preference.
   After loading any firmware state and before direct boot, write the
-  corresponding DS language ID (1 through 5 in that order) into bits 0–2 of the
-  flags word at offset `0x64` in both generated firmware user settings blocks.
+  effective DS language ID (1 through 5 in the order above) into bits 0–2 of
+  the flags word at offset `0x64` in both generated firmware user settings blocks.
   Preserve the other flags and recalculate each block's checksum. Direct boot
   mirrors the effective settings into guest RAM at `0x027FFC80`.
 
