@@ -23,7 +23,7 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 | **USA (`NA`)** | `Pokemon Mystery Dungeon - Explorers of Sky (USA).nds` | `134,217,728` | `5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152` | `91161cb227c44a3e79fa2a622060385815f565647357062d7887f13f49d591e2` | **Primary Alpha Target** |
 | **Europe (`EU`)** | `Pokemon Mystery Dungeon - Explorers of Sky (Europe) (En,Fr,De,Es,It).nds` | `134,217,728` | `c838a5adf1ed32d2da8454976e5b1a1aa189c139` | `1fa39d35873b58e02f3623438414c334ad93b840651a8a9ac13ee3c789f170c1` | **Modular Multi-Region Ready** |
 
-> **Warning:** Scene-modified dumps such as `4273 - ... (US)(XenoPhobia).nds` (`SHA-1: 7efb50f925f0b483a66f2a266524173a8a25c4f0`) have altered headers/intro patches and are intentionally rejected by default (`tools/prepare_rom.py`). Custom SkyTemple ROM hacks are supported via `--allow-custom-rom --region NA|EU`.
+> **Warning:** Scene-modified dumps such as `4273 - ... (US)(XenoPhobia).nds` (`SHA-1: 7efb50f925f0b483a66f2a266524173a8a25c4f0`) have altered headers/intro patches and are intentionally rejected by default (`translator/prepare_rom.py`). Custom SkyTemple ROM hacks are supported via `--allow-custom-rom --region NA|EU`.
 
 ---
 
@@ -66,13 +66,24 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 ## 4. Roadmap & Subsystem Architecture
 
 ### Milestone 1: macOS Apple Silicon (`arm64`) Core Port (First Alpha)
-- Full 34-bank static recompilation (`tools/prepare_rom.py`), macOS `arm64` native runner (`SDL3` Metal presentation), BIOS-free direct boot, 128 KiB EEPROM saves, savestates, audio, gamepad/keyboard bindings, and `.app` bundle (`SkyRecompiled.app`).
+- Full 34-bank static recompilation (`translator/prepare_rom.py`), macOS `arm64` native runner (`SDL3` Metal presentation), BIOS-free direct boot, 128 KiB EEPROM saves, savestates, audio, gamepad/keyboard bindings, and `.app` bundle (`SkyRecompiled.app`).
 
 ### Milestone 2: Cross-Platform Windows & Linux Builds
 - Top-level `CMakeLists.txt` + `CMakePresets.json` orchestrating `nds_recompile`, `generated_bios`, `prepare_rom.py`, and `SkyRecompiled` across:
   - **macOS (`arm64` / Universal)** -- AppleClang + Ninja + SDL3 Metal
   - **Windows (`x86_64`)** -- MSVC / MinGW-w64 + Ninja + SDL3 Direct3D12/Vulkan/OpenGL4.3
   - **Linux (`x86_64` / `aarch64`)** -- Clang/GCC + Ninja + SDL3 Vulkan/OpenGL4.3
+
+### Build layout
+
+- `translator/` owns offline ROM preparation and symbol binding generation.
+  Its CMake entry point builds the pinned `nds_recompile` backend.
+- `runtime/` owns integration of the native runner. The root CMake project
+  builds the pinned `nds_runner` backend through this directory. The iOS app
+  and its ROM compiler integration live in `runtime/ios/`.
+- `scripts/build.py` coordinates the two build trees under `build/cmake/`.
+  The executables still land in `build/recompiler/` and `build/runner/` (or
+  `build/runner-fallback/` for cartridge runtime execution).
 
 ### Milestone 3: Performance & Graphics Beyond Emulators
 - **Note on Frame Rate:** Vanilla *Explorers of Sky* already runs natively at **60 FPS** (`59.8261 Hz`), NOT 30 FPS! Therefore, instead of a "30->60 FPS patch", our standout smoothness upgrade is **High-Refresh-Rate (`120Hz` / `144Hz` / `240Hz`) Sub-Pixel Camera & Entity Interpolation**--reading camera/entity coordinates from `DUNGEON_PTR_MASTER` (`overlay29`) and `GROUND_STATE_PTRS` (`overlay11`) at $t-1$ and $t$ to render silky-smooth intermediate frames on ProMotion / high-Hz monitors with zero added input latency.
@@ -83,10 +94,20 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 - **Custom Apple Metal / `SDL_GPU` HD Shader Pipeline:**
   - Crisp pixel-art AA (`pixellate` / `sharp-bilinear`), optional CRT/LCD subpixel grid, and per-weather dungeon ambient bloom/color grading driven by `GetWeatherColorTable` (`0x022DE620` NA).
 
+- **In-game language (planned):** For the verified European cartridge, expose
+  English, French, German, Italian, and Spanish in the `recomp-ui` overlay.
+  Persist the choice in host settings and apply it on the next launch so the
+  game loads the matching resources during startup. Default to English.
+  After loading any firmware state and before direct boot, write the
+  corresponding DS language ID (1 through 5 in that order) into bits 0–2 of the
+  flags word at offset `0x64` in both generated firmware user settings blocks.
+  Preserve the other flags and recalculate each block's checksum. Direct boot
+  mirrors the effective settings into guest RAM at `0x027FFC80`.
+
 ### Milestone 4: Launcher, SkyTemple Mod Loader & Online Rescue Overhaul
 - **Mod Support (Two-Tier):**
   1. **Zero-Recompile Layered NitroFS Virtual Filesystem (`mods/<mod_name>/romfs/...`):** Intercept NitroFS `FAT`/`FNT` file reads (portraits, sprites, music `.smd`/`.swd`, scripts `.ssb`, text `message.bin`, dungeon balance `.bin`) on the fly without patching the `.nds` ROM.
-  2. **SkyTemple ROM Hack AOT Support:** `tools/prepare_rom.py --allow-custom-rom` automatically BLZ-decompresses modified `arm9`/overlays and recompiles custom ASM hacks (`extra_space` overlay `36` if present) into native code.
+  2. **SkyTemple ROM Hack AOT Support:** `translator/prepare_rom.py --allow-custom-rom` automatically BLZ-decompresses modified `arm9`/overlays and recompiles custom ASM hacks (`extra_space` overlay `36` if present) into native code.
 - **Online Rescue Overhaul (*Rescue Team DX* Style on Near-\$0 Hosting):**
   - Read/inject vanilla **Wonder Mail S / SOS Mail / A-OK Mail / Thank-You Mail** structs directly in guest RAM (with classic 54-char Wonder Mail S passwords preserved forever as an offline/serverless fallback!).
   - Lightweight open-source REST/WebSocket rescue bulletin board targetable to **Cloudflare Workers + Cloudflare D1 (SQLite)** free tier (\$0/month for tens of thousands of daily rescues). Live production deployment: `https://sky-rescue-worker.darthanonymous1.workers.dev/`.

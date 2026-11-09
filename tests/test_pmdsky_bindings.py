@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-GEN_SCRIPT = REPO_ROOT / "tools" / "gen_pmdsky_bindings.py"
+GEN_SCRIPT = REPO_ROOT / "translator" / "gen_pmdsky_bindings.py"
 HEADER_PATH = REPO_ROOT / "include" / "skyrecomp" / "pmdsky_addrs.hpp"
 CPP_TEST = REPO_ROOT / "tests" / "pmdsky_bindings_test.cpp"
 

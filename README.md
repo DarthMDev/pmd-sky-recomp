@@ -31,6 +31,13 @@
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 
+### Can I play a European ROM in another language?
+
+The European cartridge includes English, French, German, Italian, and Spanish.
+SkyRecompiled's generated firmware currently selects English, so the European
+game starts in English. A language picker is planned for the in-game settings
+overlay and will apply the selected language on the next boot.
+
 ---
 
 ## Quickstart (macOS Apple Silicon)
@@ -40,38 +47,18 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 brew install cmake ninja sdl3 python
 ```
 
-### 1. Bootstrap Third-Party Dependencies
+### Build and launch
+
+Supply a clean USA or Europe ROM. Bootstrap the pinned tools, compile the game,
+and package the macOS app:
+
 ```bash
 ./scripts/setup_third_party.sh
+python3 scripts/build.py --rom "/path/to/Explorers of Sky.nds" --package
+open build/SkyRecompiled.app
 ```
 
-### 2. Build the Static Recompiler & FreeBIOS Banks
-```bash
-cmake -S third_party/ndsrecomp/recompiler -B build/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/recompiler
-```
-
-### 3. Extract & Recompile Your Legally Owned USA ROM
-Verify your clean No-Intro USA ROM (`SHA-1: 5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152`):
-```bash
-python3 tools/prepare_rom.py --rom "/path/to/Pokemon Mystery Dungeon - Explorers of Sky (USA).nds" --compile
-```
-
-### 4. Build & Launch SkyRecompiled
-```bash
-cmake -S third_party/ndsrecomp/runner -B build/runner -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH=/opt/homebrew \
-  -DNDS_ENABLE_COMPUTE_RENDERER=OFF \
-  -DNDS_GENERATED_DIR="$PWD/build/generated_bios" \
-  -DNDS_TITLE_BANK_DIR="$PWD/build/generated_sky_us" \
-  -DNDS_TITLE_ROM_SHA1=5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152
-cmake --build build/runner --target nds_runner
-
-./build/runner/nds_runner build/console_state --interactive \
-  --config config/game.toml \
-  --rom "/path/to/Pokemon Mystery Dungeon - Explorers of Sky (USA).nds"
-```
+For the offline translator and runtime build layout, see [Architecture](ARCHITECTURE.md#build-layout).
 
 ---
 
