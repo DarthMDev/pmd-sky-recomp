@@ -28,10 +28,11 @@ TOMLPP_DEST="${TP_DIR}/ndsrecomp/recompiler/third_party/toml.hpp"
 tomlpp_valid() {
     local digest
     [[ -s "$1" ]] || return 1
+    # Hash stdin so checksum tools cannot prefix the digest when escaping a path.
     if command -v sha256sum >/dev/null 2>&1; then
-        digest="$(sha256sum "$1")" || return 1
+        digest="$(sha256sum < "$1")" || return 1
     else
-        digest="$(shasum -a 256 "$1")" || return 1
+        digest="$(shasum -a 256 < "$1")" || return 1
     fi
     [[ "${digest%% *}" == "${TOMLPP_SHA256}" ]]
 }

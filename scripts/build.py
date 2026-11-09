@@ -100,7 +100,7 @@ def ensure_third_party() -> None:
     if not bash:
         log_err("Bash is required to verify third-party dependencies. See README.md.")
         sys.exit(1)
-    env = {**os.environ, "SKY_THIRD_PARTY_DIR": str(REPO_ROOT / "third_party")}
+    env = {**os.environ, "SKY_THIRD_PARTY_DIR": (REPO_ROOT / "third_party").as_posix()}
     run_cmd([bash, str(REPO_ROOT / "scripts" / "setup_third_party.sh")], env=env)
 
 
