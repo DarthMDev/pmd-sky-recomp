@@ -8,4 +8,5 @@ endif()
 
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/runner" ndsrecomp)
 set_target_properties(nds_runner PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}")
+    RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
