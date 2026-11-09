@@ -91,20 +91,17 @@ def windows_compiler_args() -> list[str]:
 
 
 def ensure_third_party() -> None:
-    """Verify pinned third-party dependencies, running setup script if missing."""
-    ndsrecomp_dir = REPO_ROOT / "third_party" / "ndsrecomp"
-    pmdsky_debug_dir = REPO_ROOT / "third_party" / "pmdsky-debug"
-    recomp_ui_dir = REPO_ROOT / "third_party" / "recomp-ui"
-
-    if not (ndsrecomp_dir.exists() and pmdsky_debug_dir.exists() and recomp_ui_dir.exists()):
-        log("Third-party dependencies missing. Running scripts/setup_third_party.sh...")
-        setup_script = REPO_ROOT / "scripts" / "setup_third_party.sh"
-        if not setup_script.exists():
-            log_err(f"Cannot find {setup_script}")
-            sys.exit(1)
-        run_cmd(["bash", str(setup_script)])
-    else:
-        log("Third-party dependencies verified.")
+    """Verify and update pinned dependencies before building."""
+    bash = shutil.which("bash")
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+        if git_bash.is_file():
+            bash = str(git_bash)
+    if not bash:
+        log_err("Bash is required to verify third-party dependencies. See README.md.")
+        sys.exit(1)
+    env = {**os.environ, "SKY_THIRD_PARTY_DIR": str(REPO_ROOT / "third_party")}
+    run_cmd([bash, str(REPO_ROOT / "scripts" / "setup_third_party.sh")], env=env)
 
 
 def build_recompiler(jobs: int, build_type: str) -> Path:

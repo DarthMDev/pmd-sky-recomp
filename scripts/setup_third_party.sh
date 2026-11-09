@@ -97,8 +97,9 @@ apply_patches() {
     fi
 }
 
-if [[ "${1:-}" == "--ios" ]] && cache_valid; then
+if cache_valid; then
     apply_patches "$@"
+    echo "[setup] All third_party dependencies verified and ready."
     exit
 fi
 

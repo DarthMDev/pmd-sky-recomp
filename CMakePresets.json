@@ -11,7 +11,7 @@
       "displayName": "macOS Apple Silicon (arm64 Release)",
       "description": "Native macOS arm64 release build with SDL3 Metal presentation",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/cmake/preset-${presetName}",
+      "binaryDir": "${sourceDir}/build/cmake/runner",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_PREFIX_PATH": "/opt/homebrew",
@@ -20,6 +20,8 @@
         "NDS_ENABLE_COMPUTE_RENDERER": "OFF",
         "NDS_GENERATED_DIR": "${sourceDir}/build/generated_bios",
         "NDS_TITLE_BANK_DIR": "${sourceDir}/build/generated_sky_us",
+        "NDS_TITLE_BANK_DIRS": "",
+        "NDS_TITLE_ROM_SHA1S": "",
         "NDS_TITLE_ROM_SHA1": "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
       },
       "condition": {
@@ -53,7 +55,7 @@
       "displayName": "Linux x64 Release",
       "description": "Linux x64 release build with SDL3 Vulkan/OpenGL",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/cmake/preset-${presetName}",
+      "binaryDir": "${sourceDir}/build/cmake/runner",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "SKY_RUNNER_OUTPUT_DIR": "${sourceDir}/build/runner",
@@ -61,6 +63,8 @@
         "NDS_ENABLE_COMPUTE_RENDERER": "ON",
         "NDS_GENERATED_DIR": "${sourceDir}/build/generated_bios",
         "NDS_TITLE_BANK_DIR": "${sourceDir}/build/generated_sky_us",
+        "NDS_TITLE_BANK_DIRS": "",
+        "NDS_TITLE_ROM_SHA1S": "",
         "NDS_TITLE_ROM_SHA1": "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152"
       },
       "condition": {
