@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Unit test runner for Milestone 3 C++20 runtime subsystems."""
+
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -6,19 +9,33 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def resolve_recomp_ui_root() -> Path:
+    """Resolve the recomp-ui root directory from environment variables or default checkout."""
+    configured = os.environ.get("NDS_RECOMP_UI_ROOT") or os.environ.get("RECOMP_UI_ROOT")
+    if configured:
+        return Path(configured).resolve()
+    return REPO_ROOT / "third_party" / "recomp-ui"
+
+
 class TestMilestone3Runtime(unittest.TestCase):
-    def test_milestone3_cpp20_runtime_suite(self):
+    """Compiles and executes the Milestone 3 C++20 runtime verification suite."""
+
+    def test_milestone3_cpp20_runtime_suite(self) -> None:
         """Compile and run the Milestone 3 Widescreen PPU, Camera/Interpolation, Shaders, and recomp-ui suite."""
         build_dir = REPO_ROOT / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
+
+        recomp_ui_root = resolve_recomp_ui_root()
+        recomp_ui_inc = recomp_ui_root / "src"
+        recomp_ui_src = recomp_ui_inc / "common" / "recomp_runtime_ui.c"
 
         recomp_ui_obj = build_dir / "recomp_runtime_ui_test.o"
         c_compile_cmd = [
             "clang",
             "-std=c11",
-            f"-I{REPO_ROOT / 'third_party' / 'recomp-ui' / 'src'}",
+            f"-I{recomp_ui_inc}",
             "-c",
-            str(REPO_ROOT / "third_party" / "recomp-ui" / "src" / "common" / "recomp_runtime_ui.c"),
+            str(recomp_ui_src),
             "-o",
             str(recomp_ui_obj),
         ]
@@ -29,9 +46,10 @@ class TestMilestone3Runtime(unittest.TestCase):
         cpp_compile_cmd = [
             "clang++",
             "-std=c++20",
+            "-UNDEBUG",
             f"-I{REPO_ROOT / 'include'}",
             f"-I{REPO_ROOT / 'runtime'}",
-            f"-I{REPO_ROOT / 'third_party' / 'recomp-ui' / 'src'}",
+            f"-I{recomp_ui_inc}",
             str(REPO_ROOT / "tests" / "milestone3_runtime_test.cpp"),
             str(REPO_ROOT / "runtime" / "gpu2d" / "widescreen_ppu.cpp"),
             str(REPO_ROOT / "runtime" / "camera" / "dungeon_camera.cpp"),

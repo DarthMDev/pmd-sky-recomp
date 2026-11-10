@@ -6,6 +6,7 @@
 namespace skyrecomp::shaders {
 namespace {
 
+/// Ambient tint and bloom parameters for a single dungeon weather preset.
 struct WeatherAmbientProfile {
     std::array<float, 4> tint;      // RGB scale + A atmospheric haze blend
     std::array<float, 4> bloom_rgb; // RGB bloom highlight color
@@ -13,6 +14,7 @@ struct WeatherAmbientProfile {
     float bloom_threshold;
 };
 
+/// Returns the ambient color grading and bloom profile for the specified dungeon weather ID.
 [[nodiscard]] constexpr WeatherAmbientProfile GetWeatherProfile(DungeonWeatherId weather) noexcept {
     switch (weather) {
         case DungeonWeatherId::Sunny:
@@ -36,6 +38,7 @@ struct WeatherAmbientProfile {
     }
 }
 
+/// Clamps a normalized [0.0, 1.0] channel float to an 8-bit [0, 255] integer component.
 [[nodiscard]] uint8_t ClampByte(float v) noexcept {
     const int iv = static_cast<int>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
     return static_cast<uint8_t>(std::clamp(iv, 0, 255));
@@ -43,6 +46,7 @@ struct WeatherAmbientProfile {
 
 } // namespace
 
+/// Constructs a weather-aware HD shader pipeline for the specified ROM region and filter preset.
 WeatherShaderPipeline::WeatherShaderPipeline(
     pmdsky::Region region,
     ShaderFilterPreset filter,
@@ -51,10 +55,12 @@ WeatherShaderPipeline::WeatherShaderPipeline(
       filter_(filter),
       weather_bloom_enabled_(weather_bloom_enabled) {}
 
+/// Sets the LCD/CRT sub-pixel grid attenuation strength in `[0.0f, 1.0f]`.
 void WeatherShaderPipeline::SetSubpixelGridStrength(float strength) noexcept {
     subpixel_grid_strength_ = std::clamp(strength, 0.0f, 1.0f);
 }
 
+/// Reads the active weather ID and 256-entry `color_table` from `DUNGEON_PTR_MASTER` in guest RAM.
 GuestWeatherState WeatherShaderPipeline::ReadWeatherStateFromGuest(GuestMemoryView mem) const noexcept {
     GuestWeatherState state{};
     const uint32_t dungeon_ptr = mem.resolve_dungeon_ptr(region_);
@@ -90,6 +96,7 @@ GuestWeatherState WeatherShaderPipeline::ReadWeatherStateFromGuest(GuestMemoryVi
     return state;
 }
 
+/// Computes GPU shader uniforms for the given viewport dimensions and weather state.
 SkyHdShaderUniforms WeatherShaderPipeline::BuildUniforms(
     int source_width,
     int source_height,
@@ -137,6 +144,7 @@ SkyHdShaderUniforms WeatherShaderPipeline::BuildUniforms(
     return u;
 }
 
+/// Samples a single pixel from an ARGB8888 source image using the active reconstruction kernel.
 uint32_t WeatherShaderPipeline::SampleSharpBilinearArgb(
     std::span<const uint32_t> src_argb,
     int src_width,
@@ -204,6 +212,7 @@ uint32_t WeatherShaderPipeline::SampleSharpBilinearArgb(
     return 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
+/// Applies `GetWeatherColorTable` LUT grading, per-weather ambient bloom, and optional LCD/CRT mask in-place.
 void WeatherShaderPipeline::ApplyPostProcessArgb8888(
     std::span<uint32_t> framebuffer_argb,
     int width,
@@ -214,7 +223,11 @@ void WeatherShaderPipeline::ApplyPostProcessArgb8888(
         return;
     }
 
-    const SkyHdShaderUniforms u = BuildUniforms(width, height, width, height, weather_state);
+    // Omit the mid-tone LUT tint adjustment from uniforms in the CPU path because the full
+    // 256-entry color_table is applied directly per pixel below when has_custom_color_table is true.
+    GuestWeatherState uniform_weather_state = weather_state;
+    uniform_weather_state.has_custom_color_table = false;
+    const SkyHdShaderUniforms u = BuildUniforms(width, height, width, height, uniform_weather_state);
 
     for (int y = 0; y < height; ++y) {
         const bool crt_darken_row = (filter_ == ShaderFilterPreset::CrtScanline) && ((y & 1) == 1);

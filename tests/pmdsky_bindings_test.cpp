@@ -1,7 +1,12 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "skyrecomp/pmdsky_addrs.hpp"
 #include <cassert>
 #include <iostream>
 
+/// Verifies compile-time and runtime symbol addresses generated from pmdsky-debug.
 int main() {
     using namespace skyrecomp::pmdsky;
 

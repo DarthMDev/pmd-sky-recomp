@@ -131,11 +131,13 @@ def generate_cpp_header(symbols_map: dict[str, dict[str, int]], out_path: Path) 
         "",
         "namespace skyrecomp::pmdsky {",
         "",
+        "/// Supported PMD Explorers of Sky ROM regions.",
         "enum class Region : uint8_t {",
         "    NA,",
         "    EU,",
         "};",
         "",
+        "/// Region-specific guest memory addresses for PMD Sky functions and globals.",
         "struct SymbolAddresses {",
     ]
 
@@ -151,12 +153,18 @@ def generate_cpp_header(symbols_map: dict[str, dict[str, int]], out_path: Path) 
         lines.append(f"inline constexpr SymbolAddresses {region} = {{")
         for sym in TARGET_SYMBOLS:
             addrs = symbols_map.get(sym, {})
+            if region not in addrs:
+                print(
+                    f"[gen_pmdsky_bindings] WARNING: Symbol '{sym}' has no address for region {region}",
+                    file=sys.stderr,
+                )
             addr_val = addrs.get(region, 0)
             lines.append(f"    .{sym} = 0x{addr_val:08X},")
         lines.append("};")
         lines.append("")
 
     lines.extend([
+        "/// Returns the constexpr symbol address table for the specified ROM region.",
         "[[nodiscard]] inline constexpr const SymbolAddresses& Get(Region r) noexcept {",
         "    return (r == Region::EU) ? EU : NA;",
         "}",

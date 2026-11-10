@@ -5,6 +5,7 @@
 
 namespace skyrecomp::camera {
 
+/// Constructs an Overlay 29 dungeon camera and widescreen frustum hook.
 DungeonCameraHook::DungeonCameraHook(
     pmdsky::Region region,
     gpu2d::AspectRatioPreset aspect) noexcept
@@ -12,11 +13,13 @@ DungeonCameraHook::DungeonCameraHook(
       aspect_(aspect),
       metrics_(gpu2d::WidescreenPpu::ComputeMetrics(aspect)) {}
 
+/// Sets the active widescreen aspect ratio preset and updates frustum metrics.
 void DungeonCameraHook::SetAspectRatio(gpu2d::AspectRatioPreset aspect) noexcept {
     aspect_ = aspect;
     metrics_ = gpu2d::WidescreenPpu::ComputeMetrics(aspect);
 }
 
+/// Reads the current `display_data` camera & visibility snapshot from guest Main RAM.
 DungeonDisplaySnapshot DungeonCameraHook::ReadDisplaySnapshot(GuestMemoryView mem) const noexcept {
     DungeonDisplaySnapshot snap{};
     const uint32_t dungeon_ptr = mem.resolve_dungeon_ptr(region_);
@@ -54,6 +57,7 @@ DungeonDisplaySnapshot DungeonCameraHook::ReadDisplaySnapshot(GuestMemoryView me
     return snap;
 }
 
+/// Computes the tile-column streaming window for the current camera position and aspect ratio.
 TileStreamingWindow DungeonCameraHook::ComputeStreamingWindow(
     const DungeonDisplaySnapshot& snapshot) const noexcept {
     TileStreamingWindow win{};
@@ -77,6 +81,7 @@ TileStreamingWindow DungeonCameraHook::ComputeStreamingWindow(
     return win;
 }
 
+/// Checks whether a dungeon tile is within the widescreen frustum and visible under fog-of-war rules.
 bool DungeonCameraHook::IsPositionVisibleAndOnWidescreen(
     const DungeonDisplaySnapshot& snapshot,
     int tile_x,
@@ -124,6 +129,7 @@ bool DungeonCameraHook::IsPositionVisibleAndOnWidescreen(
     return dx <= vis_range && dy <= vis_range;
 }
 
+/// Streams all visible dungeon tiles within the widescreen frustum from `dungeon->tile_ptrs[32][56]`.
 std::vector<StreamedDungeonTile> DungeonCameraHook::StreamVisibleTiles(
     GuestMemoryView mem,
     const DungeonDisplaySnapshot& snapshot) const {
@@ -186,6 +192,7 @@ std::vector<StreamedDungeonTile> DungeonCameraHook::StreamVisibleTiles(
     return tiles;
 }
 
+/// Builds a `ModernHudState` (including the 56x32 revealed minimap grid) from guest RAM.
 gpu2d::ModernHudState DungeonCameraHook::BuildModernHudState(
     GuestMemoryView mem,
     const DungeonDisplaySnapshot& snapshot) const noexcept {
@@ -239,6 +246,7 @@ gpu2d::ModernHudState DungeonCameraHook::BuildModernHudState(
     return hud;
 }
 
+/// Computes the temporary camera X shift needed so margin sprites avoid vanilla 256px culling.
 int DungeonCameraHook::ComputeMarginCameraShift(
     int vanilla_screen_x,
     MarginSpriteKind kind) const noexcept {
@@ -281,6 +289,7 @@ int DungeonCameraHook::ComputeMarginCameraShift(
     return 0;
 }
 
+/// Widescreen replacement for `sub_0201B9B0` (`isPieceOffScreen`).
 bool DungeonCameraHook::IsOamPieceOffWidescreen(int vanilla_piece_x) const noexcept {
     // Ported from Asphaltian/pmd-space MarginSprites.isPieceOffScreen (GPL-3.0).
     constexpr int kPieceReachLeft = -64;
@@ -291,6 +300,7 @@ bool DungeonCameraHook::IsOamPieceOffWidescreen(int vanilla_piece_x) const noexc
     return vanilla_piece_x < min_x || vanilla_piece_x >= max_x;
 }
 
+/// Samples a single 8x8 tilemap entry from an `overlay11` 3x3 chunk `map_render` structure.
 uint16_t DungeonCameraHook::SampleGroundMapTileEntry(
     GuestMemoryView mem,
     uint32_t map_render_addr,
@@ -366,6 +376,7 @@ uint16_t DungeonCameraHook::SampleGroundMapTileEntry(
     return mem.read_or<uint16_t>(tile_entry_addr, 0u);
 }
 
+/// Detects whether a Ground Mode `ground_bg` represents a static 256x192 full-screen illustration.
 bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
     GuestMemoryView mem,
     uint32_t ground_bg_addr) const noexcept {
@@ -455,6 +466,7 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
     return true;
 }
 
+/// Computes the widescreen margin shift for an off-screen waiting or walking cutscene `live_actor`.
 OffScreenActorAdjustment DungeonCameraHook::ComputeOffScreenActorAdjustment(
     GuestMemoryView mem,
     uint32_t actor_addr,

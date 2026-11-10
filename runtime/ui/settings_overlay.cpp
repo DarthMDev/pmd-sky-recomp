@@ -4,7 +4,9 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace skyrecomp::ui {
 namespace {
@@ -161,6 +163,7 @@ constexpr RecompRuntimeUiItem kMenuItems[] = {
     },
 };
 
+/// Trims leading and trailing ASCII whitespace from a string view.
 [[nodiscard]] std::string TrimWhitespace(std::string_view sv) {
     size_t start = 0;
     while (start < sv.size() && (sv[start] == ' ' || sv[start] == '\t' || sv[start] == '\r')) {
@@ -188,7 +191,7 @@ SkySettingsOverlay::SkySettingsOverlay(const SkySettingsState& initial_state) no
         .set_value = &SkySettingsOverlay::CallbackSetValue,
         .run_action = &SkySettingsOverlay::CallbackRunAction,
         .is_enabled = &SkySettingsOverlay::CallbackIsEnabled,
-        .save = nullptr,
+        .save = &SkySettingsOverlay::CallbackSave,
         .visibility_changed = nullptr,
         .get_text = nullptr,
         .set_text = nullptr,
@@ -261,33 +264,33 @@ int SkySettingsOverlay::CallbackSetValue(
     auto* self = static_cast<SkySettingsOverlay*>(context);
     const std::string_view key(item->key);
 
+    bool changed = false;
     if (key == kKeyAspectRatio) {
         self->state_.aspect_ratio = static_cast<gpu2d::AspectRatioPreset>(std::clamp(value, 0, 3));
-        return 1;
-    }
-    if (key == kKeyHudLayout) {
+        changed = true;
+    } else if (key == kKeyHudLayout) {
         self->state_.hud_layout = static_cast<gpu2d::HudLayoutMode>(std::clamp(value, 0, 1));
-        return 1;
-    }
-    if (key == kKeyRefreshRate) {
+        changed = true;
+    } else if (key == kKeyRefreshRate) {
         self->state_.refresh_rate = static_cast<camera::RefreshRateMode>(std::clamp(value, 0, 4));
-        return 1;
-    }
-    if (key == kKeyShaderFilter) {
+        changed = true;
+    } else if (key == kKeyShaderFilter) {
         self->state_.shader_filter = static_cast<shaders::ShaderFilterPreset>(std::clamp(value, 0, 4));
-        return 1;
-    }
-    if (key == kKeyWeatherBloom) {
+        changed = true;
+    } else if (key == kKeyWeatherBloom) {
         self->state_.weather_ambient_bloom = (value != 0);
-        return 1;
-    }
-    if (key == kKeyAudioVolume) {
+        changed = true;
+    } else if (key == kKeyAudioVolume) {
         self->state_.audio_volume_percent = std::clamp(value, 0, 100);
         self->state_.audio_muted = (self->state_.audio_volume_percent == 0);
-        return 1;
-    }
-    if (key == kKeyControllerPreset) {
+        changed = true;
+    } else if (key == kKeyControllerPreset) {
         self->state_.controller_preset = static_cast<ControllerRemapPreset>(std::clamp(value, 0, 2));
+        changed = true;
+    }
+
+    if (changed) {
+        self->NotifyBoundConsumers();
         return 1;
     }
     return 0;
@@ -313,6 +316,56 @@ int SkySettingsOverlay::CallbackIsEnabled(
     return 1;
 }
 
+void SkySettingsOverlay::CallbackSave(void* context) noexcept {
+    if (context == nullptr) {
+        return;
+    }
+    const auto* self = static_cast<const SkySettingsOverlay*>(context);
+    if (!self->bindings_.config_file_path.empty()) {
+        (void)self->SaveToFile(self->bindings_.config_file_path);
+    }
+}
+
+void SkySettingsOverlay::NotifyBoundConsumers() noexcept {
+    if (bindings_.ppu != nullptr &&
+        bindings_.camera_hook != nullptr &&
+        bindings_.interpolator != nullptr &&
+        bindings_.shader_pipeline != nullptr) {
+        ApplyToSubsystems(
+            *bindings_.ppu,
+            *bindings_.camera_hook,
+            *bindings_.interpolator,
+            *bindings_.shader_pipeline);
+    } else {
+        if (bindings_.ppu != nullptr) {
+            bindings_.ppu->SetAspectRatio(state_.aspect_ratio);
+            bindings_.ppu->SetHudLayoutMode(state_.hud_layout);
+        }
+        if (bindings_.camera_hook != nullptr) {
+            bindings_.camera_hook->SetAspectRatio(state_.aspect_ratio);
+        }
+        if (bindings_.interpolator != nullptr) {
+            bindings_.interpolator->SetRefreshRateMode(state_.refresh_rate);
+        }
+        if (bindings_.shader_pipeline != nullptr) {
+            bindings_.shader_pipeline->SetFilterPreset(state_.shader_filter);
+            bindings_.shader_pipeline->SetWeatherBloomEnabled(state_.weather_ambient_bloom);
+        }
+    }
+
+    if (bindings_.on_audio_settings_changed) {
+        bindings_.on_audio_settings_changed(GetEffectiveAudioVolumePercent(), state_.audio_muted);
+    }
+    if (bindings_.on_controller_mapping_changed) {
+        bindings_.on_controller_mapping_changed(GetActiveButtonMapping());
+    }
+}
+
+void SkySettingsOverlay::BindRuntimeConsumers(RuntimeConsumerBindings bindings) noexcept {
+    bindings_ = std::move(bindings);
+    NotifyBoundConsumers();
+}
+
 bool SkySettingsOverlay::IsVisible() const noexcept {
     return ui_ != nullptr && recomp_runtime_ui_is_open(ui_) != 0;
 }
@@ -333,6 +386,7 @@ void SkySettingsOverlay::SetVisible(bool visible) noexcept {
 void SkySettingsOverlay::SetState(const SkySettingsState& state) noexcept {
     state_ = state;
     state_.audio_volume_percent = std::clamp(state_.audio_volume_percent, 0, 100);
+    NotifyBoundConsumers();
 }
 
 size_t SkySettingsOverlay::GetSelectedIndex() const noexcept {
@@ -379,6 +433,21 @@ void SkySettingsOverlay::ApplyToSubsystems(
     shader_pipeline.SetWeatherBloomEnabled(state_.weather_ambient_bloom);
 }
 
+void SkySettingsOverlay::ScaleAudioSamplesInt16(std::span<int16_t> pcm_samples) const noexcept {
+    const int eff_vol = GetEffectiveAudioVolumePercent();
+    if (eff_vol >= 100) {
+        return;
+    }
+    if (eff_vol <= 0) {
+        std::fill(pcm_samples.begin(), pcm_samples.end(), int16_t{0});
+        return;
+    }
+    for (int16_t& sample : pcm_samples) {
+        const int32_t scaled = (static_cast<int32_t>(sample) * eff_vol) / 100;
+        sample = static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
+    }
+}
+
 DsButtonMapping SkySettingsOverlay::GetActiveButtonMapping() const noexcept {
     DsButtonMapping map{};
     switch (state_.controller_preset) {
@@ -394,6 +463,32 @@ DsButtonMapping SkySettingsOverlay::GetActiveButtonMapping() const noexcept {
             break;
     }
     return map;
+}
+
+uint16_t SkySettingsOverlay::RemapDsKeyinputMask(uint16_t logical_pressed_mask) const noexcept {
+    constexpr uint16_t kActionBitsMask =
+        (1u << 0) | (1u << 1) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+    const DsButtonMapping map = GetActiveButtonMapping();
+    uint16_t out = logical_pressed_mask & static_cast<uint16_t>(~kActionBitsMask);
+    if ((logical_pressed_mask & (1u << 0)) != 0u) {
+        out |= map.confirm_bit;
+    }
+    if ((logical_pressed_mask & (1u << 1)) != 0u) {
+        out |= map.cancel_bit;
+    }
+    if ((logical_pressed_mask & (1u << 8)) != 0u) {
+        out |= map.shoulder_r_bit;
+    }
+    if ((logical_pressed_mask & (1u << 9)) != 0u) {
+        out |= map.shoulder_l_bit;
+    }
+    if ((logical_pressed_mask & (1u << 10)) != 0u) {
+        out |= map.menu_bit;
+    }
+    if ((logical_pressed_mask & (1u << 11)) != 0u) {
+        out |= map.sort_bit;
+    }
+    return out;
 }
 
 bool SkySettingsOverlay::RenderArgb8888(
@@ -480,6 +575,35 @@ bool SkySettingsOverlay::LoadFromToml(std::string_view toml_text) noexcept {
 
     SetState(parsed);
     return true;
+}
+
+bool SkySettingsOverlay::SaveToFile(const std::filesystem::path& path) const noexcept {
+    if (path.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out.is_open()) {
+        return false;
+    }
+    out << SerializeToToml();
+    return out.good();
+}
+
+bool SkySettingsOverlay::LoadFromFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        return false;
+    }
+    std::ifstream in(path, std::ios::in);
+    if (!in.is_open()) {
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return LoadFromToml(ss.str());
 }
 
 } // namespace skyrecomp::ui

@@ -65,21 +65,30 @@ struct SkyHdShaderUniforms {
 /// Custom Apple Metal & SDL_GPU HD Shader Pipeline + CPU Reference Post-Processor (Task 3.3).
 class WeatherShaderPipeline {
 public:
+    /// Constructs a weather-aware HD shader pipeline for the specified ROM region and filter preset.
     explicit WeatherShaderPipeline(
         pmdsky::Region region = pmdsky::Region::NA,
         ShaderFilterPreset filter = ShaderFilterPreset::SharpBilinear,
         bool weather_bloom_enabled = true) noexcept;
 
+    /// Sets the target ROM region used to resolve `pmdsky-debug` guest addresses.
     void SetRegion(pmdsky::Region region) noexcept { region_ = region; }
+    /// Returns the configured ROM region.
     [[nodiscard]] pmdsky::Region GetRegion() const noexcept { return region_; }
 
+    /// Sets the active pixel-art reconstruction and display filter preset.
     void SetFilterPreset(ShaderFilterPreset filter) noexcept { filter_ = filter; }
+    /// Returns the active pixel-art reconstruction and display filter preset.
     [[nodiscard]] ShaderFilterPreset GetFilterPreset() const noexcept { return filter_; }
 
+    /// Enables or disables per-weather ambient highlight bloom.
     void SetWeatherBloomEnabled(bool enabled) noexcept { weather_bloom_enabled_ = enabled; }
+    /// Returns true if per-weather ambient highlight bloom is enabled.
     [[nodiscard]] bool IsWeatherBloomEnabled() const noexcept { return weather_bloom_enabled_; }
 
+    /// Sets the LCD/CRT sub-pixel grid attenuation strength in `[0.0f, 1.0f]`.
     void SetSubpixelGridStrength(float strength) noexcept;
+    /// Returns the LCD/CRT sub-pixel grid attenuation strength.
     [[nodiscard]] float GetSubpixelGridStrength() const noexcept { return subpixel_grid_strength_; }
 
     /// Returns the embedded Apple Metal Shading Language (MSL) shader source string.

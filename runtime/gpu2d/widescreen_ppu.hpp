@@ -122,10 +122,12 @@ struct ModernHudState {
 /// True 2D Widescreen PPU Rasterizer & HUD Anchor Engine (Task 3.1).
 class WidescreenPpu {
 public:
+    /// Constructs a widescreen PPU rasterizer for the specified aspect ratio and HUD layout mode.
     explicit WidescreenPpu(
         AspectRatioPreset preset = AspectRatioPreset::Widescreen_16_9,
         HudLayoutMode hud_mode = HudLayoutMode::DualScreenAnchored) noexcept;
 
+    /// Computes the horizontal viewport width, margins, and tile column radius for `preset`.
     [[nodiscard]] static constexpr ViewportMetrics ComputeMetrics(AspectRatioPreset preset) noexcept {
         switch (preset) {
             case AspectRatioPreset::Vanilla_4_3:
@@ -140,11 +142,16 @@ public:
         return {AspectRatioPreset::Widescreen_16_9, 342, 192, 43, 43, 2};
     }
 
+    /// Sets the active widescreen aspect ratio preset and updates viewport metrics.
     void SetAspectRatio(AspectRatioPreset preset) noexcept;
+    /// Returns the currently configured widescreen aspect ratio preset.
     [[nodiscard]] AspectRatioPreset GetAspectRatio() const noexcept { return metrics_.preset; }
+    /// Returns the computed viewport geometry metrics for the active aspect ratio.
     [[nodiscard]] const ViewportMetrics& GetMetrics() const noexcept { return metrics_; }
 
+    /// Sets the active HUD presentation mode (DualScreenAnchored or SingleScreenModern).
     void SetHudLayoutMode(HudLayoutMode mode) noexcept { hud_mode_ = mode; }
+    /// Returns the active HUD presentation mode.
     [[nodiscard]] HudLayoutMode GetHudLayoutMode() const noexcept { return hud_mode_; }
 
     /// Classifies an OAM sprite's anchor based on its screen coordinates, priority, and UI state.

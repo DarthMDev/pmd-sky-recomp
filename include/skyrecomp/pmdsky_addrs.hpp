@@ -6,11 +6,13 @@
 
 namespace skyrecomp::pmdsky {
 
+/// Supported PMD Explorers of Sky ROM regions.
 enum class Region : uint8_t {
     NA,
     EU,
 };
 
+/// Region-specific guest memory addresses for PMD Sky functions and globals.
 struct SymbolAddresses {
     uint32_t _start;
     uint32_t NitroMain;
@@ -134,6 +136,7 @@ inline constexpr SymbolAddresses EU = {
     .WONDER_MAIL_BITS_SWAP = 0x0209E68C,
 };
 
+/// Returns the constexpr symbol address table for the specified ROM region.
 [[nodiscard]] inline constexpr const SymbolAddresses& Get(Region r) noexcept {
     return (r == Region::EU) ? EU : NA;
 }

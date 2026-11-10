@@ -86,14 +86,19 @@ struct OffScreenActorAdjustment {
 /// (`0x022E2CA0` NA / `0x022E3624` EU) entity culling (Task 3.1).
 class DungeonCameraHook {
 public:
+    /// Constructs an Overlay 29 dungeon camera and widescreen frustum hook.
     explicit DungeonCameraHook(
         pmdsky::Region region = pmdsky::Region::NA,
         gpu2d::AspectRatioPreset aspect = gpu2d::AspectRatioPreset::Widescreen_16_9) noexcept;
 
+    /// Sets the target ROM region used to resolve `pmdsky-debug` symbol addresses.
     void SetRegion(pmdsky::Region region) noexcept { region_ = region; }
+    /// Returns the configured ROM region.
     [[nodiscard]] pmdsky::Region GetRegion() const noexcept { return region_; }
 
+    /// Sets the active widescreen aspect ratio preset and updates frustum metrics.
     void SetAspectRatio(gpu2d::AspectRatioPreset aspect) noexcept;
+    /// Returns the active widescreen aspect ratio preset.
     [[nodiscard]] gpu2d::AspectRatioPreset GetAspectRatio() const noexcept { return aspect_; }
 
     /// Computes the horizontal dungeon tile radius needed to fill `viewport_width` pixels without pop-in.

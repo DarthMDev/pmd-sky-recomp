@@ -1,3 +1,7 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "skyrecomp/guest_mem.hpp"
 #include "skyrecomp/pmdsky_addrs.hpp"
 #include "../runtime/camera/dungeon_camera.hpp"
@@ -9,7 +13,9 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -17,14 +23,19 @@ namespace {
 
 using namespace skyrecomp;
 
+/// Writes a trivially copyable value into simulated guest Main RAM with bounds checking.
 template <typename T>
 void WriteGuest(std::vector<uint8_t>& ram, uint32_t guest_addr, T value) {
     assert(guest_addr >= layout::kMainRamBase);
     const size_t offset = static_cast<size_t>(guest_addr - layout::kMainRamBase);
     assert(offset + sizeof(T) <= ram.size());
+    if (guest_addr < layout::kMainRamBase || offset + sizeof(T) > ram.size()) {
+        std::abort();
+    }
     std::memcpy(ram.data() + offset, &value, sizeof(T));
 }
 
+/// Tests widescreen PPU metrics, BG scanlines, OAM sprite remapping, and HUD anchoring.
 void TestWidescreenPpuAndHudAnchoring() {
     using namespace skyrecomp::gpu2d;
 
@@ -125,6 +136,7 @@ void TestWidescreenPpuAndHudAnchoring() {
     assert(fb[(6 + 5) * 342 + (map_x0 + 10)] != 0xFF000000u);
 }
 
+/// Verifies Overlay 29 dungeon camera visibility and widescreen tile streaming.
 void TestOverlay29CameraAndTileStreaming() {
     using namespace skyrecomp::camera;
     using namespace skyrecomp::gpu2d;
@@ -212,6 +224,7 @@ void TestOverlay29CameraAndTileStreaming() {
     assert(saw_margin_tile);
 }
 
+/// Verifies high-refresh-rate sub-pixel interpolation without mutating guest RAM.
 void TestSubpixelInterpolationDeterminism() {
     using namespace skyrecomp::camera;
 
@@ -297,6 +310,7 @@ void TestSubpixelInterpolationDeterminism() {
     assert(ground_sf.ground_poses[0].interp_x_q8 == 82 * 256);
 }
 
+/// Verifies the weather shader pipeline, uniform generation, and CPU post-process LUT path.
 void TestWeatherShaderPipeline() {
     using namespace skyrecomp::shaders;
 
@@ -336,7 +350,19 @@ void TestWeatherShaderPipeline() {
     assert(uniforms.bloom_enabled == 1u);
     assert(uniforms.weather_tint[0] > uniforms.weather_tint[2]); // Warm sunny red > blue
 
+    // Apply post-processing to a mid-tone test frame and verify exact per-pixel LUT application
+    // without double-applying the mid-tone LUT tint shift in BuildUniforms.
+    std::vector<uint32_t> mid_fb(4, 0xFF808080u);
+    pipeline.SetWeatherBloomEnabled(false);
+    pipeline.ApplyPostProcessArgb8888(mid_fb, 2, 2, wstate);
+    // LUT entry 0x80 has r=140, g=128, b=116; multiplied by unshifted Sunny tint (1.08, 1.02, 0.90)
+    // and 4% Sunny haze (1.00, 0.85, 0.55): r = 155, g = 134, b = 106.
+    assert(((mid_fb[0] >> 16) & 0xFFu) == 155u);
+    assert(((mid_fb[0] >> 8) & 0xFFu) == 134u);
+    assert((mid_fb[0] & 0xFFu) == 106u);
+
     // Apply post-processing to a bright highlight test frame and verify warm bloom boost
+    pipeline.SetWeatherBloomEnabled(true);
     std::vector<uint32_t> fb(16 * 16, 0xFFC8C8C8u);
     pipeline.ApplyPostProcessArgb8888(fb, 16, 16, wstate);
     const uint32_t out_px = fb[0];
@@ -345,12 +371,43 @@ void TestWeatherShaderPipeline() {
     assert(out_r > out_b);
 }
 
+/// Verifies recomp-ui settings overlay input, rendering, runtime bindings, and persistence.
 void TestRecompUiSettingsOverlay() {
     using namespace skyrecomp::ui;
 
     SkySettingsOverlay overlay;
     assert(overlay.IsValid());
     assert(!overlay.IsVisible());
+
+    gpu2d::WidescreenPpu ppu;
+    camera::DungeonCameraHook cam_hook;
+    camera::SubpixelInterpolator interp;
+    shaders::WeatherShaderPipeline shader_pipe;
+    int observed_volume = 0;
+    bool observed_muted = true;
+    DsButtonMapping observed_mapping{};
+
+    const auto tmp_cfg_path =
+        (std::filesystem::temp_directory_path() / "pmd_sky_recomp_test_settings.toml").string();
+    std::filesystem::remove(tmp_cfg_path);
+
+    overlay.BindRuntimeConsumers(RuntimeConsumerBindings{
+        .ppu = &ppu,
+        .camera_hook = &cam_hook,
+        .interpolator = &interp,
+        .shader_pipeline = &shader_pipe,
+        .on_audio_settings_changed = [&](int vol, bool muted) {
+            observed_volume = vol;
+            observed_muted = muted;
+        },
+        .on_controller_mapping_changed = [&](const DsButtonMapping& mapping) {
+            observed_mapping = mapping;
+        },
+        .config_file_path = tmp_cfg_path,
+    });
+    assert(observed_volume == 100);
+    assert(!observed_muted);
+    assert(observed_mapping.confirm_bit == (1u << 0));
 
     // 1. Toggle overlay open via F1 key press
     assert(overlay.HandleInput(OverlayInputState{.f1_pressed = true}));
@@ -360,17 +417,22 @@ void TestRecompUiSettingsOverlay() {
     assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::AspectRatio));
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
     assert(overlay.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    // Bound subsystems should automatically receive the change immediately
+    assert(ppu.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    assert(cam_hook.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
 
     // 3. Navigate down to HUD Layout (item 1) and toggle to Single-Screen Modern
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
     assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::HudLayout));
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
     assert(overlay.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
+    assert(ppu.GetHudLayoutMode() == gpu2d::HudLayoutMode::SingleScreenModern);
 
     // 4. Navigate down to Refresh Interpolation (item 2) and switch from 120Hz -> 144Hz
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
     assert(overlay.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+    assert(interp.GetRefreshRateMode() == camera::RefreshRateMode::HighRefresh_144Hz);
 
     // 5. Render the recomp-ui overlay onto a 342x192 ARGB8888 framebuffer
     std::vector<uint32_t> fb(342 * 192, 0xFF204060u);
@@ -378,24 +440,41 @@ void TestRecompUiSettingsOverlay() {
     // Verify center panel pixels were drawn over the backdrop
     assert(fb[96 * 342 + 171] != 0xFF204060u);
 
-    // 6. Apply settings to live subsystems
-    gpu2d::WidescreenPpu ppu;
-    camera::DungeonCameraHook cam_hook;
-    camera::SubpixelInterpolator interp;
-    shaders::WeatherShaderPipeline shader_pipe;
-    overlay.ApplyToSubsystems(ppu, cam_hook, interp, shader_pipe);
-    assert(ppu.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
-    assert(ppu.GetHudLayoutMode() == gpu2d::HudLayoutMode::SingleScreenModern);
-    assert(cam_hook.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
-    assert(interp.GetRefreshRateMode() == camera::RefreshRateMode::HighRefresh_144Hz);
+    // 6. Navigate to AudioVolume (item 5), lower volume to 80%, and test audio sample scaling
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN}); // ShaderFilter
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN}); // WeatherBloom
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN}); // AudioVolume
+    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::AudioVolume));
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_LEFT}); // 100 -> 90
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_LEFT}); // 90 -> 80
+    assert(observed_volume == 80);
+    std::vector<int16_t> samples = {1000, -1000};
+    overlay.ScaleAudioSamplesInt16(samples);
+    assert(samples[0] == 800 && samples[1] == -800);
 
-    // 7. Test TOML round-trip serialization
-    const std::string toml = overlay.SerializeToToml();
+    // Navigate to ControllerMapping (item 6) and switch to SwappedConfirmCancel (swaps A/B)
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN}); // ControllerMapping
+    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::ControllerMapping));
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // ModernDungeon
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // SwappedConfirmCancel
+    assert(overlay.GetState().controller_preset == ControllerRemapPreset::SwappedConfirmCancel);
+    assert(observed_mapping.confirm_bit == (1u << 1));
+    // Pressing logical A (bit 0 = 1) should map to DS B (bit 1 = 1)
+    const uint16_t remapped_mask = overlay.RemapDsKeyinputMask(0x0001u);
+    assert((remapped_mask & 0x0002u) != 0u);
+    assert((remapped_mask & 0x0001u) == 0u);
+
+    // 7. Test TOML and file round-trip persistence (CallbackSave already persisted to tmp_cfg_path)
     SkySettingsOverlay restored;
-    assert(restored.LoadFromToml(toml));
+    gpu2d::WidescreenPpu restored_ppu;
+    restored.BindRuntimeConsumers(RuntimeConsumerBindings{.ppu = &restored_ppu});
+    assert(restored.LoadFromFile(tmp_cfg_path));
     assert(restored.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
     assert(restored.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
     assert(restored.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+    assert(restored_ppu.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    assert(restored_ppu.GetHudLayoutMode() == gpu2d::HudLayoutMode::SingleScreenModern);
+    std::filesystem::remove(tmp_cfg_path);
 
     // 8. Toggle overlay closed via Gamepad Select+Start chord
     assert(!overlay.HandleInput(OverlayInputState{
@@ -405,6 +484,7 @@ void TestRecompUiSettingsOverlay() {
     assert(!overlay.IsVisible());
 }
 
+/// Verifies widescreen edge cases ported from Asphaltian/pmd-space.
 void TestPmdSpaceWidescreenEdgeCases() {
     using namespace skyrecomp::gpu2d;
     using namespace skyrecomp::camera;
@@ -471,6 +551,7 @@ void TestPmdSpaceWidescreenEdgeCases() {
 
 } // namespace
 
+/// Entry point for the Milestone 3 runtime enhancement test suite.
 int main() {
     TestWidescreenPpuAndHudAnchoring();
     TestOverlay29CameraAndTileStreaming();

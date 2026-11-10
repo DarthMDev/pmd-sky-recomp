@@ -93,14 +93,19 @@ struct InterpolatedSubFrame {
 /// Never mutates guest RAM, guaranteeing 100% turn-based PRNG & gameplay determinism.
 class SubpixelInterpolator {
 public:
+    /// Constructs a read-only sub-pixel interpolator for the given ROM region and refresh mode.
     explicit SubpixelInterpolator(
         pmdsky::Region region = pmdsky::Region::NA,
         RefreshRateMode mode = RefreshRateMode::ProMotion_120Hz) noexcept;
 
+    /// Sets the target ROM region used to resolve `pmdsky-debug` guest pointers.
     void SetRegion(pmdsky::Region region) noexcept { region_ = region; }
+    /// Returns the configured ROM region.
     [[nodiscard]] pmdsky::Region GetRegion() const noexcept { return region_; }
 
+    /// Sets the target high-refresh-rate interpolation mode.
     void SetRefreshRateMode(RefreshRateMode mode) noexcept { refresh_mode_ = mode; }
+    /// Returns the active high-refresh-rate interpolation mode.
     [[nodiscard]] RefreshRateMode GetRefreshRateMode() const noexcept { return refresh_mode_; }
 
     /// Returns the number of display sub-frames per 60Hz logic tick for integer-multiple modes,
@@ -130,13 +135,18 @@ public:
     /// When `refresh_mode_ == RefreshRateMode::Locked_60Hz`, `alpha` is forced to 1.0f.
     [[nodiscard]] InterpolatedSubFrame EvaluateSubFrame(float alpha) const noexcept;
 
+    /// Returns the snapshot captured on the previous 60Hz logic tick (`t - 1`).
     [[nodiscard]] const LogicTickSnapshot& PreviousTick() const noexcept { return prev_; }
+    /// Returns the snapshot captured on the latest 60Hz logic tick (`t`).
     [[nodiscard]] const LogicTickSnapshot& CurrentTick() const noexcept { return curr_; }
+    /// Returns true once at least two 60Hz logic tick snapshots have been captured.
     [[nodiscard]] bool HasTwoSnapshots() const noexcept { return snapshot_count_ >= 2; }
 
+    /// Clears captured snapshots and resets interpolation history.
     void Reset() noexcept;
 
 private:
+    /// Reads a complete camera and entity coordinate snapshot from read-only guest RAM.
     [[nodiscard]] LogicTickSnapshot ReadSnapshotFromGuest(GuestMemoryView mem) const noexcept;
 
     pmdsky::Region region_ = pmdsky::Region::NA;

@@ -6,6 +6,7 @@
 namespace skyrecomp::gpu2d {
 namespace {
 
+/// Wraps an integer coordinate `val` into `[0, mod)`.
 [[nodiscard]] constexpr int WrapCoord(int val, int mod) noexcept {
     if (mod <= 0) {
         return 0;
@@ -14,11 +15,13 @@ namespace {
     return (r < 0) ? (r + mod) : r;
 }
 
+/// Symmetrically rounds a 24.8 fixed-point coordinate to the nearest integer pixel.
 [[nodiscard]] constexpr int RoundFixedQ8(int val_q8) noexcept {
     // Symmetric round-to-nearest from 24.8 fixed-point to integer pixel
     return (val_q8 >= 0) ? ((val_q8 + 128) >> 8) : -((-val_q8 + 128) >> 8);
 }
 
+/// Alpha-blends a source ARGB8888 pixel over a destination ARGB8888 pixel.
 [[nodiscard]] constexpr uint32_t AlphaBlendArgb(uint32_t dst, uint32_t src) noexcept {
     const uint32_t sa = (src >> 24) & 0xFFu;
     if (sa == 0u) {
@@ -34,6 +37,7 @@ namespace {
     return 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
+/// Fills a clipped rectangle in an ARGB8888 framebuffer using alpha blending.
 void FillRectArgb(
     std::span<uint32_t> fb,
     int fb_width,
@@ -60,13 +64,16 @@ void FillRectArgb(
 
 } // namespace
 
+/// Constructs a widescreen PPU rasterizer for the specified aspect ratio and HUD layout mode.
 WidescreenPpu::WidescreenPpu(AspectRatioPreset preset, HudLayoutMode hud_mode) noexcept
     : metrics_(ComputeMetrics(preset)), hud_mode_(hud_mode) {}
 
+/// Sets the active widescreen aspect ratio preset and updates viewport metrics.
 void WidescreenPpu::SetAspectRatio(AspectRatioPreset preset) noexcept {
     metrics_ = ComputeMetrics(preset);
 }
 
+/// Classifies an OAM sprite's anchor based on its screen coordinates, priority, and UI state.
 HudAnchor WidescreenPpu::ClassifyOamHudAnchor(
     int vanilla_x,
     int vanilla_y,
@@ -93,6 +100,7 @@ HudAnchor WidescreenPpu::ClassifyOamHudAnchor(
     return HudAnchor::Center;
 }
 
+/// Remaps an OAM sprite's X coordinate (plus 24.8 sub-pixel delta) into the active widescreen viewport.
 int WidescreenPpu::RemapSpriteX(const WidescreenOamSprite& sprite) const noexcept {
     const int subpixel_dx = RoundFixedQ8(sprite.subpixel_dx_q8);
     const int extra_width = metrics_.width - kVanillaWidth;
@@ -110,6 +118,7 @@ int WidescreenPpu::RemapSpriteX(const WidescreenOamSprite& sprite) const noexcep
     }
 }
 
+/// Remaps an OAM sprite's Y coordinate (plus 24.8 sub-pixel delta).
 int WidescreenPpu::RemapSpriteY(const WidescreenOamSprite& sprite) const noexcept {
     if (sprite.anchor != HudAnchor::WorldSpace) {
         return static_cast<int>(sprite.vanilla_y);
@@ -117,6 +126,7 @@ int WidescreenPpu::RemapSpriteY(const WidescreenOamSprite& sprite) const noexcep
     return static_cast<int>(sprite.vanilla_y) + RoundFixedQ8(sprite.subpixel_dy_q8);
 }
 
+/// Remaps NDS hardware horizontal window bounds (WIN0H / WIN1H) for dialogue boxes & HUD masks.
 WindowHorizontalBounds WidescreenPpu::RemapWindowHorizontal(
     uint8_t vanilla_x1,
     uint8_t vanilla_x2,
@@ -156,6 +166,7 @@ WindowHorizontalBounds WidescreenPpu::RemapWindowHorizontal(
     };
 }
 
+/// Computes the virtual BG source X coordinate for a widescreen output pixel `screen_x`.
 int WidescreenPpu::SampleBgSourceX(const BgLayerConfig& layer, int screen_x) const noexcept {
     if (!layer.enabled || screen_x < 0 || screen_x >= metrics_.width) {
         return -1;
@@ -202,6 +213,7 @@ int WidescreenPpu::SampleBgSourceX(const BgLayerConfig& layer, int screen_x) con
     return -1;
 }
 
+/// Rasterizes a single widescreen scanline from a virtual BG pixel buffer.
 void WidescreenPpu::RasterizeBgScanline(
     const BgLayerConfig& layer,
     std::span<const uint32_t> virtual_bg_argb,
@@ -237,6 +249,7 @@ void WidescreenPpu::RasterizeBgScanline(
     }
 }
 
+/// Composites a list of OAM sprites onto a widescreen ARGB8888 framebuffer.
 void WidescreenPpu::CompositeOamSprites(
     std::span<const WidescreenOamSprite> sprites,
     std::span<uint32_t> framebuffer_argb) const noexcept {
@@ -278,6 +291,7 @@ void WidescreenPpu::CompositeOamSprites(
     }
 }
 
+/// Renders the Single-Screen Modern Layout translucent HUD onto the widescreen ARGB8888 framebuffer.
 void WidescreenPpu::RenderModernSingleScreenHud(
     const ModernHudState& state,
     std::span<uint32_t> framebuffer_argb) const noexcept {
@@ -352,6 +366,7 @@ void WidescreenPpu::RenderModernSingleScreenHud(
     }
 }
 
+/// Expands a 3D-rendered full-screen rectangle or dungeon darkness band across the widescreen margins.
 bool WidescreenPpu::ExpandRender3dElementForWidescreen(
     Render3dElement64Quad& elem,
     bool is_building_dungeon_darkness) const noexcept {
@@ -391,6 +406,7 @@ bool WidescreenPpu::ExpandRender3dElementForWidescreen(
     return false;
 }
 
+/// Generates additional 3D darkness band & corner quads for partially lit dungeon rooms in widescreen.
 std::vector<Render3dElement64Quad> WidescreenPpu::BuildDungeonDarknessMarginQuads(
     const RoomPixelBounds& room_bounds,
     int16_t camera_pixel_x,

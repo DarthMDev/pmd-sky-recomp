@@ -7,16 +7,20 @@
 namespace skyrecomp::camera {
 namespace {
 
+/// Linearly interpolates between two 24.8 fixed-point coordinates using 64-bit widened subtraction.
 [[nodiscard]] int32_t LerpFixedQ8(int32_t prev_q8, int32_t curr_q8, float alpha) noexcept {
-    const double delta = static_cast<double>(curr_q8 - prev_q8);
+    const int64_t diff = static_cast<int64_t>(curr_q8) - static_cast<int64_t>(prev_q8);
+    const double delta = static_cast<double>(diff);
     return prev_q8 + static_cast<int32_t>(std::llround(delta * static_cast<double>(alpha)));
 }
 
+/// Returns true when the single-tick 24.8 fixed-point delta exceeds the teleport/cutscene threshold.
 [[nodiscard]] bool ExceedsStepThreshold(int32_t prev_q8, int32_t curr_q8) noexcept {
     const int64_t diff = std::llabs(static_cast<int64_t>(curr_q8) - static_cast<int64_t>(prev_q8));
     return diff > static_cast<int64_t>(kMaxInterpolatedDeltaQ8);
 }
 
+/// Computes the interpolated sub-pixel pose for a single entity or actor between ticks t-1 and t.
 [[nodiscard]] InterpolatedEntityPose InterpolateSingleEntity(
     const EntityCoordSample& prev,
     const EntityCoordSample& curr,
@@ -60,11 +64,13 @@ namespace {
 
 } // namespace
 
+/// Constructs a read-only sub-pixel interpolator for the given ROM region and refresh mode.
 SubpixelInterpolator::SubpixelInterpolator(
     pmdsky::Region region,
     RefreshRateMode mode) noexcept
     : region_(region), refresh_mode_(mode) {}
 
+/// Returns the canonical sub-frame alphas in (0, 1] for a single 60Hz logic tick at `target_hz`.
 std::vector<float> SubpixelInterpolator::ComputeSubFrameAlphas(int target_hz) {
     if (target_hz <= 60) {
         return {1.0f};
@@ -80,12 +86,14 @@ std::vector<float> SubpixelInterpolator::ComputeSubFrameAlphas(int target_hz) {
     return alphas;
 }
 
+/// Clears captured snapshots and resets interpolation history.
 void SubpixelInterpolator::Reset() noexcept {
     snapshot_count_ = 0;
     prev_ = LogicTickSnapshot{};
     curr_ = LogicTickSnapshot{};
 }
 
+/// Captures a new authoritative 60Hz logic tick snapshot from read-only guest Main RAM.
 void SubpixelInterpolator::CaptureLogicTick(GuestMemoryView mem) noexcept {
     LogicTickSnapshot next = ReadSnapshotFromGuest(mem);
     next.tick_index = snapshot_count_ + 1;
@@ -99,6 +107,7 @@ void SubpixelInterpolator::CaptureLogicTick(GuestMemoryView mem) noexcept {
     ++snapshot_count_;
 }
 
+/// Reads a complete camera and entity coordinate snapshot from read-only guest RAM.
 LogicTickSnapshot SubpixelInterpolator::ReadSnapshotFromGuest(GuestMemoryView mem) const noexcept {
     LogicTickSnapshot snap{};
     if (!mem.valid()) {
@@ -233,6 +242,7 @@ LogicTickSnapshot SubpixelInterpolator::ReadSnapshotFromGuest(GuestMemoryView me
     return snap;
 }
 
+/// Evaluates the interpolated camera & entity coordinates at fractional phase `alpha` in [0.0f, 1.0f].
 InterpolatedSubFrame SubpixelInterpolator::EvaluateSubFrame(float alpha) const noexcept {
     InterpolatedSubFrame out{};
     out.mode = curr_.mode;

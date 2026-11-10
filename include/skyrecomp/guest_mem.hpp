@@ -201,14 +201,18 @@ inline constexpr uint32_t kLivePerformerCoordMaxOffset = 0x138u; // int32_t x, y
 /// Guarantees zero mutation of guest memory and prevents out-of-bounds pointer dereferences.
 class GuestMemoryView {
 public:
+    /// Constructs an empty (invalid) guest memory view.
     constexpr GuestMemoryView() noexcept = default;
+    /// Constructs a bounds-checked read-only view over `main_ram` of `size` bytes.
     constexpr GuestMemoryView(const uint8_t* main_ram, size_t size = layout::kMainRamSize) noexcept
         : main_ram_(main_ram), size_(size) {}
 
+    /// Returns true if the view points to a non-null Main RAM buffer of non-zero size.
     [[nodiscard]] constexpr bool valid() const noexcept {
         return main_ram_ != nullptr && size_ > 0;
     }
 
+    /// Returns true if `[guest_addr, guest_addr + byte_count)` lies completely within Main RAM.
     [[nodiscard]] constexpr bool in_range(uint32_t guest_addr, size_t byte_count) const noexcept {
         if (main_ram_ == nullptr || guest_addr < layout::kMainRamBase) {
             return false;
@@ -217,6 +221,7 @@ public:
         return offset + byte_count <= size_;
     }
 
+    /// Reads a trivially copyable value of type `T` at `guest_addr`, or `std::nullopt` if out of bounds.
     template <typename T>
     [[nodiscard]] std::optional<T> read(uint32_t guest_addr) const noexcept {
         static_assert(std::is_trivially_copyable_v<T>, "GuestMemoryView::read requires trivially copyable type");
@@ -228,12 +233,14 @@ public:
         return val;
     }
 
+    /// Reads a trivially copyable value of type `T` at `guest_addr`, or returns `fallback` if out of bounds.
     template <typename T>
     [[nodiscard]] T read_or(uint32_t guest_addr, T fallback = T{}) const noexcept {
         const auto res = read<T>(guest_addr);
         return res.has_value() ? *res : fallback;
     }
 
+    /// Returns a const pointer to `[guest_addr, guest_addr + byte_count)` in Main RAM, or `nullptr` if out of bounds.
     [[nodiscard]] const uint8_t* raw_ptr(uint32_t guest_addr, size_t byte_count) const noexcept {
         if (!in_range(guest_addr, byte_count)) {
             return nullptr;
