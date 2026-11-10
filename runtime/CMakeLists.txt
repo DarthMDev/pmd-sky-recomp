@@ -10,3 +10,8 @@ add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/runner" nds
 set_target_properties(nds_runner PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
+if(UNIX AND NOT APPLE)
+    set_target_properties(nds_runner PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN")
+endif()
