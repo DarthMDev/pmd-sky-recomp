@@ -10,6 +10,7 @@
 #include "../runtime/shaders/weather_shader_pipeline.hpp"
 #include "../runtime/ui/settings_overlay.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -17,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -321,6 +323,12 @@ void TestWeatherShaderPipeline() {
     assert(pipeline.GetWeatherColorTableGuestAddress() == 0x022DE620u);
     assert(pipeline.GetMetalShaderSource().find("sky_hd_fragment_main") != std::string_view::npos);
     assert(pipeline.GetMetalShaderSource().find("sharp_bilinear_uv") != std::string_view::npos);
+
+    constexpr uint32_t pixels[] = {0xFFFF0000u, 0xFF0000FFu};
+    assert(WeatherShaderPipeline::SampleSharpBilinearArgb(
+        pixels, 2, 1, 0.25f, 0.5f, 4.0f, ShaderFilterPreset::SharpBilinear) == pixels[0]);
+    assert(WeatherShaderPipeline::SampleSharpBilinearArgb(
+        pixels, 2, 1, 0.0f, 0.5f, 4.0f, ShaderFilterPreset::SharpBilinear) == pixels[0]);
 
     std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
     constexpr uint32_t kDungeonAddr = 0x02100000u;

@@ -171,24 +171,26 @@ uint32_t WeatherShaderPipeline::SampleSharpBilinearArgb(
     const float region_range = 0.5f - 0.5f / eff_scale;
 
     auto warp_coord = [eff_scale, region_range](float norm_c, int dim) -> float {
-        const float texel = norm_c * static_cast<float>(dim) - 0.5f;
+        const float texel = norm_c * static_cast<float>(dim);
         const float fl = std::floor(texel);
         const float frac = texel - fl;
         const float dist = frac - 0.5f;
         const float clamped_dist = std::clamp(dist, -region_range, region_range);
         const float f = std::clamp((dist - clamped_dist) * eff_scale + 0.5f, 0.0f, 1.0f);
-        return fl + f;
+        return fl + f - 0.5f;
     };
 
     const float wx = warp_coord(clamped_u, src_width);
     const float wy = warp_coord(clamped_v, src_height);
 
-    const int x0 = std::clamp(static_cast<int>(std::floor(wx)), 0, src_width - 1);
-    const int y0 = std::clamp(static_cast<int>(std::floor(wy)), 0, src_height - 1);
-    const int x1 = std::clamp(x0 + 1, 0, src_width - 1);
-    const int y1 = std::clamp(y0 + 1, 0, src_height - 1);
-    const float fx = std::clamp(wx - std::floor(wx), 0.0f, 1.0f);
-    const float fy = std::clamp(wy - std::floor(wy), 0.0f, 1.0f);
+    const int floor_x = static_cast<int>(std::floor(wx));
+    const int floor_y = static_cast<int>(std::floor(wy));
+    const int x0 = std::clamp(floor_x, 0, src_width - 1);
+    const int y0 = std::clamp(floor_y, 0, src_height - 1);
+    const int x1 = std::clamp(floor_x + 1, 0, src_width - 1);
+    const int y1 = std::clamp(floor_y + 1, 0, src_height - 1);
+    const float fx = wx - static_cast<float>(floor_x);
+    const float fy = wy - static_cast<float>(floor_y);
 
     const uint32_t c00 = src_argb[static_cast<size_t>(y0) * static_cast<size_t>(src_width) + static_cast<size_t>(x0)];
     const uint32_t c10 = src_argb[static_cast<size_t>(y0) * static_cast<size_t>(src_width) + static_cast<size_t>(x1)];

@@ -624,10 +624,11 @@ copy of the Program in return for a fee.
 SkyRecompiled Licensing & Third-Party Attributions
 ================================================================================
 
-SkyRecompiled is free software: you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the Free
-Software Foundation, either version 3 of the License, or (at your option)
-any later version.
+The combined SkyRecompiled work is distributed under version 3 of the GNU
+General Public License as published by the Free Software Foundation.
+Independently licensed SkyRecompiled code remains available under version 3
+of the License or, at your option, any later version. Independently licensed
+third-party components retain their respective terms below.
 
 This program is distributed in the hope that it will be useful, but WITHOUT
 ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
@@ -635,6 +636,11 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License above for more
 details.
 
 Third-Party Components & Notice:
+- Asphaltian/pmd-space (Explorers of Space):
+  Adapted widescreen code is available under the upstream GNU General Public
+  License v3.0 only (GPL-3.0-only).
+  https://github.com/Asphaltian/pmd-space
+
 - melonDS (GPU3D, Wifi emulation components):
   Licensed under GNU General Public License v3.0 or later (GPL-3.0-or-later).
   https://github.com/melonDS-emu/melonDS

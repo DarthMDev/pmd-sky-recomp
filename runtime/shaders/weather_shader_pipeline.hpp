@@ -44,7 +44,7 @@ struct GuestWeatherState {
 };
 
 /// Host/GPU uniform buffer layout matching `SkyHdUniforms` in `sky_hd_shaders.metal.h`.
-struct SkyHdShaderUniforms {
+struct alignas(16) SkyHdShaderUniforms {
     float source_width = 342.0f;
     float source_height = 192.0f;
     float inv_source_width = 1.0f / 342.0f;
@@ -61,6 +61,7 @@ struct SkyHdShaderUniforms {
     std::array<float, 4> weather_bloom_rgb{1.0f, 1.0f, 1.0f, 1.0f}; // RGB bloom color
     float subpixel_grid_strength = 0.45f;
 };
+static_assert(sizeof(SkyHdShaderUniforms) == 96);
 
 /// Custom Apple Metal & SDL_GPU HD Shader Pipeline + CPU Reference Post-Processor (Task 3.3).
 class WeatherShaderPipeline {

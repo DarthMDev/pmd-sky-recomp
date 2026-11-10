@@ -244,7 +244,7 @@ int SkySettingsOverlay::CallbackGetValue(
         return 1;
     }
     if (key == kKeyAudioVolume) {
-        *value_out = self->state_.audio_muted ? 0 : self->state_.audio_volume_percent;
+        *value_out = self->state_.audio_volume_percent;
         return 1;
     }
     if (key == kKeyControllerPreset) {
@@ -530,6 +530,7 @@ std::string SkySettingsOverlay::SerializeToToml() const {
 
 bool SkySettingsOverlay::LoadFromToml(std::string_view toml_text) noexcept {
     SkySettingsState parsed = state_;
+    bool found_setting = false;
     size_t pos = 0;
     while (pos < toml_text.size()) {
         size_t next_nl = toml_text.find('\n', pos);
@@ -570,9 +571,15 @@ bool SkySettingsOverlay::LoadFromToml(std::string_view toml_text) noexcept {
         } else if (key == "controller_preset") {
             const int v = std::clamp(std::atoi(val.c_str()), 0, 2);
             parsed.controller_preset = static_cast<ControllerRemapPreset>(v);
+        } else {
+            continue;
         }
+        found_setting = true;
     }
 
+    if (!found_setting) {
+        return false;
+    }
     SetState(parsed);
     return true;
 }

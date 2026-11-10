@@ -72,6 +72,23 @@ fragment float4 sky_hd_fragment_main(
     float3 color = float3(0.0);
     if (u.filter_mode == 0u) {
         color = src_tex.sample(nearest_samp, in.uv).rgb;
+    } else if (u.filter_mode == 2u) {
+        // Integrate the output pixel's footprint in source texel edge coordinates.
+        float2 center = in.uv * u.source_size;
+        float2 half_box = 0.5 * u.source_size / u.output_size;
+        float2 lo = max(center - half_box, float2(0.0));
+        float2 hi = min(center + half_box, u.source_size);
+        int2 first = int2(floor(lo));
+        int2 end = int2(ceil(hi));
+        for (int y = first.y; y < end.y; ++y) {
+            for (int x = first.x; x < end.x; ++x) {
+                float2 texel = float2(x, y);
+                float2 overlap = min(hi, texel + 1.0) - max(lo, texel);
+                color += src_tex.read(uint2(x, y)).rgb * (overlap.x * overlap.y);
+            }
+        }
+        float2 box_size = hi - lo;
+        color /= box_size.x * box_size.y;
     } else {
         float2 warped_uv = sharp_bilinear_uv(in.uv, u.source_size, u.inv_source_size, u.scale_factor);
         color = src_tex.sample(linear_samp, warped_uv).rgb;

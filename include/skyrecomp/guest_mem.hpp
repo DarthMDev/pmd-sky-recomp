@@ -218,7 +218,7 @@ public:
             return false;
         }
         const uint64_t offset = static_cast<uint64_t>(guest_addr - layout::kMainRamBase);
-        return offset + byte_count <= size_;
+        return offset <= size_ && byte_count <= size_ - offset;
     }
 
     /// Reads a trivially copyable value of type `T` at `guest_addr`, or `std::nullopt` if out of bounds.

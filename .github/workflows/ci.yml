@@ -42,7 +42,7 @@ jobs:
 
       - name: Run PMDSky Bindings Generator & Full Test Suite
         run: |
-          python3 translator/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py --strict
           python3 -m unittest discover tests/
 
       - name: Build Static Recompiler & Run Test Suite
@@ -117,7 +117,7 @@ jobs:
 
       - name: Run PMDSky Bindings Generator & Full Test Suite
         run: |
-          python3 translator/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py --strict
           python3 -m unittest discover tests/
 
       - name: Build Static Recompiler & Run Test Suite
@@ -189,7 +189,7 @@ jobs:
       - name: Run PMDSky Bindings Generator & Full Test Suite
         shell: bash
         run: |
-          python3 translator/gen_pmdsky_bindings.py
+          python3 translator/gen_pmdsky_bindings.py --strict
           python3 -m unittest discover tests/
 
       - name: Set up SDL3 MinGW SDK

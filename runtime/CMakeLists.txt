@@ -33,6 +33,8 @@ if(EXISTS "${_sky_gen_dir}/arm9_bios.c")
     set_target_properties(nds_runner PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
+else()
+    message(STATUS "Skipping nds_runner because ${_sky_gen_dir}/arm9_bios.c is missing")
 endif()
 
 add_executable(pmdsky_bindings_test "${PROJECT_SOURCE_DIR}/tests/pmdsky_bindings_test.cpp")

@@ -426,16 +426,13 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
             mem.read_or<int16_t>(mr_addr + layout::ground::kMapRenderNumBgsOffset, 0),
             0,
             2);
-        const int total_cols = std::clamp(
-            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderWidthChunksOffset, 0) *
-                layout::ground::kChunkTileSize,
-            0,
-            192);
-        const int total_rows = std::clamp(
-            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderHeightChunksOffset, 0) *
-                layout::ground::kChunkTileSize,
-            0,
-            192);
+        constexpr int kMaxChunks = 192 / layout::ground::kChunkTileSize;
+        const int total_cols = std::clamp<int32_t>(
+            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderWidthChunksOffset, 0),
+            0, kMaxChunks) * layout::ground::kChunkTileSize;
+        const int total_rows = std::clamp<int32_t>(
+            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderHeightChunksOffset, 0),
+            0, kMaxChunks) * layout::ground::kChunkTileSize;
 
         int first_col = total_cols;
         int last_col = -1;
@@ -450,15 +447,16 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
                         last_col = std::max(last_col, c);
                         first_row = std::min(first_row, r);
                         last_row = std::max(last_row, r);
+                        if (last_col - first_col >= kVanillaColumns ||
+                            last_row - first_row >= kVanillaRows) {
+                            return false;
+                        }
                     }
                 }
             }
         }
 
         if (last_col < first_col || last_row < first_row) {
-            return false;
-        }
-        if ((last_col - first_col) >= kVanillaColumns || (last_row - first_row) >= kVanillaRows) {
             return false;
         }
     }
