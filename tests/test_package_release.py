@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import scripts.launcher as launcher
 import scripts.package_release as package_release
 
 
@@ -54,6 +55,36 @@ class TestPackageRelease(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 package_release.verify_linux_elf_x86_64(binary)
             self.assertIn("not a 64-bit x86_64 ELF executable", str(ctx.exception))
+
+    def test_verify_linux_elf_rejects_non_executable_type(self) -> None:
+        """Reject a relocatable ELF object file (ET_REL=1) even if x86_64."""
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "nds_runner"
+            e_ident = b"\x7fELF" + bytes([2, 1, 1]) + b"\x00" * 9
+            binary.write_bytes(e_ident + struct.pack("<HHI", 1, 0x3E, 1))
+            with self.assertRaises(SystemExit) as ctx:
+                package_release.verify_linux_elf_x86_64(binary)
+            self.assertIn("e_type=1", str(ctx.exception))
+
+    def test_launcher_discovers_packaged_linux_layout(self) -> None:
+        """Verify find_binary_and_config locates bin/nds_runner and config/game.toml from scripts/launcher.py."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg_root = Path(tmp) / "SkyRecompiled-v0.1.0-alpha-linux-x86_64"
+            (pkg_root / "bin").mkdir(parents=True)
+            (pkg_root / "config").mkdir(parents=True)
+            (pkg_root / "scripts").mkdir(parents=True)
+            runner_file = pkg_root / "bin" / "nds_runner"
+            config_file = pkg_root / "config" / "game.toml"
+            fake_launcher = pkg_root / "scripts" / "launcher.py"
+            runner_file.write_bytes(make_elf64_x86_64_header())
+            config_file.write_text("[game]\n", encoding="utf-8")
+            fake_launcher.write_text("# stub\n", encoding="utf-8")
+
+            with mock.patch.object(launcher, "__file__", str(fake_launcher)), \
+                 mock.patch.object(launcher.platform, "system", return_value="Linux"):
+                found_runner, found_config = launcher.find_binary_and_config()
+                self.assertEqual(found_runner.resolve(), runner_file.resolve())
+                self.assertEqual(found_config.resolve(), config_file.resolve())
 
     def test_package_linux_requires_runner_binary(self) -> None:
         """Fail when build/runner/nds_runner is missing instead of creating an empty archive."""

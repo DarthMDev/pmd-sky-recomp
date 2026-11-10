@@ -228,11 +228,11 @@ def verify_linux_elf_x86_64(binary_path: Path) -> None:
         )
     ei_class = header[4]
     ei_data = header[5]
-    e_machine = struct.unpack("<H", header[18:20])[0]
-    if ei_class != 2 or ei_data != 1 or e_machine != 0x3E:
+    e_type, e_machine = struct.unpack("<HH", header[16:20])
+    if ei_class != 2 or ei_data != 1 or e_type not in (2, 3) or e_machine != 0x3E:
         raise SystemExit(
             f"Cannot package Linux: {binary_path} is not a 64-bit x86_64 ELF executable "
-            f"(EI_CLASS={ei_class}, EI_DATA={ei_data}, e_machine=0x{e_machine:x})."
+            f"(EI_CLASS={ei_class}, EI_DATA={ei_data}, e_type={e_type}, e_machine=0x{e_machine:x})."
         )
 
 

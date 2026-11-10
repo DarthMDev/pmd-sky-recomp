@@ -146,6 +146,8 @@ jobs:
           mkdir -p "$test_dir"
           tar -xzf "${tarball[0]}" -C "$test_dir"
           pkg_dir=("$test_dir"/SkyRecompiled-*-linux-x86_64)
+          test -f "${pkg_dir[0]}/bin/libSDL3.so.0"
+          test -f "${pkg_dir[0]}/bin/SDL3-LICENSE.txt"
           file "${pkg_dir[0]}/bin/nds_runner" | grep -E "ELF 64-bit LSB.*x86-64"
           "${pkg_dir[0]}/SkyRecompiled" --check-runner
 
