@@ -646,7 +646,10 @@ Third-Party Components & Notice:
   https://github.com/melonDS-emu/melonDS
 
 - ndsrecomp (Static recompiler & runtime framework):
-  PolyForm Noncommercial License 1.0.0.
+  PolyForm Noncommercial License 1.0.0 is the default for upstream project
+  code. Upstream grants MIT terms for its original code linked into nds_runner
+  and GPL-3.0-or-later terms for its melonDS-derived code. See LICENSE-MIT and
+  LICENSE-GPL at the pinned upstream revision.
   Copyright (c) 2026 Matthew Stanley.
   https://github.com/RetroPortingToolKit/ndsrecomp
 
