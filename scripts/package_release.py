@@ -17,6 +17,7 @@ import os
 import platform
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -139,6 +140,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${SCRIPT_DIR}:${SCRIPT_DIR}/scripts:${PYTHONPATH:-}"
+export LD_LIBRARY_PATH="${SCRIPT_DIR}/bin:${LD_LIBRARY_PATH:-}"
 
 if command -v python3 >/dev/null 2>&1; then
     exec python3 "${SCRIPT_DIR}/scripts/launcher.py" "$@"
@@ -214,8 +216,37 @@ def package_macos() -> Path:
     return zip_path
 
 
-def package_linux() -> Path:
+def verify_linux_elf_x86_64(binary_path: Path) -> None:
+    """Verify that the binary is a 64-bit little-endian x86_64 ELF executable."""
+    with binary_path.open("rb") as f:
+        header = f.read(20)
+    if len(header) < 20 or header[:4] != b"\x7fELF":
+        raise SystemExit(
+            f"Cannot package Linux: {binary_path} is not a Linux ELF binary "
+            "(looks like a host binary from another OS such as macOS Mach-O). "
+            "Build the Linux package on a Linux x86_64 host."
+        )
+    ei_class = header[4]
+    ei_data = header[5]
+    e_type, e_machine = struct.unpack("<HH", header[16:20])
+    if ei_class != 2 or ei_data != 1 or e_type not in (2, 3) or e_machine != 0x3E:
+        raise SystemExit(
+            f"Cannot package Linux: {binary_path} is not a 64-bit x86_64 ELF executable "
+            f"(EI_CLASS={ei_class}, EI_DATA={ei_data}, e_type={e_type}, e_machine=0x{e_machine:x})."
+        )
+
+
+def package_linux(*, without_game_banks: bool = False) -> Path:
     """Package the Linux standalone distribution into a tar.gz archive."""
+    runner_dir = BUILD_DIR / ("runner-fallback" if without_game_banks else "runner")
+    runner_src = runner_dir / "nds_runner"
+    if not runner_src.is_file():
+        raise SystemExit(
+            f"Cannot package Linux: missing {runner_src}. "
+            "Build on Linux with scripts/build.py before packaging."
+        )
+    verify_linux_elf_x86_64(runner_src)
+
     print(f"\033[1;36m[package:linux]\033[0m Packaging Linux Standalone Distribution...")
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     pkg_dir = BUILD_DIR / f"SkyRecompiled-v{VERSION}-linux-x86_64"
@@ -244,14 +275,27 @@ def package_linux() -> Path:
     shutil.copy2(CONFIG_DIR / "game.toml", cfg_dir / "game.toml")
     shutil.copy2(CONFIG_DIR / "controls_preset.toml", cfg_dir / "controls_preset.toml")
 
-    # 4. Binary if present
-    runner_src = BUILD_DIR / "runner" / "nds_runner"
-    if runner_src.exists():
-        dest = bin_dir / "nds_runner"
-        shutil.copy2(runner_src, dest)
-        dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # 4. Validated Linux x86_64 binary and optional bundled SDL3 shared libraries
+    dest = bin_dir / "nds_runner"
+    shutil.copy2(runner_src, dest)
+    dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    for extra in sorted(runner_dir.glob("libSDL3.so*")):
+        if extra.is_file() and not extra.is_symlink():
+            shutil.copy2(extra, bin_dir / extra.name)
+            if not (bin_dir / "libSDL3.so.0").exists():
+                shutil.copy2(extra, bin_dir / "libSDL3.so.0")
+    sdl_license = runner_dir / "SDL3-LICENSE.txt"
+    if sdl_license.is_file():
+        shutil.copy2(sdl_license, bin_dir / "SDL3-LICENSE.txt")
 
-    (pkg_dir / "README.txt").write_text(README_TEXT, encoding="utf-8")
+    readme = README_TEXT
+    if without_game_banks:
+        readme += (
+            "\nThis Linux build runs cartridge code at runtime. It does not include\n"
+            "statically recompiled game code. See the project README for a native\n"
+            "build using your own ROM.\n"
+        )
+    (pkg_dir / "README.txt").write_text(readme, encoding="utf-8")
 
     tar_path = DIST_DIR / f"SkyRecompiled-v{VERSION}-linux-x86_64.tar.gz"
     with tarfile.open(tar_path, "w:gz") as tar:
@@ -341,20 +385,25 @@ def main() -> None:
     """Parse arguments and create distribution packages for specified platforms."""
     parser = argparse.ArgumentParser(description="SkyRecompiled Release Packager")
     parser.add_argument("--platform", choices=["macos", "linux", "windows", "ios", "all"], default="all")
-    parser.add_argument("--without-game-banks", action="store_true", help="Windows: package the build from build/runner-fallback")
+    parser.add_argument(
+        "--without-game-banks",
+        action="store_true",
+        help="Linux/Windows: package the build from build/runner-fallback",
+    )
     args = parser.parse_args()
-    if args.without_game_banks and args.platform != "windows":
-        parser.error("--without-game-banks requires --platform windows")
+    if args.without_game_banks and args.platform not in ("linux", "windows"):
+        parser.error("--without-game-banks requires --platform linux or --platform windows")
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
+    host_system = platform.system()
 
-    if args.platform in ("macos", "all") and platform.system() == "Darwin":
+    if args.platform == "macos" or (args.platform == "all" and host_system == "Darwin"):
         package_macos()
-    if args.platform in ("linux", "all"):
-        package_linux()
-    if args.platform in ("windows", "all"):
+    if args.platform == "linux" or (args.platform == "all" and host_system == "Linux"):
+        package_linux(without_game_banks=args.without_game_banks)
+    if args.platform == "windows" or (args.platform == "all" and host_system == "Windows"):
         package_windows(without_game_banks=args.without_game_banks)
-    if args.platform in ("ios", "all") and platform.system() == "Darwin":
+    if args.platform == "ios" or (args.platform == "all" and host_system == "Darwin"):
         package_ios()
 
     print("\n\033[1;32mAll release packages generated in build/dist/\033[0m")

@@ -61,7 +61,8 @@ def find_binary_and_config() -> tuple[Path, Path]:
         # Inside macOS .app bundle
         script_dir / exe_name,
         script_dir.parent / "MacOS" / exe_name,
-        # Package layout
+        # Package layout (both root/bin/ and scripts/../bin/)
+        script_dir.parent / "bin" / exe_name,
         script_dir / "bin" / exe_name,
         script_dir / exe_name,
         # Repository layout
@@ -420,12 +421,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SkyRecompiled Launcher")
     parser.add_argument("--rom", type=str, default=None, help="Explicit ROM path override")
     parser.add_argument("--reset-rom", action="store_true", help="Prompt to select a new ROM")
+    parser.add_argument("--check-runner", action="store_true", help="Verify that nds_runner locates and starts with --help")
     args = parser.parse_args()
 
     try:
         runner_bin, config_file = find_binary_and_config()
     except FileNotFoundError as exc:
         parser.exit(1, f"[SkyRecompiled] {exc}\n")
+
+    if args.check_runner:
+        res = subprocess.run([str(runner_bin), "--help"], check=False)
+        sys.exit(res.returncode)
 
     user_dir = get_user_data_dir()
     user_dir.mkdir(parents=True, exist_ok=True)

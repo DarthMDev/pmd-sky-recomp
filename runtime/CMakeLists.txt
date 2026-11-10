@@ -33,6 +33,11 @@ if(EXISTS "${_sky_gen_dir}/arm9_bios.c")
     set_target_properties(nds_runner PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
+    if(UNIX AND NOT APPLE)
+        set_target_properties(nds_runner PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "$ORIGIN")
+    endif()
 else()
     message(STATUS "Skipping nds_runner because ${_sky_gen_dir}/arm9_bios.c is missing")
 endif()
