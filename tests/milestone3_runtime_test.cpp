@@ -1,0 +1,419 @@
+#include "skyrecomp/guest_mem.hpp"
+#include "skyrecomp/pmdsky_addrs.hpp"
+#include "../runtime/camera/dungeon_camera.hpp"
+#include "../runtime/camera/subpixel_interpolator.hpp"
+#include "../runtime/gpu2d/widescreen_ppu.hpp"
+#include "../runtime/shaders/weather_shader_pipeline.hpp"
+#include "../runtime/ui/settings_overlay.hpp"
+
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <iostream>
+#include <vector>
+
+namespace {
+
+using namespace skyrecomp;
+
+template <typename T>
+void WriteGuest(std::vector<uint8_t>& ram, uint32_t guest_addr, T value) {
+    assert(guest_addr >= layout::kMainRamBase);
+    const size_t offset = static_cast<size_t>(guest_addr - layout::kMainRamBase);
+    assert(offset + sizeof(T) <= ram.size());
+    std::memcpy(ram.data() + offset, &value, sizeof(T));
+}
+
+void TestWidescreenPpuAndHudAnchoring() {
+    using namespace skyrecomp::gpu2d;
+
+    static_assert(WidescreenPpu::ComputeMetrics(AspectRatioPreset::Vanilla_4_3).width == 256);
+    static_assert(WidescreenPpu::ComputeMetrics(AspectRatioPreset::SteamDeck_16_10).width == 308);
+    static_assert(WidescreenPpu::ComputeMetrics(AspectRatioPreset::Widescreen_16_9).width == 342);
+    static_assert(WidescreenPpu::ComputeMetrics(AspectRatioPreset::Ultrawide_21_9).width == 448);
+
+    WidescreenPpu ppu(AspectRatioPreset::Widescreen_16_9, HudLayoutMode::DualScreenAnchored);
+    assert(ppu.GetMetrics().left_margin == 43);
+    assert(ppu.GetMetrics().right_margin == 43);
+
+    // 1. Verify OAM HUD anchor classification & coordinate remapping
+    WidescreenOamSprite left_hud_sprite{
+        .vanilla_x = 12,
+        .vanilla_y = 8,
+        .anchor = ppu.ClassifyOamHudAnchor(12, 8, 0, true, false),
+    };
+    assert(left_hud_sprite.anchor == HudAnchor::LeftEdge);
+    assert(ppu.RemapSpriteX(left_hud_sprite) == 12);
+
+    WidescreenOamSprite right_hud_sprite{
+        .vanilla_x = 220,
+        .vanilla_y = 8,
+        .anchor = ppu.ClassifyOamHudAnchor(220, 8, 0, true, false),
+    };
+    assert(right_hud_sprite.anchor == HudAnchor::RightEdge);
+    assert(ppu.RemapSpriteX(right_hud_sprite) == 220 + (342 - 256));
+
+    WidescreenOamSprite dialogue_sprite{
+        .vanilla_x = 32,
+        .vanilla_y = 144,
+        .anchor = ppu.ClassifyOamHudAnchor(32, 144, 0, true, true),
+    };
+    assert(dialogue_sprite.anchor == HudAnchor::Center);
+    assert(ppu.RemapSpriteX(dialogue_sprite) == 32 + 43);
+
+    // World-space monster sprite with +1.5px (+384 in 24.8 fixed-point) sub-pixel offset
+    WidescreenOamSprite monster_sprite{
+        .vanilla_x = 128,
+        .vanilla_y = 96,
+        .anchor = HudAnchor::WorldSpace,
+        .subpixel_dx_q8 = 384,
+        .subpixel_dy_q8 = -256,
+    };
+    assert(ppu.RemapSpriteX(monster_sprite) == 128 + 43 + 2);
+    assert(ppu.RemapSpriteY(monster_sprite) == 96 - 1);
+
+    // 2. Verify hardware window (WIN0H) widescreen remapping
+    const auto full_win = ppu.RemapWindowHorizontal(0, 255, HudAnchor::Center);
+    assert(full_win.x1 == 0 && full_win.x2 == 342);
+
+    const auto centered_win = ppu.RemapWindowHorizontal(16, 240, HudAnchor::Center);
+    assert(centered_win.x1 == 16 + 43 && centered_win.x2 == 240 + 43);
+
+    // 3. Verify 512x256 scrollable BG scanline vs non-repeating 256px dialogue BG layer
+    BgLayerConfig world_bg{
+        .enabled = true,
+        .role = BgLayerRole::WorldTilemap,
+        .virtual_width = 512,
+        .virtual_height = 256,
+        .hofs = 10,
+        .vofs = 0,
+    };
+    // At widescreen left margin (screen_x == 0), world BG samples (10 - 43) mod 512 = 479
+    assert(ppu.SampleBgSourceX(world_bg, 0) == 479);
+    // At vanilla left edge (screen_x == 43), world BG samples 10
+    assert(ppu.SampleBgSourceX(world_bg, 43) == 10);
+
+    BgLayerConfig dlg_bg{
+        .enabled = true,
+        .role = BgLayerRole::DialogueWindow,
+        .virtual_width = 256,
+        .virtual_height = 256,
+    };
+    // Dialogue window must NOT repeat in the widescreen left/right margins
+    assert(ppu.SampleBgSourceX(dlg_bg, 0) == -1);
+    assert(ppu.SampleBgSourceX(dlg_bg, 42) == -1);
+    assert(ppu.SampleBgSourceX(dlg_bg, 43) == 0);
+    assert(ppu.SampleBgSourceX(dlg_bg, 43 + 255) == 255);
+    assert(ppu.SampleBgSourceX(dlg_bg, 43 + 256) == -1);
+
+    // 4. Verify Single-Screen Modern Layout HUD rendering
+    ppu.SetHudLayoutMode(HudLayoutMode::SingleScreenModern);
+    std::vector<uint32_t> fb(342 * 192, 0xFF000000u);
+    ModernHudState hud{};
+    hud.leader_hp = 80;
+    hud.leader_max_hp = 100;
+    hud.belly = 90;
+    hud.max_belly = 100;
+    hud.minimap_enabled = true;
+    hud.minimap_cells[5 * 56 + 10] = 3u; // Leader marker
+    ppu.RenderModernSingleScreenHud(hud, fb);
+    // Top-left HP bar pixel should be modified from black
+    assert(fb[10 * 342 + 20] != 0xFF000000u);
+    // Top-right minimap leader dot should be modified
+    const int map_x0 = 342 - 56 - 8;
+    assert(fb[(6 + 5) * 342 + (map_x0 + 10)] != 0xFF000000u);
+}
+
+void TestOverlay29CameraAndTileStreaming() {
+    using namespace skyrecomp::camera;
+    using namespace skyrecomp::gpu2d;
+
+    static_assert(DungeonCameraHook::ComputeHorizontalTileRadius(256) == 6);
+    static_assert(DungeonCameraHook::ComputeHorizontalTileRadius(308) == 8);
+    static_assert(DungeonCameraHook::ComputeHorizontalTileRadius(342) == 9);
+    static_assert(DungeonCameraHook::ComputeHorizontalTileRadius(448) == 11);
+
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
+    constexpr uint32_t kDungeonAddr = 0x02100000u;
+    constexpr uint32_t kLeaderEntityAddr =
+        kDungeonAddr + layout::dungeon::kEntityTableOffset + layout::entity_table::kEntitiesArrayOffset;
+    constexpr uint32_t kTilePoolAddr = 0x02200000u;
+
+    WriteGuest<uint32_t>(ram, pmdsky::NA.DUNGEON_PTR_MASTER, kDungeonAddr);
+
+    // Configure leader entity in room #2 at tile (20, 15)
+    WriteGuest<int32_t>(ram, kLeaderEntityAddr + layout::entity::kTypeOffset, 1);
+    WriteGuest<uint8_t>(ram, kLeaderEntityAddr + layout::entity::kRoomIdxOffset, 2u);
+
+    // Configure display_data camera centered at tile (20, 15)
+    const uint32_t disp_addr = kDungeonAddr + layout::dungeon::kDisplayDataOffset;
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPosOffset + 0u, 20);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPosOffset + 2u, 15);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset + 0u, 20 * 24 - 128);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset + 2u, 15 * 24 - 96);
+    WriteGuest<uint32_t>(ram, disp_addr + layout::display_data::kCameraTargetPtrOffset, kLeaderEntityAddr);
+    WriteGuest<uint8_t>(ram, disp_addr + layout::display_data::kVisibilityRangeOffset, 2u);
+    WriteGuest<uint8_t>(ram, disp_addr + layout::display_data::kNaturalLightingOffset, 1u);
+
+    // Populate dungeon tile_ptrs[32][56]
+    uint32_t next_tile_addr = kTilePoolAddr;
+    for (int ty = 0; ty < layout::dungeon::kMaxGridY; ++ty) {
+        for (int tx = 0; tx < layout::dungeon::kMaxGridX; ++tx) {
+            const uint32_t ptr_slot =
+                kDungeonAddr + layout::dungeon::kTilePtrsOffset +
+                static_cast<uint32_t>((ty * layout::dungeon::kMaxGridX + tx) * sizeof(uint32_t));
+            WriteGuest<uint32_t>(ram, ptr_slot, next_tile_addr);
+            WriteGuest<uint16_t>(ram, next_tile_addr + layout::tile::kTerrainFlagsOffset, 1u); // floor
+            WriteGuest<uint16_t>(ram, next_tile_addr + layout::tile::kVisibilityFlagsOffset, 1u); // revealed
+            WriteGuest<uint8_t>(ram, next_tile_addr + layout::tile::kRoomIndexOffset, 2u); // room #2
+            next_tile_addr += layout::tile::kSize;
+        }
+    }
+
+    GuestMemoryView mem(ram.data(), ram.size());
+    DungeonCameraHook cam_hook(pmdsky::Region::NA, AspectRatioPreset::Widescreen_16_9);
+    const auto snap = cam_hook.ReadDisplaySnapshot(mem);
+    assert(snap.valid);
+    assert(snap.camera_tile_x == 20 && snap.camera_tile_y == 15);
+    assert(snap.target_room_idx == 2u);
+
+    const auto win = cam_hook.ComputeStreamingWindow(snap);
+    assert(win.horizontal_tile_radius == 9);
+    assert(win.min_tile_x == 11 && win.max_tile_x == 29);
+    assert(win.extra_margin_columns_left == 3);
+    assert(win.extra_margin_columns_right == 3);
+
+    // Tile at dx = 8 (widescreen margin) in room #2 should be visible in 16:9!
+    assert(cam_hook.IsPositionVisibleAndOnWidescreen(snap, 28, 15, 2u, true));
+    // Tile at dx = 10 is outside 16:9 frustum (radius 9)
+    assert(!cam_hook.IsPositionVisibleAndOnWidescreen(snap, 30, 15, 2u, true));
+
+    // In 21:9 ultrawide (radius 11), tile at dx = 10 IS visible!
+    cam_hook.SetAspectRatio(AspectRatioPreset::Ultrawide_21_9);
+    assert(cam_hook.IsPositionVisibleAndOnWidescreen(snap, 30, 15, 2u, true));
+
+    // In a hallway (target_room_idx = 0xFF), fog-of-war restricts visibility to visibility_range (2 tiles)
+    DungeonDisplaySnapshot hall_snap = snap;
+    hall_snap.target_room_idx = 0xFFu;
+    assert(cam_hook.IsPositionVisibleAndOnWidescreen(hall_snap, 22, 15, 0xFFu, true));
+    assert(!cam_hook.IsPositionVisibleAndOnWidescreen(hall_snap, 25, 15, 0xFFu, true));
+
+    // Stream visible tiles and verify margin tiles are streamed seamlessly
+    const auto streamed = cam_hook.StreamVisibleTiles(mem, snap);
+    assert(streamed.size() == static_cast<size_t>((11 * 2 + 1) * (5 * 2 + 1)));
+    bool saw_margin_tile = false;
+    for (const auto& t : streamed) {
+        if (t.in_widescreen_margin && t.illuminated_by_fov) {
+            saw_margin_tile = true;
+            break;
+        }
+    }
+    assert(saw_margin_tile);
+}
+
+void TestSubpixelInterpolationDeterminism() {
+    using namespace skyrecomp::camera;
+
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
+    constexpr uint32_t kDungeonAddr = 0x02100000u;
+    constexpr uint32_t kEntity0Addr =
+        kDungeonAddr + layout::dungeon::kEntityTableOffset + layout::entity_table::kEntitiesArrayOffset;
+    const uint32_t disp_addr = kDungeonAddr + layout::dungeon::kDisplayDataOffset;
+
+    WriteGuest<uint32_t>(ram, pmdsky::NA.DUNGEON_PTR_MASTER, kDungeonAddr);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kFloorTouchScreenOffset, 5);
+
+    // Tick 1: camera at (100, 80) px, entity 0 at (120.0, 96.0) px in 24.8 fixed-point
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset + 0u, 100);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset + 2u, 80);
+    WriteGuest<int32_t>(ram, kEntity0Addr + layout::entity::kTypeOffset, 1);
+    WriteGuest<uint16_t>(ram, kEntity0Addr + layout::entity::kSpawnGenIdOffset, 42u);
+    WriteGuest<int32_t>(ram, kEntity0Addr + layout::entity::kPixelPosOffset + 0u, 120 * 256);
+    WriteGuest<int32_t>(ram, kEntity0Addr + layout::entity::kPixelPosOffset + 4u, 96 * 256);
+
+    SubpixelInterpolator interp(pmdsky::Region::NA, RefreshRateMode::Esports_240Hz);
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+
+    // Tick 2: camera moves +4 px to (104, 80), entity 0 moves +4 px to (124.0, 96.0)
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset + 0u, 104);
+    WriteGuest<int32_t>(ram, kEntity0Addr + layout::entity::kPixelPosOffset + 0u, 124 * 256);
+
+    // Snapshot copy of guest RAM before CaptureLogicTick + EvaluateSubFrame to prove zero guest mutation
+    const std::vector<uint8_t> ram_snapshot = ram;
+
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+    assert(interp.HasTwoSnapshots());
+
+    // Evaluate 240Hz sub-frames (alpha = 0.25, 0.50, 0.75, 1.00)
+    const auto alphas_240 = SubpixelInterpolator::ComputeSubFrameAlphas(240);
+    assert(alphas_240.size() == 4);
+
+    const auto sf_quarter = interp.EvaluateSubFrame(0.25f);
+    assert(sf_quarter.camera_x_q8 == 101 * 256);
+    assert(sf_quarter.dungeon_poses[0].active);
+    assert(!sf_quarter.dungeon_poses[0].snapped_discontinuity);
+    assert(sf_quarter.dungeon_poses[0].interp_x_q8 == 121 * 256);
+    assert(sf_quarter.dungeon_poses[0].subpixel_dx_q8 == -3 * 256);
+
+    const auto sf_half = interp.EvaluateSubFrame(0.50f);
+    assert(sf_half.camera_x_q8 == 102 * 256);
+    assert(sf_half.dungeon_poses[0].interp_x_q8 == 122 * 256);
+    assert(sf_half.dungeon_poses[0].subpixel_dx_q8 == -2 * 256);
+
+    // Verify guest RAM is 100% bit-identical (zero breakage of turn-based determinism)
+    assert(ram == ram_snapshot);
+
+    // Tick 3: Warp Seed teleport (+120 pixels > 24px threshold) must snap immediately without smear!
+    WriteGuest<int32_t>(ram, kEntity0Addr + layout::entity::kPixelPosOffset + 0u, 244 * 256);
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+    const auto sf_warp = interp.EvaluateSubFrame(0.50f);
+    assert(sf_warp.dungeon_poses[0].snapped_discontinuity);
+    assert(sf_warp.dungeon_poses[0].interp_x_q8 == 244 * 256);
+    assert(sf_warp.dungeon_poses[0].subpixel_dx_q8 == 0);
+
+    // Also verify Overlay 11 Ground Mode interpolation
+    WriteGuest<uint32_t>(ram, pmdsky::NA.DUNGEON_PTR_MASTER, 0u);
+    constexpr uint32_t kGroundBgAddr = 0x02180000u;
+    constexpr uint32_t kGroundActorsAddr = 0x02190000u;
+    WriteGuest<uint32_t>(ram, pmdsky::NA.GROUND_STATE_MAP, kGroundBgAddr);
+    WriteGuest<uint32_t>(ram, pmdsky::NA.GROUND_STATE_PTRS + layout::ground::kGroundActorsPtrOffset, kGroundActorsAddr);
+
+    WriteGuest<int32_t>(ram, kGroundBgAddr + layout::ground::kGroundBgCameraPixelPosOffset + 0u, 50 * 256);
+    WriteGuest<uint8_t>(ram, kGroundActorsAddr + layout::ground::kLiveActorEnabledOffset, 1u);
+    WriteGuest<int16_t>(ram, kGroundActorsAddr + layout::ground::kLiveActorIdOffset, 7);
+    WriteGuest<int32_t>(ram, kGroundActorsAddr + layout::ground::kLiveActorCoordMinOffset + 0u, 80 * 256);
+
+    interp.Reset();
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+    WriteGuest<int32_t>(ram, kGroundBgAddr + layout::ground::kGroundBgCameraPixelPosOffset + 0u, 52 * 256);
+    WriteGuest<int32_t>(ram, kGroundActorsAddr + layout::ground::kLiveActorCoordMinOffset + 0u, 84 * 256);
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+
+    const auto ground_sf = interp.EvaluateSubFrame(0.50f);
+    assert(ground_sf.mode == ActiveGameMode::GroundOverlay11);
+    assert(ground_sf.camera_x_q8 == 51 * 256);
+    assert(ground_sf.ground_poses[0].active);
+    assert(ground_sf.ground_poses[0].interp_x_q8 == 82 * 256);
+}
+
+void TestWeatherShaderPipeline() {
+    using namespace skyrecomp::shaders;
+
+    WeatherShaderPipeline pipeline(
+        pmdsky::Region::NA,
+        ShaderFilterPreset::SharpBilinear,
+        true);
+    assert(pipeline.GetWeatherColorTableGuestAddress() == 0x022DE620u);
+    assert(pipeline.GetMetalShaderSource().find("sky_hd_fragment_main") != std::string_view::npos);
+    assert(pipeline.GetMetalShaderSource().find("sharp_bilinear_uv") != std::string_view::npos);
+
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
+    constexpr uint32_t kDungeonAddr = 0x02100000u;
+    WriteGuest<uint32_t>(ram, pmdsky::NA.DUNGEON_PTR_MASTER, kDungeonAddr);
+    WriteGuest<uint8_t>(ram, kDungeonAddr + layout::dungeon::kWeatherOffset, static_cast<uint8_t>(DungeonWeatherId::Sunny));
+
+    // Populate dungeon->color_table with a warm Sunny LUT
+    for (int i = 0; i < 256; ++i) {
+        const uint32_t r = std::min(255, i + 12);
+        const uint32_t g = static_cast<uint32_t>(i);
+        const uint32_t b = static_cast<uint32_t>(std::max(0, i - 12));
+        const uint32_t rgba = r | (g << 8) | (b << 16) | 0xFF000000u;
+        WriteGuest<uint32_t>(
+            ram,
+            kDungeonAddr + layout::dungeon::kColorTableOffset + static_cast<uint32_t>(i * 4),
+            rgba);
+    }
+
+    GuestMemoryView mem(ram.data(), ram.size());
+    const auto wstate = pipeline.ReadWeatherStateFromGuest(mem);
+    assert(wstate.in_dungeon);
+    assert(wstate.weather == DungeonWeatherId::Sunny);
+    assert(wstate.has_custom_color_table);
+
+    const auto uniforms = pipeline.BuildUniforms(342, 192, 1368, 768, wstate);
+    assert(uniforms.weather_id == static_cast<uint32_t>(DungeonWeatherId::Sunny));
+    assert(uniforms.bloom_enabled == 1u);
+    assert(uniforms.weather_tint[0] > uniforms.weather_tint[2]); // Warm sunny red > blue
+
+    // Apply post-processing to a bright highlight test frame and verify warm bloom boost
+    std::vector<uint32_t> fb(16 * 16, 0xFFC8C8C8u);
+    pipeline.ApplyPostProcessArgb8888(fb, 16, 16, wstate);
+    const uint32_t out_px = fb[0];
+    const uint32_t out_r = (out_px >> 16) & 0xFFu;
+    const uint32_t out_b = out_px & 0xFFu;
+    assert(out_r > out_b);
+}
+
+void TestRecompUiSettingsOverlay() {
+    using namespace skyrecomp::ui;
+
+    SkySettingsOverlay overlay;
+    assert(overlay.IsValid());
+    assert(!overlay.IsVisible());
+
+    // 1. Toggle overlay open via F1 key press
+    assert(overlay.HandleInput(OverlayInputState{.f1_pressed = true}));
+    assert(overlay.IsVisible());
+
+    // 2. Adjust Aspect Ratio (item 0) from 16:9 -> 21:9 using Right action
+    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::AspectRatio));
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
+    assert(overlay.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+
+    // 3. Navigate down to HUD Layout (item 1) and toggle to Single-Screen Modern
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
+    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::HudLayout));
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
+    assert(overlay.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
+
+    // 4. Navigate down to Refresh Interpolation (item 2) and switch from 120Hz -> 144Hz
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
+    assert(overlay.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+
+    // 5. Render the recomp-ui overlay onto a 342x192 ARGB8888 framebuffer
+    std::vector<uint32_t> fb(342 * 192, 0xFF204060u);
+    assert(overlay.RenderArgb8888(fb, 342, 192));
+    // Verify center panel pixels were drawn over the backdrop
+    assert(fb[96 * 342 + 171] != 0xFF204060u);
+
+    // 6. Apply settings to live subsystems
+    gpu2d::WidescreenPpu ppu;
+    camera::DungeonCameraHook cam_hook;
+    camera::SubpixelInterpolator interp;
+    shaders::WeatherShaderPipeline shader_pipe;
+    overlay.ApplyToSubsystems(ppu, cam_hook, interp, shader_pipe);
+    assert(ppu.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    assert(ppu.GetHudLayoutMode() == gpu2d::HudLayoutMode::SingleScreenModern);
+    assert(cam_hook.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    assert(interp.GetRefreshRateMode() == camera::RefreshRateMode::HighRefresh_144Hz);
+
+    // 7. Test TOML round-trip serialization
+    const std::string toml = overlay.SerializeToToml();
+    SkySettingsOverlay restored;
+    assert(restored.LoadFromToml(toml));
+    assert(restored.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
+    assert(restored.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
+    assert(restored.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+
+    // 8. Toggle overlay closed via Gamepad Select+Start chord
+    assert(!overlay.HandleInput(OverlayInputState{
+        .gamepad_select_held = true,
+        .gamepad_start_held = true,
+    }));
+    assert(!overlay.IsVisible());
+}
+
+} // namespace
+
+int main() {
+    TestWidescreenPpuAndHudAnchoring();
+    TestOverlay29CameraAndTileStreaming();
+    TestSubpixelInterpolationDeterminism();
+    TestWeatherShaderPipeline();
+    TestRecompUiSettingsOverlay();
+
+    std::cout << "[milestone3_runtime_test] ALL MILESTONE 3 RUNTIME TESTS PASSED!\n";
+    return 0;
+}

@@ -18,10 +18,24 @@ struct SymbolAddresses {
     uint32_t do_autoload;
     uint32_t RunDungeon;
     uint32_t GetWeatherColorTable;
+    uint32_t DisplayMonstersAndItems;
+    uint32_t UpdateEntityPixelPos;
+    uint32_t SetEntityPixelPosXY;
+    uint32_t IncrementEntityPixelPosXY;
+    uint32_t ShouldDisplayEntity;
+    uint32_t IsPositionVisibleAndOnScreen;
+    uint32_t PointCameraToMonster;
+    uint32_t UpdateCamera;
+    uint32_t GetVisibilityRange;
     uint32_t DUNGEON_PTR_MASTER;
     uint32_t DUNGEON_PTR;
+    uint32_t LEADER_PTR;
     uint32_t TOP_SCREEN_STATUS_PTR;
+    uint32_t MESSAGE_LOG_INFO;
+    uint32_t DUNGEON_FADES_PTR;
     uint32_t GROUND_STATE_PTRS;
+    uint32_t GROUND_STATE_MAP;
+    uint32_t GROUND_WEATHER_TABLE;
     uint32_t GAME_STATE_VALUES;
     uint32_t BAG_ITEMS_PTR_MIRROR;
     uint32_t WONDER_MAIL_BITS_MAP;
@@ -35,10 +49,24 @@ inline constexpr SymbolAddresses NA = {
     .do_autoload = 0x02000A1C,
     .RunDungeon = 0x022DEF38,
     .GetWeatherColorTable = 0x022DE620,
+    .DisplayMonstersAndItems = 0x022E1854,
+    .UpdateEntityPixelPos = 0x022E1A40,
+    .SetEntityPixelPosXY = 0x022E1A84,
+    .IncrementEntityPixelPosXY = 0x022E1A90,
+    .ShouldDisplayEntity = 0x022E2574,
+    .IsPositionVisibleAndOnScreen = 0x022E2CA0,
+    .PointCameraToMonster = 0x022E2E54,
+    .UpdateCamera = 0x022E2EC4,
+    .GetVisibilityRange = 0x022E333C,
     .DUNGEON_PTR_MASTER = 0x0235353C,
     .DUNGEON_PTR = 0x02353538,
+    .LEADER_PTR = 0x0235355C,
     .TOP_SCREEN_STATUS_PTR = 0x02353554,
+    .MESSAGE_LOG_INFO = 0x023537CC,
+    .DUNGEON_FADES_PTR = 0x023537E0,
     .GROUND_STATE_PTRS = 0x02324CF4,
+    .GROUND_STATE_MAP = 0x02324CC0,
+    .GROUND_WEATHER_TABLE = 0x0231DE10,
     .GAME_STATE_VALUES = 0x020AF6B8,
     .BAG_ITEMS_PTR_MIRROR = 0x020AF6B8,
     .WONDER_MAIL_BITS_MAP = 0x0209E0E8,
@@ -52,10 +80,24 @@ inline constexpr SymbolAddresses EU = {
     .do_autoload = 0x02000A1C,
     .RunDungeon = 0x022DF878,
     .GetWeatherColorTable = 0x022DEF60,
+    .DisplayMonstersAndItems = 0x022E2194,
+    .UpdateEntityPixelPos = 0x022E2380,
+    .SetEntityPixelPosXY = 0x022E23C4,
+    .IncrementEntityPixelPosXY = 0x022E23D0,
+    .ShouldDisplayEntity = 0x022E2EB4,
+    .IsPositionVisibleAndOnScreen = 0x022E3624,
+    .PointCameraToMonster = 0x022E3804,
+    .UpdateCamera = 0x022E3874,
+    .GetVisibilityRange = 0x022E3CEC,
     .DUNGEON_PTR_MASTER = 0x0235413C,
     .DUNGEON_PTR = 0x02354138,
+    .LEADER_PTR = 0x0235415C,
     .TOP_SCREEN_STATUS_PTR = 0x02354154,
+    .MESSAGE_LOG_INFO = 0x023543E4,
+    .DUNGEON_FADES_PTR = 0x023543F8,
     .GROUND_STATE_PTRS = 0x02325834,
+    .GROUND_STATE_MAP = 0x02325800,
+    .GROUND_WEATHER_TABLE = 0x0231E7F0,
     .GAME_STATE_VALUES = 0x020AFF70,
     .BAG_ITEMS_PTR_MIRROR = 0x020AFF70,
     .WONDER_MAIL_BITS_MAP = 0x0209E66C,
