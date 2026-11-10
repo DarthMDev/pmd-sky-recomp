@@ -6,12 +6,56 @@ if(NOT DEFINED NDS_RECOMP_UI_ROOT AND NOT DEFINED ENV{RECOMP_UI_ROOT})
         "Path to the pinned recomp-ui checkout")
 endif()
 
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/runner" ndsrecomp)
-set_target_properties(nds_runner PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
-if(UNIX AND NOT APPLE)
-    set_target_properties(nds_runner PROPERTIES
-        BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN")
+add_library(sky_runtime_enhancements STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/gpu2d/widescreen_ppu.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/camera/dungeon_camera.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/camera/subpixel_interpolator.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/shaders/weather_shader_pipeline.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/ui/settings_overlay.cpp"
+    "${NDS_RECOMP_UI_ROOT}/src/common/recomp_runtime_ui.c"
+)
+target_compile_features(sky_runtime_enhancements PUBLIC cxx_std_20)
+target_include_directories(sky_runtime_enhancements PUBLIC
+    "${PROJECT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_LIST_DIR}"
+    "${NDS_RECOMP_UI_ROOT}/src"
+)
+
+if(DEFINED NDS_GENERATED_DIR)
+    set(_sky_gen_dir "${NDS_GENERATED_DIR}")
+else()
+    set(_sky_gen_dir "${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/generated")
 endif()
+
+if(EXISTS "${_sky_gen_dir}/arm9_bios.c")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/runner" ndsrecomp)
+    target_link_libraries(nds_runner PRIVATE sky_runtime_enhancements)
+    set_target_properties(nds_runner PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
+    if(UNIX AND NOT APPLE)
+        set_target_properties(nds_runner PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "$ORIGIN")
+    endif()
+else()
+    message(STATUS "Skipping nds_runner because ${_sky_gen_dir}/arm9_bios.c is missing")
+endif()
+
+add_executable(pmdsky_bindings_test "${PROJECT_SOURCE_DIR}/tests/pmdsky_bindings_test.cpp")
+target_link_libraries(pmdsky_bindings_test PRIVATE sky_runtime_enhancements)
+if(MSVC)
+    target_compile_options(pmdsky_bindings_test PRIVATE /UNDEBUG)
+else()
+    target_compile_options(pmdsky_bindings_test PRIVATE -UNDEBUG)
+endif()
+add_test(NAME pmdsky_bindings_test COMMAND pmdsky_bindings_test)
+
+add_executable(milestone3_runtime_test "${PROJECT_SOURCE_DIR}/tests/milestone3_runtime_test.cpp")
+target_link_libraries(milestone3_runtime_test PRIVATE sky_runtime_enhancements)
+if(MSVC)
+    target_compile_options(milestone3_runtime_test PRIVATE /UNDEBUG)
+else()
+    target_compile_options(milestone3_runtime_test PRIVATE -UNDEBUG)
+endif()
+add_test(NAME milestone3_runtime_test COMMAND milestone3_runtime_test)

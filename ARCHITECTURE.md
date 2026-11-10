@@ -86,13 +86,15 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
   `build/runner-fallback/` for cartridge runtime execution).
 
 ### Milestone 3: Performance & Graphics Beyond Emulators
-- **Note on Frame Rate:** Vanilla *Explorers of Sky* already runs natively at **60 FPS** (`59.8261 Hz`), NOT 30 FPS! Therefore, instead of a "30->60 FPS patch", our standout smoothness upgrade is **High-Refresh-Rate (`120Hz` / `144Hz` / `240Hz`) Sub-Pixel Camera & Entity Interpolation**--reading camera/entity coordinates from `DUNGEON_PTR_MASTER` (`overlay29`) and `GROUND_STATE_PTRS` (`overlay11`) at $t-1$ and $t$ to render silky-smooth intermediate frames on ProMotion / high-Hz monitors with zero added input latency.
+- **Note on Frame Rate:** Vanilla *Explorers of Sky* already runs natively at **60 FPS** (`59.8261 Hz`), NOT 30 FPS! Therefore, instead of a "30->60 FPS patch", our standout smoothness upgrade is **High-Refresh-Rate (`120Hz` / `144Hz` / `240Hz`) Sub-Pixel Camera & Entity Interpolation** (`runtime/camera/subpixel_interpolator.*`)--reading camera/entity coordinates from `DUNGEON_PTR_MASTER` (`overlay29`) and `GROUND_STATE_PTRS` / `GROUND_STATE_MAP` (`overlay11`) at $t-1$ and $t$ to render silky-smooth intermediate frames on ProMotion / high-Hz monitors without mutating authoritative guest RAM. Displaying frames interpolated between $t-1$ and $t$ adds up to one logic tick of display latency.
 - **True Native Widescreen (`16:9` `342x192`, `16:10` `308x192`, `21:9` `448x192`):**
-  - Extend `gpu2d.cpp` scanline/BG/OAM rasterizer from `256` px to `W` px (`512x256` virtual BG tilemaps already exist in VRAM!).
-  - Hook `overlay29` tile-column upload & entity visibility culling (`pmdsky-debug` camera symbols) to stream extra tile columns on the left/right margins.
-  - Anchor 2D OAM/Window HUD elements (HP, Belly, Floor, Message Log) to the true `16:9` screen edges + optional **Single-Screen Modern Layout** (full `16:9` gameplay with togglable translucent mini-map/team overlay).
-- **Custom Apple Metal / `SDL_GPU` HD Shader Pipeline:**
-  - Crisp pixel-art AA (`pixellate` / `sharp-bilinear`), optional CRT/LCD subpixel grid, and per-weather dungeon ambient bloom/color grading driven by `GetWeatherColorTable` (`0x022DE620` NA).
+  - `runtime/gpu2d/widescreen_ppu.*` extends the 2D scanline, BG (`512x256` virtual ring buffer), and OAM rasterizer from `256` px to `W` px.
+  - `runtime/camera/dungeon_camera.*` hooks `overlay29` tile-column streaming (`dungeon->tile_ptrs[32][56]`) and entity visibility culling (`IsPositionVisibleAndOnScreen` `0x022E2CA0` NA / `0x022E3624` EU) to stream extra tile columns on the left/right margins (`±8` tiles at 16:10, `±9` at 16:9, `±11` at 21:9) while preserving hallway/blind/darkness fog-of-war rules.
+  - Anchors 2D OAM/Window HUD elements (HP, Belly, Floor, Message Log) to the true widescreen edges + optional **Single-Screen Modern Layout** (full widescreen gameplay with translucent mini-map/team overlay).
+- **Custom Apple Metal / `SDL_GPU` HD Shader Pipeline (`runtime/shaders/`):**
+  - `runtime/shaders/sky_hd_shaders.metal.h` and `runtime/shaders/weather_shader_pipeline.*` implement crisp pixel-art AA (`pixellate` / `sharp-bilinear`), optional CRT/LCD subpixel grid, and per-weather dungeon ambient bloom/color grading driven by `GetWeatherColorTable` (`0x022DE620` NA / `0x022DEF60` EU).
+- **Interactive In-Game Settings Overlay (`runtime/ui/settings_overlay.*`):**
+  - Integrates `third_party/recomp-ui` toggled via `F1`, Gamepad `Guide`, or `Select+Start` with live controls for aspect ratio, HUD layout, high-refresh interpolation, HD shader filters, weather ambient bloom, audio volume, and controller remapping.
 
 - **In-game language (planned):** Add **Game language** to Explorers of Sky’s
   own options menu for every supported cartridge. Show the languages
@@ -122,4 +124,5 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 ## 5. Licensing Notice
 
 - `SkyRecompiled` glue scripts, tools, and clean-room configs are original code; `pmdsky-debug` symbols/headers are dual-licensed `MIT OR GPL-3.0-or-later`; `FreeBIOS` is `BSD-2-Clause`.
+- Widescreen edge-case rules for 3D dungeon darkness bands, full-screen 3D rectangles, margin sprite culling reaches, and off-screen cutscene actor offsets in `runtime/gpu2d/` and `runtime/camera/` are adapted from [`Asphaltian/pmd-space`](https://github.com/Asphaltian/pmd-space) (*Explorers of Space*) under the upstream GPL-3.0-only grant. The combined SkyRecompiled work is distributed under GPL-3.0. Independently licensed code retains its original terms.
 - `third_party/ndsrecomp/runner` links vendored `melonDS` components (`GPU3D`, `Wifi`) under **GPL-3.0-or-later**. Accordingly, any distributed `SkyRecompiled` binary builds must comply with **GPL-3.0-or-later** (`LICENSE-GPL`).

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Unit tests for the pmdsky-debug C++20 symbol binding generator."""
+
 import shutil
 import subprocess
 import sys
@@ -12,6 +14,8 @@ CPP_TEST = REPO_ROOT / "tests" / "pmdsky_bindings_test.cpp"
 
 
 class TestPMDSkyBindings(unittest.TestCase):
+    """Verifies header generation and C++20 constexpr assertions for pmdsky_addrs.hpp."""
+
     def test_generator_writes_default_header(self):
         """Generate a fresh header using the default input and output paths."""
         with tempfile.TemporaryDirectory() as directory:

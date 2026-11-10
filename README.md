@@ -144,10 +144,13 @@ AI coding tools were used during the development of this project. All translated
 - [`RetroPortingToolKit/ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) & [`recomp-ui`](https://github.com/RetroPortingToolKit/recomp-ui) -- Nintendo DS static recompilation framework & runtime
 - [`UsernameFodder/pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug) -- *Explorers of Sky* symbol tables & C headers
 - [`pret/pmd-sky`](https://github.com/pret/pmd-sky) -- Decompilation reference for game engine structures
+- [`Asphaltian/pmd-space`](https://github.com/Asphaltian/pmd-space) (*Explorers of Space*, `GPL-3.0-only`) -- Source for adapted PMD Sky widescreen code (3D dungeon darkness bands, full-screen fade rectangles, margin sprite culling reaches, and off-screen cutscene actor handling)
 - `FreeBIOS` (`BSD-2-Clause`) & `melonDS` (`GPL-3.0-or-later`)
 
 ---
 
 ## License
 
-SkyRecompiled is licensed under the **GNU General Public License v3.0 or later** ([`LICENSE`](LICENSE)). Integrated third-party components are acknowledged under their respective licenses (`FreeBIOS` under BSD-2-Clause, `melonDS` under GPL-3.0-or-later, `pmdsky-debug` under MIT/GPL-3.0, and `ndsrecomp` under PolyForm Noncommercial 1.0.0).
+The combined SkyRecompiled work, including its linked `nds_runner`, is distributed under the **GNU General Public License v3.0** ([`LICENSE`](LICENSE)). Code adapted from `Asphaltian/pmd-space` is available under its upstream GPL-3.0-only grant. Independently licensed code retains its original terms, including the GPL-3.0-or-later grant for independently licensed SkyRecompiled code. Integrated third-party components retain their respective licenses (`FreeBIOS` under BSD-2-Clause, `melonDS` under GPL-3.0-or-later, `pmdsky-debug` under MIT/GPL-3.0).
+
+At the pinned `ndsrecomp` revision, PolyForm Noncommercial 1.0.0 is the default for upstream project code. The upstream license grants MIT terms for the original runtime code linked into `nds_runner` and GPL-3.0-or-later terms for its melonDS-derived code. Separately licensed dependencies retain their own terms. See the pinned [upstream licensing notice](https://github.com/RetroPortingToolKit/ndsrecomp/blob/54967a4e26bcd6ad46445d51bab3214decc3fd59/README.md#copyright-and-licensing).
