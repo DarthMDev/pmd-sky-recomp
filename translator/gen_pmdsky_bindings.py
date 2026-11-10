@@ -28,10 +28,20 @@ TARGET_SYMBOLS = [
     "NitroMain",
     "MIi_UncompressBackward",
     "do_autoload",
+    "ExplorersOfSkyMain",
+    # 2D / 3D Rendering & Window Primitives (arm9)
+    "AddSimpleObjToOam",
+    "InitRender3dElement64",
+    "NewWindowScreenCheck",
+    "WINDOW_LIST",
+    "WAN_TABLE",
+    "OBJ_GRAPHICS_CONTROLS_PTR",
     # Dungeon Engine (overlay 29)
     "RunDungeon",
     "GetWeatherColorTable",
     "DisplayMonstersAndItems",
+    "DisplayItem",
+    "DisplayThrownItemShadow",
     "UpdateEntityPixelPos",
     "SetEntityPixelPosXY",
     "IncrementEntityPixelPosXY",
@@ -46,10 +56,11 @@ TARGET_SYMBOLS = [
     "TOP_SCREEN_STATUS_PTR",
     "MESSAGE_LOG_INFO",
     "DUNGEON_FADES_PTR",
-    # Ground Engine (overlay 11)
+    # Ground Engine (overlay 11) & Personality Quiz (overlay 13)
     "GROUND_STATE_PTRS",
     "GROUND_STATE_MAP",
     "GROUND_WEATHER_TABLE",
+    "PERSONALITY_TEST_PTR",
     # Game State & Ram Globals
     "GAME_STATE_VALUES",
     "BAG_ITEMS_PTR_MIRROR",
@@ -170,7 +181,9 @@ def main() -> None:
         args.symbols_dir / "arm9.yml",
         args.symbols_dir / "ram.yml",
         args.symbols_dir / "overlay11.yml",
+        args.symbols_dir / "overlay13.yml",
         args.symbols_dir / "overlay29.yml",
+        args.symbols_dir / "overlay34.yml",
         args.symbols_dir / "overlay00.yml",
         args.symbols_dir / "overlay01.yml",
     ]

@@ -83,6 +83,28 @@ struct WindowHorizontalBounds {
     uint16_t x2 = 0; // Right exclusive bound in [0, width]
 };
 
+/// 3D UI / darkness quad (`struct render_3d_element_64`) expanded for widescreen margins.
+/// Ported from widescreen research in Asphaltian/pmd-space (DungeonDarkness.cs & FullScreenRectangles.cs, GPL-3.0).
+struct Render3dElement64Quad {
+    uint8_t type = 0; // 2 = RENDER64_RECTANGLE, 5 = RENDER64_TILING
+    int16_t tex_w = 0;
+    int16_t tex_h = 0;
+    int16_t tex_u = 0;
+    int16_t tex_v = 0;
+    // For RENDER64_RECTANGLE: x0=translation.x, y0=translation.y, x1=size.w, y1=size.h
+    // For RENDER64_TILING: 4 vertex X/Y pairs (top-left, top-right, bottom-left, bottom-right)
+    std::array<int16_t, 4> vx{0, 0, 0, 0};
+    std::array<int16_t, 4> vy{0, 0, 0, 0};
+};
+
+/// Room pixel bounds (`struct room_data` +0x0C) for generating widescreen darkness margin pieces.
+struct RoomPixelBounds {
+    int16_t left = 0;
+    int16_t top = 0;
+    int16_t right = 0;
+    int16_t bottom = 0;
+};
+
 /// Summary of Dungeon HUD state for Single-Screen Modern Layout overlay synthesis.
 struct ModernHudState {
     int16_t floor_number = 1;
@@ -167,6 +189,21 @@ public:
     void RenderModernSingleScreenHud(
         const ModernHudState& state,
         std::span<uint32_t> framebuffer_argb) const noexcept;
+
+    /// Expands a 3D-rendered full-screen rectangle (`RENDER64_RECTANGLE` at 0,0 256x192) or
+    /// dungeon darkness band (`RENDER64_TILING` 4x4 band) across the widescreen margins.
+    /// Adapted from Asphaltian/pmd-space (`FullScreenRectangles.cs` & `DungeonDarkness.cs`, GPL-3.0).
+    bool ExpandRender3dElementForWidescreen(
+        Render3dElement64Quad& elem,
+        bool is_building_dungeon_darkness = false) const noexcept;
+
+    /// Generates additional 3D darkness band & 32x32 corner quads needed when a partially lit dungeon
+    /// room's left/right border or rounded corners fall inside the widescreen margins.
+    /// Adapted from Asphaltian/pmd-space (`DungeonDarkness.cs`, GPL-3.0).
+    [[nodiscard]] std::vector<Render3dElement64Quad> BuildDungeonDarknessMarginQuads(
+        const RoomPixelBounds& room_bounds,
+        int16_t camera_pixel_x,
+        int16_t camera_pixel_y) const;
 
 private:
     ViewportMetrics metrics_;

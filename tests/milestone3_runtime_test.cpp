@@ -405,6 +405,70 @@ void TestRecompUiSettingsOverlay() {
     assert(!overlay.IsVisible());
 }
 
+void TestPmdSpaceWidescreenEdgeCases() {
+    using namespace skyrecomp::gpu2d;
+    using namespace skyrecomp::camera;
+
+    WidescreenPpu ppu(AspectRatioPreset::Widescreen_16_9);
+    DungeonCameraHook cam_hook(pmdsky::Region::NA, AspectRatioPreset::Widescreen_16_9);
+
+    // 1. FullScreenRectangles & DungeonDarkness 3D element expansion (margin = 43)
+    Render3dElement64Quad rect_quad{
+        .type = 2u,
+        .vx = {0, 256, 0, 0},
+        .vy = {0, 192, 0, 0},
+    };
+    assert(ppu.ExpandRender3dElementForWidescreen(rect_quad, false));
+    assert(rect_quad.vx[0] == -43);
+    assert(rect_quad.vx[1] == 256 + 86);
+
+    Render3dElement64Quad dark_band{
+        .type = 5u,
+        .tex_w = 4,
+        .tex_h = 4,
+        .vx = {0, 256, 0, 256},
+        .vy = {0, 0, 48, 48},
+    };
+    assert(ppu.ExpandRender3dElementForWidescreen(dark_band, true));
+    assert(dark_band.vx[0] == -43 && dark_band.vx[1] == 256 + 43);
+
+    // Room bounds partially overlapping the left widescreen margin (left = -20 relative to camera)
+    RoomPixelBounds room_bounds{
+        .left = 80,
+        .top = 100,
+        .right = 370,
+        .bottom = 240,
+    };
+    const auto dark_pieces = ppu.BuildDungeonDarknessMarginQuads(room_bounds, 100, 90);
+    assert(!dark_pieces.empty());
+
+    // 2. MarginSprites culling shifts (Item, Shadow, Monster, OamPiece)
+    // Item reach is [-32, 287]; at x = -48 (in left 16:9 margin), camera shift is -43
+    assert(cam_hook.ComputeMarginCameraShift(-48, MarginSpriteKind::Item) == -43);
+    assert(cam_hook.ComputeMarginCameraShift(300, MarginSpriteKind::Item) == +43);
+    assert(cam_hook.ComputeMarginCameraShift(120, MarginSpriteKind::Item) == 0);
+    assert(!cam_hook.IsOamPieceOffWidescreen(-90));
+    assert(cam_hook.IsOamPieceOffWidescreen(-120));
+
+    // 3. OffScreenActors waiting/moving adjustment in Ground Mode cutscenes
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
+    constexpr uint32_t kActorAddr = 0x02190000u;
+    WriteGuest<uint8_t>(ram, kActorAddr + layout::ground::kLiveActorEnabledOffset, 1u);
+    WriteGuest<int16_t>(ram, kActorAddr + layout::ground::kLiveActorKindOffset, 5);
+    WriteGuest<int32_t>(ram, kActorAddr + layout::ground::kLiveActorHalfSizeOffset, 8 * 256);
+    // Actor parked just off left screen edge (camera_x = 100, actor min_x = 80, max_x = 96, init_x = 88)
+    WriteGuest<int32_t>(ram, kActorAddr + layout::ground::kLiveActorCoordMinOffset, 80 * 256);
+    WriteGuest<int32_t>(ram, kActorAddr + layout::ground::kLiveActorCoordMaxOffset, 96 * 256);
+    WriteGuest<int32_t>(ram, kActorAddr + layout::ground::kLiveActorInitialPosOffset, 88 * 256);
+
+    GuestMemoryView mem(ram.data(), ram.size());
+    const auto adj = cam_hook.ComputeOffScreenActorAdjustment(mem, kActorAddr, 100);
+    assert(adj.should_shift);
+    assert(!adj.adjusts_move_target);
+    assert(adj.side == -1);
+    assert(adj.delta_x_q8 == -43 * 256);
+}
+
 } // namespace
 
 int main() {
@@ -413,6 +477,7 @@ int main() {
     TestSubpixelInterpolationDeterminism();
     TestWeatherShaderPipeline();
     TestRecompUiSettingsOverlay();
+    TestPmdSpaceWidescreenEdgeCases();
 
     std::cout << "[milestone3_runtime_test] ALL MILESTONE 3 RUNTIME TESTS PASSED!\n";
     return 0;

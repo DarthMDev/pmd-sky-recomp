@@ -16,9 +16,18 @@ struct SymbolAddresses {
     uint32_t NitroMain;
     uint32_t MIi_UncompressBackward;
     uint32_t do_autoload;
+    uint32_t ExplorersOfSkyMain;
+    uint32_t AddSimpleObjToOam;
+    uint32_t InitRender3dElement64;
+    uint32_t NewWindowScreenCheck;
+    uint32_t WINDOW_LIST;
+    uint32_t WAN_TABLE;
+    uint32_t OBJ_GRAPHICS_CONTROLS_PTR;
     uint32_t RunDungeon;
     uint32_t GetWeatherColorTable;
     uint32_t DisplayMonstersAndItems;
+    uint32_t DisplayItem;
+    uint32_t DisplayThrownItemShadow;
     uint32_t UpdateEntityPixelPos;
     uint32_t SetEntityPixelPosXY;
     uint32_t IncrementEntityPixelPosXY;
@@ -36,6 +45,7 @@ struct SymbolAddresses {
     uint32_t GROUND_STATE_PTRS;
     uint32_t GROUND_STATE_MAP;
     uint32_t GROUND_WEATHER_TABLE;
+    uint32_t PERSONALITY_TEST_PTR;
     uint32_t GAME_STATE_VALUES;
     uint32_t BAG_ITEMS_PTR_MIRROR;
     uint32_t WONDER_MAIL_BITS_MAP;
@@ -47,9 +57,18 @@ inline constexpr SymbolAddresses NA = {
     .NitroMain = 0x02000C6C,
     .MIi_UncompressBackward = 0x02000970,
     .do_autoload = 0x02000A1C,
+    .ExplorersOfSkyMain = 0x022DC240,
+    .AddSimpleObjToOam = 0x0201B9F8,
+    .InitRender3dElement64 = 0x0201E730,
+    .NewWindowScreenCheck = 0x02027648,
+    .WINDOW_LIST = 0x022A88DC,
+    .WAN_TABLE = 0x020AFC68,
+    .OBJ_GRAPHICS_CONTROLS_PTR = 0x020AFC4C,
     .RunDungeon = 0x022DEF38,
     .GetWeatherColorTable = 0x022DE620,
     .DisplayMonstersAndItems = 0x022E1854,
+    .DisplayItem = 0x023457C8,
+    .DisplayThrownItemShadow = 0x022E9488,
     .UpdateEntityPixelPos = 0x022E1A40,
     .SetEntityPixelPosXY = 0x022E1A84,
     .IncrementEntityPixelPosXY = 0x022E1A90,
@@ -67,6 +86,7 @@ inline constexpr SymbolAddresses NA = {
     .GROUND_STATE_PTRS = 0x02324CF4,
     .GROUND_STATE_MAP = 0x02324CC0,
     .GROUND_WEATHER_TABLE = 0x0231DE10,
+    .PERSONALITY_TEST_PTR = 0x0238CEA0,
     .GAME_STATE_VALUES = 0x020AF6B8,
     .BAG_ITEMS_PTR_MIRROR = 0x020AF6B8,
     .WONDER_MAIL_BITS_MAP = 0x0209E0E8,
@@ -78,9 +98,18 @@ inline constexpr SymbolAddresses EU = {
     .NitroMain = 0x02000C6C,
     .MIi_UncompressBackward = 0x02000970,
     .do_autoload = 0x02000A1C,
+    .ExplorersOfSkyMain = 0x022DCB80,
+    .AddSimpleObjToOam = 0x0201BA94,
+    .InitRender3dElement64 = 0x0201E7CC,
+    .NewWindowScreenCheck = 0x0202793C,
+    .WINDOW_LIST = 0x022A921C,
+    .WAN_TABLE = 0x020B0524,
+    .OBJ_GRAPHICS_CONTROLS_PTR = 0x020B0508,
     .RunDungeon = 0x022DF878,
     .GetWeatherColorTable = 0x022DEF60,
     .DisplayMonstersAndItems = 0x022E2194,
+    .DisplayItem = 0x023463B4,
+    .DisplayThrownItemShadow = 0x022E9E38,
     .UpdateEntityPixelPos = 0x022E2380,
     .SetEntityPixelPosXY = 0x022E23C4,
     .IncrementEntityPixelPosXY = 0x022E23D0,
@@ -98,6 +127,7 @@ inline constexpr SymbolAddresses EU = {
     .GROUND_STATE_PTRS = 0x02325834,
     .GROUND_STATE_MAP = 0x02325800,
     .GROUND_WEATHER_TABLE = 0x0231E7F0,
+    .PERSONALITY_TEST_PTR = 0x0238D9E0,
     .GAME_STATE_VALUES = 0x020AFF70,
     .BAG_ITEMS_PTR_MIRROR = 0x020AFF70,
     .WONDER_MAIL_BITS_MAP = 0x0209E66C,

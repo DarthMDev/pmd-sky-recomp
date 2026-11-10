@@ -124,4 +124,5 @@ We evaluated [`pret/pmd-sky`](https://github.com/pret/pmd-sky) alongside [`Retro
 ## 5. Licensing Notice
 
 - `SkyRecompiled` glue scripts, tools, and clean-room configs are original code; `pmdsky-debug` symbols/headers are dual-licensed `MIT OR GPL-3.0-or-later`; `FreeBIOS` is `BSD-2-Clause`.
+- Widescreen edge-case rules for 3D dungeon darkness bands, full-screen 3D rectangles, margin sprite culling reaches, and off-screen cutscene actor offsets in `runtime/gpu2d/` and `runtime/camera/` are adapted from [`Asphaltian/pmd-space`](https://github.com/Asphaltian/pmd-space) (*Explorers of Space*) under **GPL-3.0**.
 - `third_party/ndsrecomp/runner` links vendored `melonDS` components (`GPU3D`, `Wifi`) under **GPL-3.0-or-later**. Accordingly, any distributed `SkyRecompiled` binary builds must comply with **GPL-3.0-or-later** (`LICENSE-GPL`).

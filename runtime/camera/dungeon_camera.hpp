@@ -64,6 +64,24 @@ struct StreamedDungeonTile {
     bool illuminated_by_fov = true;
 };
 
+/// Sprite category for exact widescreen margin culling reaches.
+/// Ported from Asphaltian/pmd-space (`MarginSprites.cs`, GPL-3.0).
+enum class MarginSpriteKind : uint8_t {
+    Item = 0,             // Vanilla reach: [-32, 287] (DisplayItem)
+    ThrownItemShadow = 1, // Vanilla reach: [-16, 270] (DisplayThrownItemShadow)
+    Monster = 2,          // Vanilla reach: [-64, 319] (ov29_022E273C ShouldDisplayMonster)
+    OamPiece = 3,         // Vanilla reach: [-64, 256] (sub_0201B9B0 isPieceOffScreen)
+};
+
+/// Describes the widescreen wait/target coordinate adjustment for an off-screen cutscene actor.
+/// Ported from Asphaltian/pmd-space (`OffScreenActors.cs`, GPL-3.0).
+struct OffScreenActorAdjustment {
+    bool should_shift = false;
+    bool adjusts_move_target = false; // true = shift move_target (+0x90), false = shift coord_min/max (+0x15C/+0x164)
+    int side = 0;                     // -1 = left margin, +1 = right margin
+    int32_t delta_x_q8 = 0;           // 24.8 fixed-point horizontal offset to apply
+};
+
 /// Hook for `overlay29` camera, widescreen tile-column streaming, and `IsPositionVisibleAndOnScreen`
 /// (`0x022E2CA0` NA / `0x022E3624` EU) entity culling (Task 3.1).
 class DungeonCameraHook {
@@ -116,6 +134,42 @@ public:
     [[nodiscard]] gpu2d::ModernHudState BuildModernHudState(
         GuestMemoryView mem,
         const DungeonDisplaySnapshot& snapshot) const noexcept;
+
+    /// Computes the temporary camera X shift (`-left_margin`, `0`, or `+right_margin`) needed so
+    /// `DisplayItem`, `DisplayThrownItemShadow`, or `ShouldDisplayMonster` renders an entity in the
+    /// widescreen margin without hitting vanilla 256px culling bounds.
+    /// Adapted from Asphaltian/pmd-space (`MarginSprites.cs`, GPL-3.0).
+    [[nodiscard]] int ComputeMarginCameraShift(int vanilla_screen_x, MarginSpriteKind kind) const noexcept;
+
+    /// Widescreen replacement for `sub_0201B9B0` (`isPieceOffScreen`).
+    /// Adapted from Asphaltian/pmd-space (`MarginSprites.cs`, GPL-3.0).
+    [[nodiscard]] bool IsOamPieceOffWidescreen(int vanilla_piece_x) const noexcept;
+
+    /// Samples a single 8x8 tilemap entry from an `overlay11` 3x3 chunk `map_render` structure
+    /// (supports negative left-margin and >=32 right-margin columns plus `wrap_around`).
+    /// Adapted from Asphaltian/pmd-space (`GroundBg.cs` & `GroundMargins.cs`, GPL-3.0).
+    [[nodiscard]] static uint16_t SampleGroundMapTileEntry(
+        GuestMemoryView mem,
+        uint32_t map_render_addr,
+        int bg_index,
+        int tile_col,
+        int tile_row) noexcept;
+
+    /// Detects whether a Ground Mode `ground_bg` represents a static 256x192 full-screen chapter/cutscene
+    /// illustration (whose non-zero tile bounds fit inside 32x24 tiles with no active actors), so margins
+    /// can be cleanly pillarboxed instead of streaming empty/garbage tiles.
+    /// Adapted from Asphaltian/pmd-space (`FullScreenPictures.cs`, GPL-3.0).
+    [[nodiscard]] bool IsGroundMapStaticFullScreenPicture(
+        GuestMemoryView mem,
+        uint32_t ground_bg_addr) const noexcept;
+
+    /// Computes the widescreen margin shift for an off-screen waiting or walking cutscene `live_actor`
+    /// so NPCs parked just outside the vanilla [0, 256) frame do not appear prematurely in the margins.
+    /// Adapted from Asphaltian/pmd-space (`OffScreenActors.cs`, GPL-3.0).
+    [[nodiscard]] OffScreenActorAdjustment ComputeOffScreenActorAdjustment(
+        GuestMemoryView mem,
+        uint32_t actor_addr,
+        int camera_pixel_x) const noexcept;
 
 private:
     pmdsky::Region region_ = pmdsky::Region::NA;

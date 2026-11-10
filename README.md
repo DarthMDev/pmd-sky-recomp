@@ -144,6 +144,7 @@ AI coding tools were used during the development of this project. All translated
 - [`RetroPortingToolKit/ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) & [`recomp-ui`](https://github.com/RetroPortingToolKit/recomp-ui) -- Nintendo DS static recompilation framework & runtime
 - [`UsernameFodder/pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug) -- *Explorers of Sky* symbol tables & C headers
 - [`pret/pmd-sky`](https://github.com/pret/pmd-sky) -- Decompilation reference for game engine structures
+- [`Asphaltian/pmd-space`](https://github.com/Asphaltian/pmd-space) (*Explorers of Space*, `GPL-3.0`) -- Reference for PMD Sky widescreen edge cases (3D dungeon darkness bands, full-screen fade rectangles, margin sprite culling reaches, and off-screen cutscene actor handling)
 - `FreeBIOS` (`BSD-2-Clause`) & `melonDS` (`GPL-3.0-or-later`)
 
 ---

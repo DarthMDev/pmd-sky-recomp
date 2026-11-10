@@ -11,11 +11,39 @@
 namespace skyrecomp {
 
 /// Exact guest memory constants and verified struct layout offsets from pmdsky-debug
-/// (headers/types/dungeon_mode/dungeon.h, dungeon_mode.h, ground_mode/ground_mode.h).
+/// (headers/types/dungeon_mode/dungeon.h, dungeon_mode.h, ground_mode/ground_mode.h)
+/// and widescreen edge-case research from Asphaltian/pmd-space (Explorers of Space, GPL-3.0).
 namespace layout {
 
 inline constexpr uint32_t kMainRamBase = 0x02000000u;
 inline constexpr uint32_t kMainRamSize = 0x00400000u; // 4 MiB standard NDS Main RAM
+
+/// struct render_3d_element_64 (size: 0x40 = 64 bytes; arm9 3D UI/darkness/fade primitive)
+namespace render_3d_element_64 {
+inline constexpr uint32_t kSize = 0x40u;
+inline constexpr uint32_t kVecOffset = 0x00u;              // int16_t vertices[4][2] (or translation x,y + size w,h for rectangle)
+inline constexpr uint32_t kTextureParamsOffset = 0x14u;    // uint16_t
+inline constexpr uint32_t kTextureTopLeftOffset = 0x16u;   // int16_t u, v
+inline constexpr uint32_t kTextureSizeOffset = 0x1Au;      // int16_t w, h
+inline constexpr uint32_t kTextureVramOffset = 0x20u;      // int32_t
+inline constexpr uint32_t kPaletteBaseAddrOffset = 0x24u;  // uint32_t
+inline constexpr uint32_t kZIndexOffset = 0x2Au;           // uint16_t
+inline constexpr uint32_t kAlphaOffset = 0x2Fu;            // uint8_t
+inline constexpr uint32_t kTypeOffset = 0x3Cu;             // uint8_t (2 = RENDER64_RECTANGLE, 5 = RENDER64_TILING)
+inline constexpr uint32_t kPolygonIdOffset = 0x3Eu;        // uint8_t
+
+inline constexpr uint8_t kTypeRectangle = 2u;
+inline constexpr uint8_t kTypeTiling = 5u;
+inline constexpr int16_t kDarknessBandTexSize = 4;
+inline constexpr int16_t kDarknessCornerTexSize = 0x30;
+inline constexpr int16_t kDarknessCornerPixels = 0x20;
+} // namespace render_3d_element_64
+
+/// struct room_data (size: 0x1C = 28 bytes in dungeon room array)
+namespace room_data {
+inline constexpr uint32_t kSize = 0x1Cu;
+inline constexpr uint32_t kBoundsPixelOffset = 0x0Cu; // int16_t left, int16_t pad0, int16_t top, int16_t pad1, int16_t right, int16_t pad2, int16_t bottom
+} // namespace room_data
 
 /// struct dungeon (size: 0x2CB14 bytes in overlay29)
 namespace dungeon {
@@ -107,7 +135,25 @@ inline constexpr uint32_t kLeaderMaxHpTouchScreenOffset = 0x42u; // int16_t
 namespace ground {
 // struct ground_bg (size: 0x55C = 1372 bytes; pointed to by GROUND_STATE_MAP)
 inline constexpr uint32_t kGroundBgSize = 0x55Cu;
+inline constexpr uint32_t kGroundBgBackgroundIdOffset = 0x1BEu;   // int16_t
+inline constexpr uint32_t kGroundBgCameraCountOffset = 0x1FCu;    // int32_t
 inline constexpr uint32_t kGroundBgCameraPixelPosOffset = 0x200u; // struct pixel_position[2] (each 8 bytes: int32_t x, y in 24.8 fixed-point)
+inline constexpr uint32_t kGroundBgMapRenderOffset = 0x210u;      // struct map_render[2] (each 0x54 bytes)
+inline constexpr uint32_t kMapRenderSize = 0x54u;
+
+// struct map_render (size: 0x54 = 84 bytes, embedded in ground_bg at +0x210)
+inline constexpr uint32_t kMapRenderChunkDimensionsOffset = 0x00u; // int16_t (1 = 3x3 tile chunks)
+inline constexpr uint32_t kMapRenderFirstTilemapOffset = 0x02u;    // int16_t
+inline constexpr uint32_t kMapRenderNumBgsOffset = 0x04u;          // int16_t
+inline constexpr uint32_t kMapRenderWrapAroundOffset = 0x06u;      // uint8_t
+inline constexpr uint32_t kMapRenderWidthChunksOffset = 0x08u;     // int32_t
+inline constexpr uint32_t kMapRenderHeightChunksOffset = 0x0Cu;    // int32_t
+inline constexpr uint32_t kMapRenderChunkTilesPtrOffset = 0x1Cu;   // uint32_t[2]
+inline constexpr uint32_t kMapRenderChunkMapPtrOffset = 0x24u;     // uint32_t[2]
+inline constexpr uint32_t kMapRenderCameraOffset = 0x34u;          // int32_t x, y
+inline constexpr int16_t kMapRenderChunks3x3 = 1;
+inline constexpr int kChunkTileSize = 3;
+inline constexpr int kChunkMapStride = 64;
 
 // struct main_ground_data (size: 0x18 = 24 bytes; pointed to by GROUND_STATE_PTRS)
 inline constexpr uint32_t kMainGroundDataSize = 0x18u;
@@ -118,11 +164,19 @@ inline constexpr uint32_t kGroundPerformersPtrOffset = 0x10u; // struct live_per
 // struct live_actor (size: 0x250 = 592 bytes, 24 entries)
 inline constexpr uint32_t kLiveActorSize = 0x250u;
 inline constexpr int kMaxLiveActors = 24;
-inline constexpr uint32_t kLiveActorEnabledOffset = 0x04u; // bool
-inline constexpr uint32_t kLiveActorIdOffset = 0x06u; // int16_t
-inline constexpr uint32_t kLiveActorCoordMinOffset = 0x15Cu; // int32_t x, y (24.8 fixed-point)
-inline constexpr uint32_t kLiveActorCoordMaxOffset = 0x164u; // int32_t x, y (24.8 fixed-point)
-inline constexpr uint32_t kLiveActorHeightOffset = 0x16Cu; // int32_t height, height_2 (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorKindOffset = 0x02u;        // int16_t (-1 = none)
+inline constexpr uint32_t kLiveActorEnabledOffset = 0x04u;     // bool
+inline constexpr uint32_t kLiveActorIdOffset = 0x06u;          // int16_t
+inline constexpr uint32_t kLiveActorHalfSizeOffset = 0x14u;    // int32_t x, y (collision_box_size_div2, 24.8 fixed-point)
+inline constexpr uint32_t kLiveActorInitialPosOffset = 0x20u;  // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorLimitMinOffset = 0x28u;    // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorLimitMaxOffset = 0x30u;    // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorIsMovingOffset = 0x7Cu;    // int16_t (script_routine_state.field_0x38)
+inline constexpr uint32_t kLiveActorMoveStartOffset = 0x88u;   // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorMoveTargetOffset = 0x90u;  // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorCoordMinOffset = 0x15Cu;   // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorCoordMaxOffset = 0x164u;   // int32_t x, y (24.8 fixed-point)
+inline constexpr uint32_t kLiveActorHeightOffset = 0x16Cu;     // int32_t height, height_2 (24.8 fixed-point)
 
 // struct live_object (size: 0x218 = 536 bytes, 16 entries)
 inline constexpr uint32_t kLiveObjectSize = 0x218u;

@@ -352,4 +352,123 @@ void WidescreenPpu::RenderModernSingleScreenHud(
     }
 }
 
+bool WidescreenPpu::ExpandRender3dElementForWidescreen(
+    Render3dElement64Quad& elem,
+    bool is_building_dungeon_darkness) const noexcept {
+    const int margin = metrics_.left_margin;
+    if (margin <= 0) {
+        return false;
+    }
+
+    // Case 1: Full-screen 3D rectangle (RENDER64_RECTANGLE = 2) at (0, 0) with size (256, 192)
+    // Ported from Asphaltian/pmd-space FullScreenRectangles.cs (GPL-3.0).
+    if (elem.type == 2u &&
+        elem.vx[0] == 0 && elem.vy[0] == 0 &&
+        elem.vx[1] == kVanillaWidth && elem.vy[1] == kVanillaHeight) {
+        elem.vx[0] = static_cast<int16_t>(-margin);
+        elem.vx[1] = static_cast<int16_t>(kVanillaWidth + 2 * margin);
+        return true;
+    }
+
+    // Case 2: Dungeon darkness horizontal 4x4 band (RENDER64_TILING = 5, tex_w == 4, tex_h == 4)
+    // Ported from Asphaltian/pmd-space DungeonDarkness.cs (GPL-3.0).
+    if (is_building_dungeon_darkness &&
+        elem.type == 5u &&
+        elem.tex_w == 4 && elem.tex_h == 4) {
+        bool modified = false;
+        for (int i = 0; i < 4; ++i) {
+            if (elem.vx[static_cast<size_t>(i)] == 0) {
+                elem.vx[static_cast<size_t>(i)] = static_cast<int16_t>(-margin);
+                modified = true;
+            } else if (elem.vx[static_cast<size_t>(i)] == kVanillaWidth) {
+                elem.vx[static_cast<size_t>(i)] = static_cast<int16_t>(kVanillaWidth + margin);
+                modified = true;
+            }
+        }
+        return modified;
+    }
+
+    return false;
+}
+
+std::vector<Render3dElement64Quad> WidescreenPpu::BuildDungeonDarknessMarginQuads(
+    const RoomPixelBounds& room_bounds,
+    int16_t camera_pixel_x,
+    int16_t camera_pixel_y) const {
+    std::vector<Render3dElement64Quad> pieces;
+    const int margin = metrics_.left_margin;
+    if (margin <= 0) {
+        return pieces;
+    }
+
+    // Ported from Asphaltian/pmd-space DungeonDarkness.AddMarginPieces (GPL-3.0).
+    constexpr int kCornerSize = 0x20;
+    constexpr int kCornerReachLeft = -0x20;
+    constexpr int kCornerReachRight = 0x120;
+    constexpr int kCornerReachBottom = 0xE0;
+    constexpr int16_t kBandTexSize = 4;
+    constexpr int16_t kCornerTexSize = 0x30;
+
+    const int left = static_cast<int>(room_bounds.left) - static_cast<int>(camera_pixel_x);
+    const int top = static_cast<int>(room_bounds.top) - static_cast<int>(camera_pixel_y);
+    const int right = static_cast<int>(room_bounds.right) - static_cast<int>(camera_pixel_x);
+    const int bottom = static_cast<int>(room_bounds.bottom) - static_cast<int>(camera_pixel_y);
+
+    const int lit_top = std::max(top, 0);
+    const int lit_height = std::min(bottom - lit_top, kVanillaHeight);
+
+    auto make_quad = [](int x0, int y0, int x1, int y1, int16_t tex_size, int16_t u, int16_t v) {
+        Render3dElement64Quad q{};
+        q.type = 5u; // RENDER64_TILING
+        q.tex_w = tex_size;
+        q.tex_h = tex_size;
+        q.tex_u = u;
+        q.tex_v = v;
+        q.vx = {
+            static_cast<int16_t>(x0),
+            static_cast<int16_t>(x1),
+            static_cast<int16_t>(x0),
+            static_cast<int16_t>(x1),
+        };
+        q.vy = {
+            static_cast<int16_t>(y0),
+            static_cast<int16_t>(y0),
+            static_cast<int16_t>(y1),
+            static_cast<int16_t>(y1),
+        };
+        return q;
+    };
+
+    if (left <= 0 && left > -margin && lit_height > 0) {
+        pieces.push_back(make_quad(-margin, lit_top, left, lit_top + lit_height, kBandTexSize, 0, 0));
+    }
+    if (right >= kVanillaWidth && right < kVanillaWidth + margin && lit_height > 0) {
+        pieces.push_back(make_quad(right, lit_top, kVanillaWidth + margin, lit_top + lit_height, kBandTexSize, 0, 0));
+    }
+
+    struct CornerSpec {
+        int x;
+        int y;
+        int16_t u;
+        int16_t v;
+    };
+    const std::array<CornerSpec, 4> corners{{
+        {left, top, 0, 0},
+        {right - kCornerSize, top, kCornerTexSize, 0},
+        {left, bottom - kCornerSize, 0, kCornerTexSize},
+        {right - kCornerSize, bottom - kCornerSize, kCornerTexSize, kCornerTexSize},
+    }};
+
+    for (const auto& c : corners) {
+        const bool in_margin =
+            (c.x <= kCornerReachLeft && c.x > kCornerReachLeft - margin) ||
+            (c.x >= kCornerReachRight && c.x < kCornerReachRight + margin);
+        if (in_margin && c.y > kCornerReachLeft && c.y < kCornerReachBottom) {
+            pieces.push_back(make_quad(c.x, c.y, c.x + kCornerSize, c.y + kCornerSize, kCornerTexSize, c.u, c.v));
+        }
+    }
+
+    return pieces;
+}
+
 } // namespace skyrecomp::gpu2d
