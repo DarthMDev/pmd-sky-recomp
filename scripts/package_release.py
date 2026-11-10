@@ -282,7 +282,7 @@ def package_linux(*, without_game_banks: bool = False) -> Path:
     for extra in sorted(runner_dir.glob("libSDL3.so*")):
         if extra.is_file() and not extra.is_symlink():
             shutil.copy2(extra, bin_dir / extra.name)
-            if (bin_dir / "libSDL3.so.0").name != extra.name and not (bin_dir / "libSDL3.so.0").exists():
+            if not (bin_dir / "libSDL3.so.0").exists():
                 shutil.copy2(extra, bin_dir / "libSDL3.so.0")
     sdl_license = runner_dir / "SDL3-LICENSE.txt"
     if sdl_license.is_file():

@@ -430,7 +430,7 @@ def main() -> None:
         parser.exit(1, f"[SkyRecompiled] {exc}\n")
 
     if args.check_runner:
-        res = subprocess.run([str(runner_bin), "--help"])
+        res = subprocess.run([str(runner_bin), "--help"], check=False)
         sys.exit(res.returncode)
 
     user_dir = get_user_data_dir()

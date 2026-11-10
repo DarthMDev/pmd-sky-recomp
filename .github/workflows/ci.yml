@@ -126,7 +126,7 @@ jobs:
       - name: Set up SDL3 SDK
         run: |
           curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-3.4.14/SDL3-3.4.14.tar.gz" -o "$RUNNER_TEMP/SDL3-3.4.14.tar.gz"
-          echo "32968d1180d29903e70cd3f7fc38470b  $RUNNER_TEMP/SDL3-3.4.14.tar.gz" | md5sum -c -
+          echo "30d4aa2b3037718142b32dffd4e72f917ebb6cc5227150e7bb9c45efb2153aeb  $RUNNER_TEMP/SDL3-3.4.14.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/SDL3-3.4.14.tar.gz" -C "$RUNNER_TEMP"
           cmake -S "$RUNNER_TEMP/SDL3-3.4.14" -B "$RUNNER_TEMP/sdl3-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -149,6 +149,7 @@ jobs:
           test -f "${pkg_dir[0]}/bin/libSDL3.so.0"
           test -f "${pkg_dir[0]}/bin/SDL3-LICENSE.txt"
           file "${pkg_dir[0]}/bin/nds_runner" | grep -E "ELF 64-bit LSB.*x86-64"
+          readelf -d "${pkg_dir[0]}/bin/nds_runner" | grep -F "NEEDED" | grep -F "[libSDL3.so.0]"
           "${pkg_dir[0]}/SkyRecompiled" --check-runner
 
       - name: Run Static Recompiler Test Suite

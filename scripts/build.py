@@ -311,15 +311,15 @@ def build_runner(
             shutil.copy2(sdl3_sdk / SDL3_WINDOWS_DLL, runner_build_dir)
             shutil.copy2(sdl3_sdk / "LICENSE.txt", runner_build_dir / "SDL3-LICENSE.txt")
         else:
-            staged_so = False
-            for so_file in sorted(sdl3_sdk.rglob("libSDL3.so*")):
-                if so_file.is_file() and not so_file.is_symlink():
-                    shutil.copy2(so_file, runner_build_dir / "libSDL3.so.0")
-                    staged_so = True
-                    break
-            if not staged_so:
+            so_candidates = sorted(
+                (p for p in sdl3_sdk.rglob("libSDL3.so*") if p.is_file() and not p.is_symlink()),
+                key=lambda p: (len(p.name), p.name),
+                reverse=True,
+            )
+            if not so_candidates:
                 log_err(f"Could not locate libSDL3.so* inside SDL3 SDK prefix: {sdl3_sdk}")
                 sys.exit(1)
+            shutil.copy2(so_candidates[0], runner_build_dir / "libSDL3.so.0")
             staged_lic = False
             for lic in (sdl3_sdk / "LICENSE.txt", sdl3_sdk / "share" / "licenses" / "SDL3" / "LICENSE.txt"):
                 if lic.is_file():
