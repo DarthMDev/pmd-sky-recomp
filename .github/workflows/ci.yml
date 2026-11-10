@@ -99,7 +99,10 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential libgl1-mesa-dev libasound2-dev
+          sudo apt-get install -y cmake ninja-build build-essential pkg-config \
+            libgl1-mesa-dev libasound2-dev libpulse-dev libx11-dev libxext-dev \
+            libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev \
+            libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev libudev-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -120,16 +123,36 @@ jobs:
           python3 translator/gen_pmdsky_bindings.py
           python3 -m unittest discover tests/
 
-      - name: Build Static Recompiler & Run Test Suite
+      - name: Set up SDL3 SDK
         run: |
-          cmake -S translator -B build/cmake/recompiler -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DSKY_RECOMPILER_OUTPUT_DIR="$PWD/build/recompiler"
+          curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-3.4.14/SDL3-3.4.14.tar.gz" -o "$RUNNER_TEMP/SDL3-3.4.14.tar.gz"
+          echo "32968d1180d29903e70cd3f7fc38470b  $RUNNER_TEMP/SDL3-3.4.14.tar.gz" | md5sum -c -
+          tar -xzf "$RUNNER_TEMP/SDL3-3.4.14.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/SDL3-3.4.14" -B "$RUNNER_TEMP/sdl3-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/sdl3-install" \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build "$RUNNER_TEMP/sdl3-build"
+          cmake --install "$RUNNER_TEMP/sdl3-build"
+          cp "$RUNNER_TEMP/SDL3-3.4.14/LICENSE.txt" "$RUNNER_TEMP/sdl3-install/LICENSE.txt"
+
+      # CI has no ROM. The Linux archive runs cartridge code through the runtime.
+      - name: Build, Package, and Smoke Test Linux Distribution
+        run: |
+          python3 scripts/build.py --without-game-banks --sdl3-sdk "$RUNNER_TEMP/sdl3-install"
+          python3 scripts/package_release.py --platform linux --without-game-banks
+          tarball=(build/dist/SkyRecompiled-*-linux-x86_64.tar.gz)
+          test_dir="$RUNNER_TEMP/linux-package-test"
+          mkdir -p "$test_dir"
+          tar -xzf "${tarball[0]}" -C "$test_dir"
+          pkg_dir=("$test_dir"/SkyRecompiled-*-linux-x86_64)
+          file "${pkg_dir[0]}/bin/nds_runner" | grep -E "ELF 64-bit LSB.*x86-64"
+          "${pkg_dir[0]}/SkyRecompiled" --check-runner
+
+      - name: Run Static Recompiler Test Suite
+        run: |
           cmake --build build/cmake/recompiler
           ctest --test-dir build/cmake/recompiler --output-on-failure
-
-      - name: Package Linux Standalone Distribution
-        run: |
-          python3 scripts/package_release.py --platform linux
 
       - name: Upload Linux Recompiler Binary
         uses: actions/upload-artifact@v4
@@ -143,7 +166,7 @@ jobs:
         with:
           name: skyrecompiled-dist-linux-x86_64
           path: build/dist/SkyRecompiled-*-linux-x86_64.tar.gz
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ── Windows (x86_64 MinGW) ────────────────────────────────────────────────
   build-windows:

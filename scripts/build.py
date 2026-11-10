@@ -292,7 +292,10 @@ def build_runner(
     if is_apple and Path("/opt/homebrew").exists():
         cmake_args.append("-DCMAKE_PREFIX_PATH=/opt/homebrew")
     if sdl3_sdk:
-        cmake_args.append(f"-DSDL3_DIR={sdl3_sdk / 'cmake'}")
+        if sys.platform == "win32":
+            cmake_args.append(f"-DSDL3_DIR={sdl3_sdk / 'cmake'}")
+        else:
+            cmake_args.append(f"-DCMAKE_PREFIX_PATH={sdl3_sdk}")
 
     run_cmd(cmake_args)
     run_cmd(["cmake", "--build", str(runner_cmake_dir), "--target", "nds_runner", f"-j{jobs}"])
@@ -304,8 +307,20 @@ def build_runner(
         sys.exit(1)
 
     if sdl3_sdk:
-        shutil.copy2(sdl3_sdk / SDL3_WINDOWS_DLL, runner_build_dir)
-        shutil.copy2(sdl3_sdk / "LICENSE.txt", runner_build_dir / "SDL3-LICENSE.txt")
+        if sys.platform == "win32":
+            shutil.copy2(sdl3_sdk / SDL3_WINDOWS_DLL, runner_build_dir)
+            shutil.copy2(sdl3_sdk / "LICENSE.txt", runner_build_dir / "SDL3-LICENSE.txt")
+        else:
+            for lib_dir in (sdl3_sdk / "lib", sdl3_sdk / "lib64"):
+                if lib_dir.is_dir():
+                    for so_file in sorted(lib_dir.glob("libSDL3.so*")):
+                        if so_file.is_file() and not so_file.is_symlink():
+                            shutil.copy2(so_file, runner_build_dir / "libSDL3.so.0")
+                            break
+            for lic in (sdl3_sdk / "LICENSE.txt", sdl3_sdk / "share" / "licenses" / "SDL3" / "LICENSE.txt"):
+                if lic.is_file():
+                    shutil.copy2(lic, runner_build_dir / "SDL3-LICENSE.txt")
+                    break
     log(f"Runner build SUCCESS: {runner_bin}")
     return runner_bin
 
@@ -319,7 +334,7 @@ def main() -> None:
     parser.add_argument("--jobs", "-j", type=int, default=multiprocessing.cpu_count(), help="Parallel build jobs")
     parser.add_argument("--region", choices=["NA", "EU", "dual", "auto"], default="auto", help="Cartridge region target")
     parser.add_argument("--skip-recompile", action="store_true", help="Skip prepare_rom.py if banks exist")
-    parser.add_argument("--sdl3-sdk", type=Path, help="Windows: extracted SDL3 MinGW development SDK folder")
+    parser.add_argument("--sdl3-sdk", type=Path, help="Windows/Linux: SDL3 development SDK or install prefix folder")
     parser.add_argument("--without-game-banks", action="store_true", help="Build in build/runner-fallback without a ROM or statically compiled game banks")
     parser.add_argument("--package", action="store_true", help="Package macOS SkyRecompiled.app bundle")
     args = parser.parse_args()
@@ -331,7 +346,9 @@ def main() -> None:
             if not (args.sdl3_sdk / relative).is_file():
                 parser.error(f"SDL3 MinGW SDK file missing: {args.sdl3_sdk / relative}")
     elif args.sdl3_sdk is not None:
-        parser.error("--sdl3-sdk is only used on Windows.")
+        args.sdl3_sdk = args.sdl3_sdk.resolve()
+        if not args.sdl3_sdk.is_dir():
+            parser.error(f"SDL3 SDK prefix directory does not exist: {args.sdl3_sdk}")
 
     if args.clean:
         log("Cleaning build directory...")
