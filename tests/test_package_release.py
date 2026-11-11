@@ -70,7 +70,7 @@ class TestPackageRelease(unittest.TestCase):
     def test_launcher_discovers_packaged_linux_layout(self) -> None:
         """Verify find_binary_and_config locates bin/nds_runner and config/game.toml from scripts/launcher.py."""
         with tempfile.TemporaryDirectory() as tmp:
-            pkg_root = Path(tmp) / "SkyRecompiled-v0.1.0-alpha-linux-x86_64"
+            pkg_root = Path(tmp) / f"SkyRecompiled-v{package_release.VERSION}-linux-x86_64"
             (pkg_root / "bin").mkdir(parents=True)
             (pkg_root / "config").mkdir(parents=True)
             (pkg_root / "scripts").mkdir(parents=True)

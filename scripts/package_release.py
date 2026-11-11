@@ -29,7 +29,7 @@ BUILD_DIR = REPO_ROOT / "build"
 CONFIG_DIR = REPO_ROOT / "config"
 DIST_DIR = BUILD_DIR / "dist"
 
-VERSION = "0.1.0-alpha"
+VERSION = "0.2.0-alpha"
 
 WINDOWS_BAT = """@echo off
 setlocal
