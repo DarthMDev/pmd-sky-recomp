@@ -7,6 +7,7 @@ import struct
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -120,6 +121,37 @@ class TestPackageRelease(unittest.TestCase):
                 self.assertIn(f"{prefix}/bin/SDL3-LICENSE.txt", names)
                 self.assertIn(f"{prefix}/SkyRecompiled", names)
                 self.assertIn(f"{prefix}/scripts/launcher.py", names)
+
+    def test_package_macos_requires_runner_in_bundle(self) -> None:
+        """Fail instead of creating a macOS ZIP whose app has no nds_runner."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_build = Path(tmp) / "build"
+            fake_dist = fake_build / "dist"
+            with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
+                 mock.patch.object(package_release, "DIST_DIR", fake_dist), \
+                 mock.patch.object(package_release.subprocess, "run"):
+                with self.assertRaises(SystemExit) as ctx:
+                    package_release.package_macos(without_game_banks=True)
+                self.assertIn("missing", str(ctx.exception))
+                self.assertIn("nds_runner", str(ctx.exception))
+
+    def test_package_macos_forwards_fallback_flag_and_includes_runner(self) -> None:
+        """Pass --without-game-banks to the app packager and zip the bundled runner."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_build = Path(tmp) / "build"
+            fake_dist = fake_build / "dist"
+            runner = fake_build / "SkyRecompiled.app" / "Contents" / "MacOS" / "nds_runner"
+            runner.parent.mkdir(parents=True)
+            runner.write_bytes(make_macho_arm64_header())
+
+            with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
+                 mock.patch.object(package_release, "DIST_DIR", fake_dist), \
+                 mock.patch.object(package_release.subprocess, "run") as run:
+                zip_path = package_release.package_macos(without_game_banks=True)
+
+            self.assertIn("--without-game-banks", run.call_args.args[0])
+            with zipfile.ZipFile(zip_path) as zf:
+                self.assertIn("SkyRecompiled.app/Contents/MacOS/nds_runner", zf.namelist())
 
 
 if __name__ == "__main__":

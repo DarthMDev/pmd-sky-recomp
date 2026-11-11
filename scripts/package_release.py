@@ -194,13 +194,22 @@ audio, or assets. Players must provide their own legally owned cartridge dump.
 """
 
 
-def package_macos() -> Path:
+def package_macos(*, without_game_banks: bool = False) -> Path:
     """Package the macOS application bundle into a distribution ZIP."""
     print(f"\033[1;36m[package:macos]\033[0m Packaging macOS Application Bundle...")
     package_script = REPO_ROOT / "scripts" / "package_macos_app.py"
-    subprocess.run([sys.executable, str(package_script)], check=True)
+    package_cmd = [sys.executable, str(package_script)]
+    if without_game_banks:
+        package_cmd.append("--without-game-banks")
+    subprocess.run(package_cmd, check=True)
 
     app_path = BUILD_DIR / "SkyRecompiled.app"
+    runner_path = app_path / "Contents" / "MacOS" / "nds_runner"
+    if not runner_path.is_file():
+        raise SystemExit(
+            f"Cannot package macOS: missing {runner_path}. "
+            "Build the runner with scripts/build.py before packaging."
+        )
     zip_path = DIST_DIR / f"SkyRecompiled-v{VERSION}-macos-arm64.zip"
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -388,17 +397,17 @@ def main() -> None:
     parser.add_argument(
         "--without-game-banks",
         action="store_true",
-        help="Linux/Windows: package the build from build/runner-fallback",
+        help="macOS/Linux/Windows: package the build from build/runner-fallback",
     )
     args = parser.parse_args()
-    if args.without_game_banks and args.platform not in ("linux", "windows"):
-        parser.error("--without-game-banks requires --platform linux or --platform windows")
+    if args.without_game_banks and args.platform == "ios":
+        parser.error("--without-game-banks is not supported for --platform ios")
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     host_system = platform.system()
 
     if args.platform == "macos" or (args.platform == "all" and host_system == "Darwin"):
-        package_macos()
+        package_macos(without_game_banks=args.without_game_banks)
     if args.platform == "linux" or (args.platform == "all" and host_system == "Linux"):
         package_linux(without_game_banks=args.without_game_banks)
     if args.platform == "windows" or (args.platform == "all" and host_system == "Windows"):

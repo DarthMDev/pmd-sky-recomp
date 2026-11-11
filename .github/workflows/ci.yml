@@ -68,9 +68,21 @@ jobs:
           echo '#include "runtime_arm.h"' > build/generated_bios/arm7_bios_dispatch.c
           echo 'const NdsDispatchEntry g_dispatch_arm7_bios[] = {}; const unsigned g_dispatch_arm7_bios_len = 0;' >> build/generated_bios/arm7_bios_dispatch.c
 
-      - name: Package macOS Application Distribution
+      - name: Build macOS Runner (cartridge runtime execution)
         run: |
-          python3 scripts/package_release.py --platform macos
+          python3 scripts/build.py --without-game-banks
+
+      - name: Package and Smoke Test macOS Distribution
+        run: |
+          python3 scripts/package_release.py --platform macos --without-game-banks
+          zip_path=(build/dist/SkyRecompiled-*-macos-arm64.zip)
+          test_dir="$RUNNER_TEMP/macos-package-test"
+          mkdir -p "$test_dir"
+          unzip -q "${zip_path[0]}" -d "$test_dir"
+          runner="$test_dir/SkyRecompiled.app/Contents/MacOS/nds_runner"
+          test -x "$runner"
+          file "$runner" | grep -E "Mach-O 64-bit.*arm64"
+          "$runner" --help >/dev/null
 
       - name: Upload macOS Recompiler Binary
         uses: actions/upload-artifact@v4

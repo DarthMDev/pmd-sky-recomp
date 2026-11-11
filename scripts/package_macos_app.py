@@ -29,6 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = REPO_ROOT / "build"
 RUNNER_BIN = BUILD_DIR / "runner" / "nds_runner"
+RUNNER_FALLBACK_BIN = BUILD_DIR / "runner-fallback" / "nds_runner"
 CONFIG_TOML = REPO_ROOT / "config" / "game.toml"
 DEFAULT_APP_DIR = BUILD_DIR / "SkyRecompiled.app"
 
@@ -326,8 +327,11 @@ if __name__ == "__main__":
 """
 
 
-def package_app(out_app: Path) -> None:
+def package_app(
+    out_app: Path, *, without_game_banks: bool = False, allow_missing_runner: bool = False
+) -> None:
     print(f"\033[1;36m[SkyRecompiled:package]\033[0m Packaging {out_app}...")
+    runner_bin = RUNNER_FALLBACK_BIN if without_game_banks else RUNNER_BIN
     if not CONFIG_TOML.exists():
         print(f"\033[1;31m[ERROR]\033[0m Cartridge config not found at {CONFIG_TOML}.")
         sys.exit(1)
@@ -350,13 +354,18 @@ def package_app(out_app: Path) -> None:
     shutil.copy2(CONFIG_TOML, resources_dir / "game.toml")
 
     # 3. Executables
-    # Copy nds_runner if present
-    if RUNNER_BIN.exists():
+    if runner_bin.exists():
         dest_runner = macos_dir / "nds_runner"
-        shutil.copy2(RUNNER_BIN, dest_runner)
+        shutil.copy2(runner_bin, dest_runner)
         dest_runner.chmod(dest_runner.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    else:
+    elif allow_missing_runner:
         print("[SkyRecompiled:package] Note: nds_runner not yet compiled; packaging application wrapper skeleton.")
+    else:
+        raise SystemExit(
+            f"Cannot package macOS: missing {runner_bin}. "
+            "Run scripts/build.py before packaging, or pass --allow-missing-runner "
+            "to create a launcher-only skeleton."
+        )
 
     # Build and copy Avalonia C# launcher
     launcher_proj = REPO_ROOT / "src" / "SkyRecompiled.Launcher" / "SkyRecompiled.Launcher.csproj"
@@ -423,12 +432,26 @@ def package_app(out_app: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Package SkyRecompiled.app macOS bundle")
     parser.add_argument("--out", type=str, default=str(DEFAULT_APP_DIR), help="Output .app bundle path")
+    parser.add_argument(
+        "--without-game-banks",
+        action="store_true",
+        help="Bundle build/runner-fallback/nds_runner (cartridge runtime execution)",
+    )
+    parser.add_argument(
+        "--allow-missing-runner",
+        action="store_true",
+        help="Package without nds_runner instead of failing (creates a non-launchable skeleton)",
+    )
     args = parser.parse_args()
 
     if platform.system() != "Darwin":
         print("[WARNING] App bundling is specific to macOS. Creating bundle structure anyway...")
 
-    package_app(Path(args.out).resolve())
+    package_app(
+        Path(args.out).resolve(),
+        without_game_banks=args.without_game_banks,
+        allow_missing_runner=args.allow_missing_runner,
+    )
 
 
 if __name__ == "__main__":
