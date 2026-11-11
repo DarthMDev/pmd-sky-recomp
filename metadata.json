@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M76B8R8RD90ZTPBD2WGEKNG7",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "README.md",
+    "patches/ndsrecomp-sky-settings-overlay.patch",
+    "runtime/ios/CMakeLists.txt",
+    "runtime/ios/Launcher.mm",
+    "runtime/ui/settings_overlay.cpp",
+    "runtime/ui/settings_overlay.hpp",
+    "tests/milestone3_runtime_test.cpp"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 690005,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21393024,
+    "output_tokens": 93178,
+    "api_call_count": 185,
+    "subagent_tokens_complete": true
+  },
+  "redaction": {
+    "replacements": 12,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 12,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
