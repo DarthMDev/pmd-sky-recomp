@@ -207,12 +207,14 @@ private:
     /// `recomp-ui` callback invoked after any value change to persist settings to disk.
     static void CallbackSave(void* context) noexcept;
     void RefreshBindingLabels() noexcept;
+    void RefreshControllerPresetDescription() noexcept;
     void FinishBindingCapture(int value, bool cancel) noexcept;
 
     SkySettingsState state_{};
     RuntimeConsumerBindings bindings_{};
     std::vector<RecompRuntimeUiItem> menu_items_{};
     std::array<std::string, kBindingCount * 2> binding_labels_{};
+    std::string controller_preset_description_{};
     RecompRuntimeUi* ui_ = nullptr;
     int capture_binding_slot_ = -1;
     bool capture_controller_binding_ = false;

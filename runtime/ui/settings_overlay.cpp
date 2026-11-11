@@ -222,7 +222,7 @@ constexpr RecompRuntimeUiItem kMenuItems[] = {
         .key = kKeyControllerPresetPage,
         .section = kSectionController,
         .label = "Preset",
-        .description = "Standard: D-pad moves; South=A, East=B, West=X, North=Y, LB=L, RB=R. Modern Dungeon: LB=Y and North=L. Swapped B/A: South=B and East=A. Custom: edit rows below.",
+        .description = "Controller layout preset.",
         .type = RECOMP_RUNTIME_UI_CHOICE,
         .minimum = 0,
         .maximum = 3,
@@ -766,6 +766,36 @@ void SkySettingsOverlay::RefreshBindingLabels() noexcept {
             ": " + BindingDisplayName(
                 bindings[static_cast<size_t>(slot)], controller);
         item.label = binding_labels_[label_slot].c_str();
+    }
+    RefreshControllerPresetDescription();
+}
+
+void SkySettingsOverlay::RefreshControllerPresetDescription() noexcept {
+    switch (state_.controller_preset) {
+        case ControllerRemapPreset::ModernDungeon:
+            controller_preset_description_ =
+                "LB=Y (move shortcut); North=L (diagonal lock).";
+            break;
+        case ControllerRemapPreset::SwappedConfirmCancel:
+            controller_preset_description_ =
+                "South=B and East=A; other bindings stay standard.";
+            break;
+        case ControllerRemapPreset::Custom:
+            controller_preset_description_ =
+                "Custom layout. Assign each controller action below.";
+            break;
+        case ControllerRemapPreset::StandardNintendoDs:
+        default:
+            controller_preset_description_ =
+                "D-pad moves; South=A, East=B; LB=L, RB=R.";
+            break;
+    }
+    for (RecompRuntimeUiItem& item : menu_items_) {
+        if (item.key != nullptr &&
+            std::string_view(item.key) == kKeyControllerPresetPage) {
+            item.description = controller_preset_description_.c_str();
+            break;
+        }
     }
 }
 
