@@ -87,6 +87,7 @@ GAME_TOML = BUNDLE_CONTENTS / "Resources" / "game.toml"
 
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / "SkyRecompiled"
 SETTINGS_FILE = APP_SUPPORT / "settings.toml"
+SKY_SETTINGS_FILE = APP_SUPPORT / "sky_settings.toml"
 SAVES_DIR = APP_SUPPORT / "saves"
 CONSOLE_DIR = APP_SUPPORT / "console"
 
@@ -303,6 +304,7 @@ def main():
         "--config", str(GAME_TOML),
         "--rom", str(rom_path),
         "--save-path", str(save_path),
+        "--runtime-settings-path", str(SKY_SETTINGS_FILE),
     ]
 
     # Hand off to nds_runner

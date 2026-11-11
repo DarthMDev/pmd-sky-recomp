@@ -1,0 +1,590 @@
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -214,6 +214,8 @@
+ #endif
+ #include "recomp_runtime_ui.h"
+ 
++#include "ui/settings_overlay.hpp"
++
+ #include "frontend_latency.h"
+ 
+ namespace {
+@@ -277,6 +279,8 @@
+ #define SDL_CONTROLLER_BUTTON_A SDL_GAMEPAD_BUTTON_SOUTH
+ #define SDL_CONTROLLER_BUTTON_B SDL_GAMEPAD_BUTTON_EAST
+ #define SDL_CONTROLLER_BUTTON_BACK SDL_GAMEPAD_BUTTON_BACK
++#undef SDL_CONTROLLER_BUTTON_GUIDE
++#define SDL_CONTROLLER_BUTTON_GUIDE SDL_GAMEPAD_BUTTON_GUIDE
+ #define SDL_CONTROLLER_BUTTON_DPAD_DOWN SDL_GAMEPAD_BUTTON_DPAD_DOWN
+ #define SDL_CONTROLLER_BUTTON_DPAD_LEFT SDL_GAMEPAD_BUTTON_DPAD_LEFT
+ #define SDL_CONTROLLER_BUTTON_DPAD_RIGHT SDL_GAMEPAD_BUTTON_DPAD_RIGHT
+@@ -729,6 +733,7 @@
+ struct AudioQueue {
+     // Host output only. Consumption, guest mixing and pacing remain active.
+     bool output_muted = false;
++    std::atomic<int> volume_percent{100};
+ #if !defined(NDS_HAVE_SDL3)
+     std::array<int16_t, kAudioCapacityFrames * 2> samples{};
+     uint32_t read = 0;
+@@ -1016,6 +1021,14 @@
+         if (owned_pcm) {
+             std::copy_n(owned_pcm->data()+pcm_offset,frames*2u,samples.data());
+             pcm_offset+=frames*2u;
++        }
++        const int volume = queue.volume_percent.load(std::memory_order_relaxed);
++        if (volume < 100) {
++            const int clamped = std::clamp(volume, 0, 100);
++            for (uint32_t i = 0; i < frames * 2u; ++i) {
++                samples[i] = static_cast<int16_t>(
++                    (static_cast<int32_t>(samples[i]) * clamped) / 100);
++            }
+         }
+         bool pushed = false;
+         while (!pushed) {
+@@ -1186,121 +1199,12 @@
+     return hash;
+ }
+ 
+-constexpr const char* kRuntimeMouseSensitivityKey =
+-    "input.mouse_sensitivity";
+-constexpr const char* kRuntimeResumeKey = "system.resume";
+-constexpr const char* kRuntimeQuitKey = "system.quit";
+-
+-struct RuntimeMenuState {
+-    NdsFrontendOptions* options = nullptr;
+-    bool* running = nullptr;
+-    bool close_requested = false;
+-};
+-
+-bool save_runtime_mouse_sensitivity(const std::string& path, uint16_t value) {
+-    if (path.empty()) return false;
+-    std::filesystem::path settings(path);
+-    std::error_code error;
+-    if (!settings.parent_path().empty()) {
+-        std::filesystem::create_directories(settings.parent_path(), error);
+-        if (error) return false;
+-    }
+-
+-    std::vector<std::string> lines;
+-    bool found = false;
+-    bool saw_version = false;
+-    {
+-        std::ifstream in(settings);
+-        std::string line;
+-        while (std::getline(in, line)) {
+-            const size_t equals = line.find('=');
+-            if (equals != std::string::npos) {
+-                const std::string key = line.substr(0, equals);
+-                if (key == "settings_version") saw_version = true;
+-                if (key == "mouse_sensitivity") {
+-                    line = "mouse_sensitivity=" + std::to_string(value);
+-                    found = true;
+-                }
+-            }
+-            lines.push_back(line);
+-        }
+-    }
+-    if (!saw_version)
+-        lines.insert(lines.begin(), "settings_version=12");
+-    if (!found)
+-        lines.push_back("mouse_sensitivity=" + std::to_string(value));
+-
+-    std::ofstream out(settings, std::ios::trunc);
+-    if (!out) return false;
+-    for (const std::string& line : lines)
+-        out << line << '\n';
+-    return static_cast<bool>(out);
+-}
+-
+-int runtime_menu_get_value(void* context, const RecompRuntimeUiItem* item,
+-                           int* value_out) {
+-    auto* state = static_cast<RuntimeMenuState*>(context);
+-    if (!state || !state->options || !item || !value_out) return 0;
+-    if (std::strcmp(item->key, kRuntimeMouseSensitivityKey) == 0) {
+-        *value_out = state->options->relative_mouse_sensitivity;
+-        return 1;
+-    }
+-    return 0;
+-}
+-
+-int runtime_menu_set_value(void* context, const RecompRuntimeUiItem* item,
+-                           int value) {
+-    auto* state = static_cast<RuntimeMenuState*>(context);
+-    if (!state || !state->options || !item) return 0;
+-    if (std::strcmp(item->key, kRuntimeMouseSensitivityKey) == 0) {
+-        if (value < 10 || value > 400) return 0;
+-        state->options->relative_mouse_sensitivity =
+-            static_cast<uint16_t>(value);
+-        std::fprintf(stderr, "[sdl] mouse sensitivity set to %d%%\n", value);
+-        return 1;
+-    }
+-    return 0;
+-}
+-
+-int runtime_menu_run_action(void* context, const RecompRuntimeUiItem* item) {
+-    auto* state = static_cast<RuntimeMenuState*>(context);
+-    if (!state || !item) return 0;
+-    if (std::strcmp(item->key, kRuntimeResumeKey) == 0) {
+-        state->close_requested = true;
+-        return 1;
+-    }
+-    if (std::strcmp(item->key, kRuntimeQuitKey) == 0) {
+-        if (state->running) *state->running = false;
+-        return 1;
+-    }
+-    return 0;
+-}
+-
+-int runtime_menu_is_enabled(void* context, const RecompRuntimeUiItem* item) {
+-    auto* state = static_cast<RuntimeMenuState*>(context);
+-    if (!state || !state->options || !item) return 0;
+-    if (std::strcmp(item->key, kRuntimeMouseSensitivityKey) == 0)
+-        return state->options->relative_mouse_touch ? 1 : 0;
+-    return 1;
+-}
+-
+-void runtime_menu_save(void* context) {
+-    auto* state = static_cast<RuntimeMenuState*>(context);
+-    if (!state || !state->options) return;
+-    if (save_runtime_mouse_sensitivity(
+-            state->options->runtime_settings_path,
+-            state->options->relative_mouse_sensitivity)) {
+-        std::fprintf(stderr,
+-                     "[sdl] saved mouse sensitivity to runtime settings\n");
+-    }
+-}
+-
+ bool runtime_menu_key_input(SDL_Scancode scancode,
+                             RecompRuntimeUiInput* input) {
+     if (!input) return false;
+     switch (scancode) {
+         case SDL_SCANCODE_ESCAPE:
+-            *input = RECOMP_RUNTIME_UI_INPUT_TOGGLE;
++            *input = RECOMP_RUNTIME_UI_INPUT_BACK;
+             return true;
+         case SDL_SCANCODE_BACKSPACE:
+             *input = RECOMP_RUNTIME_UI_INPUT_BACK;
+@@ -1330,9 +1234,6 @@
+                                    RecompRuntimeUiInput* input) {
+     if (!input) return false;
+     switch (button) {
+-        case SDL_CONTROLLER_BUTTON_START:
+-            *input = RECOMP_RUNTIME_UI_INPUT_TOGGLE;
+-            return true;
+         case SDL_CONTROLLER_BUTTON_BACK:
+         case SDL_CONTROLLER_BUTTON_B:
+             *input = RECOMP_RUNTIME_UI_INPUT_BACK;
+@@ -1374,9 +1275,17 @@
+     return surface.data();
+ }
+ 
++enum class SkyPostFilter : uint8_t {
++    None = 0,
++    LcdGrid = 1,
++    CrtScanline = 2,
++};
++
+ struct FrontendPresentation {
+     bool separate = false;
+     bool gl_top = false;
++    bool single_screen = false;
++    SkyPostFilter post_filter = SkyPostFilter::None;
+     SDL_Window* windows[2]{};
+     SDL_Renderer* renderers[2]{};
+     SDL_Texture* textures[2]{};
+@@ -1616,6 +1525,14 @@
+ #endif
+ }
+ 
++bool set_texture_scale_linear(SDL_Texture* texture) {
++#if defined(NDS_HAVE_SDL3)
++    return SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
++#else
++    return SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear) == 0;
++#endif
++}
++
+ void render_texture(SDL_Renderer* renderer, SDL_Texture* texture,
+                     const SDL_Rect* destination) {
+ #if defined(NDS_HAVE_SDL3)
+@@ -1954,6 +1871,36 @@
+     return true;
+ }
+ 
++void draw_post_filter(SDL_Renderer* renderer, const SDL_Rect& destination,
++                      SkyPostFilter filter) {
++    if (filter == SkyPostFilter::None || destination.w <= 0 ||
++        destination.h <= 0) {
++        return;
++    }
++    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
++    if (filter == SkyPostFilter::CrtScanline) {
++        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 72);
++        for (int y = destination.y; y < destination.y + destination.h; y += 2) {
++            render_line(renderer, destination.x, y,
++                        destination.x + destination.w - 1, y);
++        }
++    } else if (filter == SkyPostFilter::LcdGrid) {
++        const int step_x = std::max(1, destination.w / kScreenWidth);
++        const int step_y = std::max(1, destination.h / kScreenHeight);
++        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 28);
++        for (int x = destination.x; x < destination.x + destination.w;
++             x += step_x) {
++            render_line(renderer, x, destination.y,
++                        x, destination.y + destination.h - 1);
++        }
++        for (int y = destination.y; y < destination.y + destination.h;
++             y += step_y) {
++            render_line(renderer, destination.x, y,
++                        destination.x + destination.w - 1, y);
++        }
++    }
++}
++
+ void render_screen(FrontendPresentation& presentation, int screen,
+                    const SDL_Rect& destination) {
+     SDL_Renderer* renderer = presentation.renderers[screen];
+@@ -1967,8 +1914,62 @@
+         source = presentation.sample_targets[screen];
+     }
+     render_texture(renderer, source, &destination);
++    draw_post_filter(renderer, destination, presentation.post_filter);
+ }
+ 
++void apply_sky_shader_filter(FrontendPresentation& presentation,
++                             skyrecomp::shaders::ShaderFilterPreset filter) {
++    bool linear = true;
++    presentation.post_filter = SkyPostFilter::None;
++    switch (filter) {
++        case skyrecomp::shaders::ShaderFilterPreset::Nearest:
++        case skyrecomp::shaders::ShaderFilterPreset::Pixellate:
++            linear = false;
++            break;
++        case skyrecomp::shaders::ShaderFilterPreset::NdsLcdSubpixelGrid:
++            presentation.post_filter = SkyPostFilter::LcdGrid;
++            break;
++        case skyrecomp::shaders::ShaderFilterPreset::CrtScanline:
++            presentation.post_filter = SkyPostFilter::CrtScanline;
++            break;
++        case skyrecomp::shaders::ShaderFilterPreset::SharpBilinear:
++        default:
++            break;
++    }
++    for (int screen = 0; screen < 2; ++screen) {
++        if (presentation.textures[screen]) {
++            (linear ? set_texture_scale_linear : set_texture_scale_nearest)(
++                presentation.textures[screen]);
++        }
++        if (presentation.sample_targets[screen]) {
++            (linear ? set_texture_scale_linear : set_texture_scale_nearest)(
++                presentation.sample_targets[screen]);
++        }
++    }
++}
++
++void apply_single_screen_presentation(FrontendPresentation& presentation,
++                                      bool single_screen) {
++    if (presentation.separate) {
++        if (single_screen)
++            SDL_HideWindow(presentation.windows[1]);
++        else
++            SDL_ShowWindow(presentation.windows[1]);
++        return;
++    }
++    int window_w = 0;
++    int window_h = 0;
++    SDL_GetWindowSize(presentation.windows[0], &window_w, &window_h);
++    if (window_w <= 0 || window_h <= 0) return;
++    const int canvas_w = presentation.canvas_width;
++    const int stacked_h = kScreenHeight * 2;
++    const int scale = std::max(1, window_w / std::max(1, canvas_w));
++    const int logical_h = single_screen ? kScreenHeight : stacked_h;
++    SDL_SetWindowSize(presentation.windows[0], canvas_w * scale,
++                      logical_h * scale);
++    set_render_logical_size(presentation.renderers[0], canvas_w, logical_h);
++}
++
+ struct PresentationTicks {
+     uint64_t upload = 0;
+     uint64_t draw = 0;
+@@ -2160,20 +2161,35 @@
+         start = SDL_GetPerformanceCounter();
+         SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+         SDL_RenderClear(renderer);
+-        const SDL_Rect top_rect{
+-            (presentation.canvas_width -
+-             presentation.screen_widths[0]) / 2,
+-            0, presentation.screen_widths[0], kScreenHeight};
+-        const SDL_Rect bottom_rect{
+-            (presentation.canvas_width -
+-             presentation.screen_widths[1]) / 2,
+-            kScreenHeight, presentation.screen_widths[1], kScreenHeight};
+-        render_screen(presentation, 0, top_rect);
+-        render_screen(presentation, 1, bottom_rect);
+-        if (virtual_stylus_visible)
+-            draw_virtual_stylus(renderer, bottom_rect,
+-                                virtual_stylus_x, virtual_stylus_y);
+-        draw_savestate_notice(renderer, bottom_rect, savestate_notice);
++        if (presentation.single_screen) {
++            const int canvas_height = kScreenHeight;
++            int top_w = presentation.canvas_width;
++            int top_h = top_w * kScreenHeight / kScreenWidth;
++            if (top_h > canvas_height) {
++                top_h = canvas_height;
++                top_w = top_h * kScreenWidth / kScreenHeight;
++            }
++            const SDL_Rect top_rect{
++                (presentation.canvas_width - top_w) / 2,
++                (canvas_height - top_h) / 2, top_w, top_h};
++            render_screen(presentation, 0, top_rect);
++            draw_savestate_notice(renderer, top_rect, savestate_notice);
++        } else {
++            const SDL_Rect top_rect{
++                (presentation.canvas_width -
++                 presentation.screen_widths[0]) / 2,
++                0, presentation.screen_widths[0], kScreenHeight};
++            const SDL_Rect bottom_rect{
++                (presentation.canvas_width -
++                 presentation.screen_widths[1]) / 2,
++                kScreenHeight, presentation.screen_widths[1], kScreenHeight};
++            render_screen(presentation, 0, top_rect);
++            render_screen(presentation, 1, bottom_rect);
++            if (virtual_stylus_visible)
++                draw_virtual_stylus(renderer, bottom_rect,
++                                    virtual_stylus_x, virtual_stylus_y);
++            draw_savestate_notice(renderer, bottom_rect, savestate_notice);
++        }
+         ticks.draw += SDL_GetPerformanceCounter() - start;
+         start = SDL_GetPerformanceCounter();
+         SDL_RenderPresent(renderer);
+@@ -2429,7 +2445,7 @@
+ 
+     std::fprintf(stderr,
+         "[sdl] controls: gamepad=Player 1 | bottom mouse=touch | "
+-        "Esc=settings%s\n",
++        "F1/Guide/Select+Start=settings | Esc=close/quit%s\n",
+         options.tab_turbo ? " | hold Tab=turbo" : "");
+     std::fputs("[sdl] keyboard:", stderr);
+     for (size_t row = 0; row < options.keyboard_bindings.size(); ++row)
+@@ -2518,6 +2534,9 @@
+     SDL_JoystickID controller_id = controller
+         ? sdl_controller_id(controller)
+         : -1;
++    bool pad_select_held = false;
++    bool pad_start_held = false;
++    bool prev_guide_chord_held = false;
+     uint16_t keyboard_pressed = 0;
+     uint16_t controller_pressed = 0;
+     uint16_t mouse_pressed = 0;
+@@ -2549,37 +2568,45 @@
+     publish_keys();
+     nds_set_touch(0, 0, false);
+     bool running = true;
+-    RuntimeMenuState runtime_menu_state{&options, &running, false};
+-    static const RecompRuntimeUiItem runtime_menu_items[] = {
+-        {kRuntimeMouseSensitivityKey, "Input", "Mouse sensitivity",
+-         "Prime Controls relative aim speed.",
+-         RECOMP_RUNTIME_UI_INT, 10, 400, 1, nullptr, 0, nullptr},
+-        {kRuntimeResumeKey, "System", "Resume game",
+-         "Close settings and return to the game.",
+-         RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
+-        {kRuntimeQuitKey, "System", "Quit",
+-         "Close the runner.",
+-         RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
+-    };
+-    RecompRuntimeUiConfig runtime_menu_config{};
+-    runtime_menu_config.title = "Metroid Prime Hunters";
+-    runtime_menu_config.subtitle = "Runtime Settings";
+-    runtime_menu_config.items = runtime_menu_items;
+-    runtime_menu_config.item_count =
+-        sizeof(runtime_menu_items) / sizeof(runtime_menu_items[0]);
+-    runtime_menu_config.callbacks.context = &runtime_menu_state;
+-    runtime_menu_config.callbacks.get_value = runtime_menu_get_value;
+-    runtime_menu_config.callbacks.set_value = runtime_menu_set_value;
+-    runtime_menu_config.callbacks.run_action = runtime_menu_run_action;
+-    runtime_menu_config.callbacks.is_enabled = runtime_menu_is_enabled;
+-    runtime_menu_config.callbacks.save = runtime_menu_save;
+-    runtime_menu_config.theme = "nds";
+-    runtime_menu_config.accept_label = "A / Enter";
+-    runtime_menu_config.back_label = "B / Backspace";
+-    RecompRuntimeUi* runtime_ui =
+-        recomp_runtime_ui_create(&runtime_menu_config);
++    skyrecomp::ui::SkySettingsOverlay settings_overlay;
++    std::filesystem::path settings_path;
++    if (!options.runtime_settings_path.empty()) {
++        settings_path = options.runtime_settings_path;
++        if (settings_overlay.LoadFromFile(settings_path)) {
++            std::fprintf(stderr, "[sdl] loaded settings from %s\n",
++                         settings_path.string().c_str());
++        }
++    }
++    settings_overlay.BindRuntimeConsumers({
++        .on_audio_settings_changed =
++            [&audio_queue](int volume, bool muted) {
++                audio_queue.volume_percent.store(
++                    muted ? 0 : std::clamp(volume, 0, 100),
++                    std::memory_order_relaxed);
++            },
++        .config_file_path = settings_path,
++    });
++    apply_sky_shader_filter(
++        presentation, settings_overlay.GetState().shader_filter);
++    auto applied_shader_filter = settings_overlay.GetState().shader_filter;
++    auto applied_hud_layout = settings_overlay.GetState().hud_layout;
++    presentation.single_screen =
++        applied_hud_layout == skyrecomp::gpu2d::HudLayoutMode::SingleScreenModern;
++    if (presentation.single_screen) {
++        apply_single_screen_presentation(presentation, true);
++    }
++    if (!presentation.gl_top) {
++        const int sky_refresh_hz = window_refresh_hz(presentation.windows[0]);
++        if (sky_refresh_hz >= interpolation_min_refresh_hz) {
++            interpolation_refresh_hz = sky_refresh_hz;
++            interpolation_active =
++                settings_overlay.GetState().refresh_rate !=
++                skyrecomp::camera::RefreshRateMode::Locked_60Hz;
++        }
++    }
++    RecompRuntimeUi* runtime_ui = settings_overlay.Handle();
+     if (!runtime_ui) {
+-        std::fprintf(stderr, "[sdl] runtime menu unavailable\n");
++        std::fprintf(stderr, "[sdl] settings overlay unavailable\n");
+     }
+     bool compute_failed = false;
+     bool mouse_down = false;
+@@ -2927,10 +2954,6 @@
+         publish_keys();
+     };
+     auto finish_runtime_menu_input = [&](bool was_open) {
+-        if (runtime_menu_state.close_requested) {
+-            runtime_menu_state.close_requested = false;
+-            if (runtime_ui) recomp_runtime_ui_close(runtime_ui);
+-        }
+         if (!was_open && runtime_menu_open())
+             clear_gameplay_input_for_runtime_menu();
+     };
+@@ -3337,14 +3360,23 @@
+                              (int)event.key.repeat);
+             }
+             if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+-                RecompRuntimeUiInput menu_input{};
+                 const SDL_Scancode scancode = sdl_event_scancode(event);
++                const bool key_down = event.type == SDL_KEYDOWN;
+                 const bool was_open = runtime_menu_open();
++                // F1 opens the Milestone 3 settings overlay directly. Shift+F1
++                // keeps its existing savestate-slot shortcut.
++                if (key_down && !event.key.repeat &&
++                    scancode == SDL_SCANCODE_F1 && !sdl_event_shift(event)) {
++                    settings_overlay.SetVisible(!settings_overlay.IsVisible());
++                    finish_runtime_menu_input(was_open);
++                    continue;
++                }
++                RecompRuntimeUiInput menu_input{};
+                 const bool known = runtime_menu_key_input(
+                     scancode, &menu_input);
+                 if (known && runtime_ui &&
+                     recomp_runtime_ui_handle_input(
+-                        runtime_ui, menu_input, event.type == SDL_KEYDOWN,
++                        runtime_ui, menu_input, key_down,
+                         event.key.repeat)) {
+                     finish_runtime_menu_input(was_open);
+                     continue;
+@@ -3476,6 +3508,9 @@
+                 controller = nullptr;
+                 controller_id = -1;
+                 controller_pressed = 0;
++                pad_select_held = false;
++                pad_start_held = false;
++                prev_guide_chord_held = false;
+                 // Pad-held Prime actions must not survive the device; the
+                 // keyboard/mouse can re-press theirs on the next event.
+                 clear_mph_prime_controls();
+@@ -3484,15 +3519,36 @@
+             }
+             if (event.type == SDL_CONTROLLERBUTTONDOWN ||
+                 event.type == SDL_CONTROLLERBUTTONUP) {
+-                RecompRuntimeUiInput menu_input{};
+-                const bool was_open = runtime_menu_open();
+                 const auto button = static_cast<SDL_GameControllerButton>(
+                     sdl_controller_button(event));
+-                if (runtime_menu_controller_input(button, &menu_input) &&
++                const bool button_down =
++                    event.type == SDL_CONTROLLERBUTTONDOWN;
++                if (button == SDL_CONTROLLER_BUTTON_BACK)
++                    pad_select_held = button_down;
++                else if (button == SDL_CONTROLLER_BUTTON_START)
++                    pad_start_held = button_down;
++
++                const bool was_open = runtime_menu_open();
++                const bool chord_now = pad_select_held && pad_start_held;
++                const bool guide_pressed =
++                    button_down && button == SDL_CONTROLLER_BUTTON_GUIDE;
++                // Guide and the Select+Start chord toggle the same settings
++                // overlay as F1. The chord is edge-triggered so holding both
++                // buttons cannot flicker the menu.
++                if (guide_pressed || (chord_now && !prev_guide_chord_held)) {
++                    settings_overlay.SetVisible(!settings_overlay.IsVisible());
++                    prev_guide_chord_held = chord_now;
++                    finish_runtime_menu_input(was_open);
++                    continue;
++                }
++                prev_guide_chord_held = chord_now;
++
++                RecompRuntimeUiInput menu_input{};
++                if (!chord_now &&
++                    runtime_menu_controller_input(button, &menu_input) &&
+                     runtime_ui &&
+                     recomp_runtime_ui_handle_input(
+-                        runtime_ui, menu_input,
+-                        event.type == SDL_CONTROLLERBUTTONDOWN, false)) {
++                        runtime_ui, menu_input, button_down, false)) {
+                     finish_runtime_menu_input(was_open);
+                     continue;
+                 }
+@@ -3724,6 +3780,33 @@
+                     nds_set_touch(0, 0, false);
+             }
+         }
++        const auto& sky_state = settings_overlay.GetState();
++        if (sky_state.shader_filter != applied_shader_filter) {
++            apply_sky_shader_filter(presentation, sky_state.shader_filter);
++            applied_shader_filter = sky_state.shader_filter;
++            std::fprintf(stderr, "[sdl] shader filter changed\n");
++        }
++        if (sky_state.hud_layout != applied_hud_layout) {
++            applied_hud_layout = sky_state.hud_layout;
++            presentation.single_screen =
++                applied_hud_layout ==
++                skyrecomp::gpu2d::HudLayoutMode::SingleScreenModern;
++            apply_single_screen_presentation(presentation,
++                                             presentation.single_screen);
++            std::fprintf(stderr, "[sdl] HUD layout changed\n");
++        }
++        const bool want_interpolation =
++            sky_state.refresh_rate !=
++            skyrecomp::camera::RefreshRateMode::Locked_60Hz;
++        if (want_interpolation != interpolation_active &&
++            interpolation_refresh_hz >= interpolation_min_refresh_hz &&
++            !presentation.gl_top) {
++            interpolation_active = want_interpolation;
++            blend_cache.valid = false;
++            std::fprintf(stderr, "[sdl] refresh interpolation %s (%dHz)\n",
++                         interpolation_active ? "enabled" : "disabled",
++                         interpolation_refresh_hz);
++        }
+         if (focus_release_pending) {
+             if (!any_presentation_window_focused()) {
+                 release_relative_mouse();
+@@ -4579,10 +4662,8 @@
+     nds_compute_host_stop();
+ #endif
+     if (controller) SDL_GameControllerClose(controller);
+-    if (runtime_ui) {
+-        recomp_runtime_ui_destroy(runtime_ui);
+-        runtime_ui = nullptr;
+-    }
++    // The SkySettingsOverlay owns `runtime_ui` and destroys it when this
++    // function returns.
+     destroy_presentation(presentation);
+     SDL_Quit();
+     std::fprintf(stderr, "[sdl] closed after %llu presented frames\n",

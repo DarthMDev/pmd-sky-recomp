@@ -98,6 +98,9 @@ public:
     /// Returns true if the underlying `RecompRuntimeUi` context was initialized.
     [[nodiscard]] bool IsValid() const noexcept { return ui_ != nullptr; }
 
+    /// Returns the owned `recomp-ui` context for host frontends that already drive input/rendering.
+    [[nodiscard]] RecompRuntimeUi* Handle() const noexcept { return ui_; }
+
     /// Returns true when the settings overlay menu is currently open on screen.
     [[nodiscard]] bool IsVisible() const noexcept;
 

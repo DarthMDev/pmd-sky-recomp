@@ -483,6 +483,7 @@ def main() -> None:
     save_path = saves_dir / "pmdsky.sav"
     savestate_dir = user_dir / "savestates"
     savestate_dir.mkdir(parents=True, exist_ok=True)
+    sky_settings_file = user_dir / "sky_settings.toml"
 
     cmd = [
         str(runner_bin),
@@ -492,6 +493,7 @@ def main() -> None:
         "--rom", str(rom_path),
         "--save-path", str(save_path),
         "--savestate-dir", str(savestate_dir),
+        "--runtime-settings-path", str(sky_settings_file),
         "--rtc-host",
     ]
 

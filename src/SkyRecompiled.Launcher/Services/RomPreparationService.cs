@@ -177,10 +177,11 @@ public class RomPreparationService
         Directory.CreateDirectory(consoleDir);
         Directory.CreateDirectory(Path.Combine(userDir, "savestates"));
 
+        var skySettingsPath = Path.Combine(userDir, "sky_settings.toml");
         var psi = new ProcessStartInfo
         {
             FileName = runnerBin,
-            Arguments = $"\"{consoleDir}\" --interactive --config \"{configPath}\" --rom \"{romPath}\" --save-path \"{savePath}\" --savestate-dir \"{Path.Combine(userDir, "savestates")}\" --rtc-host",
+            Arguments = $"\"{consoleDir}\" --interactive --config \"{configPath}\" --rom \"{romPath}\" --save-path \"{savePath}\" --savestate-dir \"{Path.Combine(userDir, "savestates")}\" --runtime-settings-path \"{skySettingsPath}\" --rtc-host",
             UseShellExecute = false,
             WorkingDirectory = Path.GetDirectoryName(runnerBin)!
         };
