@@ -178,17 +178,39 @@ public class RomPreparationService
         Directory.CreateDirectory(Path.Combine(userDir, "savestates"));
 
         var skySettingsPath = Path.Combine(userDir, "sky_settings.toml");
+        var logPath = Path.Combine(userDir, "nds_runner.log");
         var psi = new ProcessStartInfo
         {
             FileName = runnerBin,
             Arguments = $"\"{consoleDir}\" --interactive --config \"{configPath}\" --rom \"{romPath}\" --save-path \"{savePath}\" --savestate-dir \"{Path.Combine(userDir, "savestates")}\" --runtime-settings-path \"{skySettingsPath}\" --rtc-host",
             UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(runnerBin)!
+            WorkingDirectory = Path.GetDirectoryName(runnerBin)!,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
+        try
+        {
+            File.WriteAllText(logPath, $"$ {psi.FileName} {psi.Arguments}\n");
+        }
+        catch
+        {
+            // Diagnostic logging must never prevent the game from launching.
+        }
 
         var proc = Process.Start(psi);
         if (proc == null)
             throw new InvalidOperationException("Failed to launch nds_runner process.");
+
+        void AppendRunnerLog(string? line)
+        {
+            if (line is null) return;
+            try { File.AppendAllText(logPath, line + Environment.NewLine); }
+            catch { }
+        }
+        proc.OutputDataReceived += (_, e) => AppendRunnerLog(e.Data);
+        proc.ErrorDataReceived += (_, e) => AppendRunnerLog(e.Data);
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
 
         return proc;
     }

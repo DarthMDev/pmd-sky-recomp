@@ -1,15 +1,24 @@
 --- a/runner/src/frontend.cpp
 +++ b/runner/src/frontend.cpp
-@@ -214,6 +214,8 @@
+@@ -33,6 +33,7 @@
+ #include "runtime_arm.h"
+ #include "scheduler.h"
+ #include "savestate_slots.h"
++#include "state.h"
+ #include "spu.h"
+ #include "title_patches.h"
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
+@@ -213,6 +214,9 @@
+ #include <SDL.h>
  #endif
  #include "recomp_runtime_ui.h"
- 
-+#include "ui/settings_overlay.hpp"
 +
++#include "ui/guest_ui_state.hpp"
++#include "ui/settings_overlay.hpp"
+ 
  #include "frontend_latency.h"
  
- namespace {
-@@ -277,6 +279,8 @@
+@@ -277,6 +281,8 @@
  #define SDL_CONTROLLER_BUTTON_A SDL_GAMEPAD_BUTTON_SOUTH
  #define SDL_CONTROLLER_BUTTON_B SDL_GAMEPAD_BUTTON_EAST
  #define SDL_CONTROLLER_BUTTON_BACK SDL_GAMEPAD_BUTTON_BACK
@@ -18,7 +27,7 @@
  #define SDL_CONTROLLER_BUTTON_DPAD_DOWN SDL_GAMEPAD_BUTTON_DPAD_DOWN
  #define SDL_CONTROLLER_BUTTON_DPAD_LEFT SDL_GAMEPAD_BUTTON_DPAD_LEFT
  #define SDL_CONTROLLER_BUTTON_DPAD_RIGHT SDL_GAMEPAD_BUTTON_DPAD_RIGHT
-@@ -729,6 +733,7 @@
+@@ -729,6 +735,7 @@
  struct AudioQueue {
      // Host output only. Consumption, guest mixing and pacing remain active.
      bool output_muted = false;
@@ -26,11 +35,36 @@
  #if !defined(NDS_HAVE_SDL3)
      std::array<int16_t, kAudioCapacityFrames * 2> samples{};
      uint32_t read = 0;
-@@ -1016,6 +1021,14 @@
-         if (owned_pcm) {
+@@ -987,6 +994,25 @@
+     nds_set_touch(touch_x, touch_y, true);
+ }
+ 
++void set_touch_from_rect(float x, float y, bool down, const SDL_Rect& rect) {
++    if (!down || rect.w <= 0 || rect.h <= 0 || x < rect.x ||
++        x >= rect.x + rect.w || y < rect.y || y >= rect.y + rect.h) {
++        nds_set_touch(0, 0, false);
++        return;
++    }
++    const float scaled_x =
++        (x - static_cast<float>(rect.x)) * kScreenWidth /
++        static_cast<float>(rect.w);
++    const float scaled_y =
++        (y - static_cast<float>(rect.y)) * kScreenHeight /
++        static_cast<float>(rect.h);
++    const auto touch_x = static_cast<uint16_t>(std::clamp<int>(
++        static_cast<int>(scaled_x), 0, kScreenWidth - 1));
++    const auto touch_y = static_cast<uint16_t>(std::clamp<int>(
++        static_cast<int>(scaled_y), 0, kScreenHeight - 1));
++    nds_set_touch(touch_x, touch_y, true);
++}
++
+ uint32_t audio_queue_count(const NdsAudioDevice& device, AudioQueue& queue) {
+     if (!device) return 0;
+ #if defined(NDS_HAVE_SDL3)
+@@ -1017,6 +1043,14 @@
              std::copy_n(owned_pcm->data()+pcm_offset,frames*2u,samples.data());
              pcm_offset+=frames*2u;
-+        }
+         }
 +        const int volume = queue.volume_percent.load(std::memory_order_relaxed);
 +        if (volume < 100) {
 +            const int clamped = std::clamp(volume, 0, 100);
@@ -38,13 +72,16 @@
 +                samples[i] = static_cast<int16_t>(
 +                    (static_cast<int32_t>(samples[i]) * clamped) / 100);
 +            }
-         }
++        }
          bool pushed = false;
          while (!pushed) {
-@@ -1186,121 +1199,12 @@
+ #if defined(NDS_HAVE_SDL3)
+@@ -1184,123 +1218,14 @@
+         }
+     }
      return hash;
- }
- 
+-}
+-
 -constexpr const char* kRuntimeMouseSensitivityKey =
 -    "input.mouse_sensitivity";
 -constexpr const char* kRuntimeResumeKey = "system.resume";
@@ -94,8 +131,8 @@
 -    for (const std::string& line : lines)
 -        out << line << '\n';
 -    return static_cast<bool>(out);
--}
--
+ }
+ 
 -int runtime_menu_get_value(void* context, const RecompRuntimeUiItem* item,
 -                           int* value_out) {
 -    auto* state = static_cast<RuntimeMenuState*>(context);
@@ -164,7 +201,7 @@
              return true;
          case SDL_SCANCODE_BACKSPACE:
              *input = RECOMP_RUNTIME_UI_INPUT_BACK;
-@@ -1330,9 +1234,6 @@
+@@ -1330,9 +1255,6 @@
                                     RecompRuntimeUiInput* input) {
      if (!input) return false;
      switch (button) {
@@ -174,7 +211,7 @@
          case SDL_CONTROLLER_BUTTON_BACK:
          case SDL_CONTROLLER_BUTTON_B:
              *input = RECOMP_RUNTIME_UI_INPUT_BACK;
-@@ -1374,9 +1275,17 @@
+@@ -1374,9 +1296,19 @@
      return surface.data();
  }
  
@@ -188,26 +225,28 @@
      bool separate = false;
      bool gl_top = false;
 +    bool single_screen = false;
++    bool bottom_main = false;
++    bool show_inset = false;
 +    SkyPostFilter post_filter = SkyPostFilter::None;
      SDL_Window* windows[2]{};
      SDL_Renderer* renderers[2]{};
      SDL_Texture* textures[2]{};
-@@ -1616,6 +1525,14 @@
- #endif
- }
- 
+@@ -1613,6 +1545,14 @@
+     return SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+ #else
+     return SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest) == 0;
++#endif
++}
++
 +bool set_texture_scale_linear(SDL_Texture* texture) {
 +#if defined(NDS_HAVE_SDL3)
 +    return SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
 +#else
 +    return SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear) == 0;
-+#endif
-+}
-+
- void render_texture(SDL_Renderer* renderer, SDL_Texture* texture,
-                     const SDL_Rect* destination) {
- #if defined(NDS_HAVE_SDL3)
-@@ -1954,6 +1871,36 @@
+ #endif
+ }
+ 
+@@ -1954,6 +1894,36 @@
      return true;
  }
  
@@ -244,7 +283,7 @@
  void render_screen(FrontendPresentation& presentation, int screen,
                     const SDL_Rect& destination) {
      SDL_Renderer* renderer = presentation.renderers[screen];
-@@ -1967,8 +1914,62 @@
+@@ -1967,8 +1937,125 @@
          source = presentation.sample_targets[screen];
      }
      render_texture(renderer, source, &destination);
@@ -282,32 +321,95 @@
 +    }
 +}
 +
++bool resize_top_screen_texture(
++    FrontendPresentation& presentation, int width,
++    skyrecomp::shaders::ShaderFilterPreset filter) {
++    if (width <= 0 || presentation.renderers[0] == nullptr) return false;
++    SDL_Texture* new_texture = SDL_CreateTexture(
++        presentation.renderers[0], SDL_PIXELFORMAT_ARGB8888,
++        SDL_TEXTUREACCESS_STREAMING, width, kScreenHeight);
++    if (new_texture == nullptr) return false;
++    SDL_Texture* new_sample = nullptr;
++    if (presentation.sample_scale > 1) {
++        new_sample = SDL_CreateTexture(
++            presentation.renderers[0], SDL_PIXELFORMAT_ARGB8888,
++            SDL_TEXTUREACCESS_TARGET, width * presentation.sample_scale,
++            kScreenHeight * presentation.sample_scale);
++        if (new_sample == nullptr) {
++            SDL_DestroyTexture(new_texture);
++            return false;
++        }
++    }
++    if (presentation.textures[0] != nullptr) {
++        SDL_DestroyTexture(presentation.textures[0]);
++    }
++    if (presentation.sample_targets[0] != nullptr) {
++        SDL_DestroyTexture(presentation.sample_targets[0]);
++    }
++    presentation.textures[0] = new_texture;
++    presentation.sample_targets[0] = new_sample;
++    presentation.screen_widths[0] = width;
++    apply_sky_shader_filter(presentation, filter);
++    return true;
++}
++
 +void apply_single_screen_presentation(FrontendPresentation& presentation,
 +                                      bool single_screen) {
 +    if (presentation.separate) {
++        if (!presentation.windows[1]) return;
 +        if (single_screen)
 +            SDL_HideWindow(presentation.windows[1]);
 +        else
 +            SDL_ShowWindow(presentation.windows[1]);
 +        return;
 +    }
++    if (!presentation.windows[0] || !presentation.renderers[0]) return;
++    const auto window_flags = SDL_GetWindowFlags(presentation.windows[0]);
++    const bool fullscreen = (window_flags & SDL_WINDOW_FULLSCREEN) != 0;
 +    int window_w = 0;
 +    int window_h = 0;
 +    SDL_GetWindowSize(presentation.windows[0], &window_w, &window_h);
-+    if (window_w <= 0 || window_h <= 0) return;
 +    const int canvas_w = presentation.canvas_width;
 +    const int stacked_h = kScreenHeight * 2;
-+    const int scale = std::max(1, window_w / std::max(1, canvas_w));
 +    const int logical_h = single_screen ? kScreenHeight : stacked_h;
-+    SDL_SetWindowSize(presentation.windows[0], canvas_w * scale,
-+                      logical_h * scale);
++    if (!fullscreen && window_w > 0 && window_h > 0) {
++        const int scale = std::max(1, window_w / std::max(1, canvas_w));
++        SDL_SetWindowSize(presentation.windows[0], canvas_w * scale,
++                          logical_h * scale);
++    }
 +    set_render_logical_size(presentation.renderers[0], canvas_w, logical_h);
++}
++
++SDL_Rect single_screen_inset_rect(
++    const FrontendPresentation& presentation) {
++    constexpr int kInsetWidth = 96;
++    constexpr int kMargin = 6;
++    const int main_width = presentation.bottom_main
++        ? presentation.screen_widths[1]
++        : presentation.screen_widths[0];
++    const int source_width = presentation.bottom_main
++        ? presentation.screen_widths[0]
++        : presentation.screen_widths[1];
++    const int inset_height = kInsetWidth * kScreenHeight /
++                             std::max(1, source_width);
++    return {main_width + kMargin, kMargin, kInsetWidth, inset_height};
++}
++
++SDL_Rect single_screen_bottom_rect(
++    const FrontendPresentation& presentation) {
++    if (presentation.bottom_main) {
++        return {0, 0, presentation.screen_widths[1], kScreenHeight};
++    }
++    if (presentation.show_inset) {
++        return single_screen_inset_rect(presentation);
++    }
++    return {0, 0, 0, 0};
 +}
 +
  struct PresentationTicks {
      uint64_t upload = 0;
      uint64_t draw = 0;
-@@ -2160,20 +2161,35 @@
+@@ -2160,20 +2247,38 @@
          start = SDL_GetPerformanceCounter();
          SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
          SDL_RenderClear(renderer);
@@ -326,18 +428,21 @@
 -                                virtual_stylus_x, virtual_stylus_y);
 -        draw_savestate_notice(renderer, bottom_rect, savestate_notice);
 +        if (presentation.single_screen) {
-+            const int canvas_height = kScreenHeight;
-+            int top_w = presentation.canvas_width;
-+            int top_h = top_w * kScreenHeight / kScreenWidth;
-+            if (top_h > canvas_height) {
-+                top_h = canvas_height;
-+                top_w = top_h * kScreenWidth / kScreenHeight;
++            const int main_screen = presentation.bottom_main ? 1 : 0;
++            const int main_width = presentation.bottom_main
++                ? presentation.screen_widths[1]
++                : presentation.screen_widths[0];
++            const SDL_Rect main_rect{0, 0, main_width, kScreenHeight};
++            render_screen(presentation, main_screen, main_rect);
++            if (presentation.show_inset) {
++                const int inset_screen = presentation.bottom_main ? 0 : 1;
++                const SDL_Rect inset =
++                    single_screen_inset_rect(presentation);
++                SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
++                fill_rect(renderer, inset);
++                render_screen(presentation, inset_screen, inset);
 +            }
-+            const SDL_Rect top_rect{
-+                (presentation.canvas_width - top_w) / 2,
-+                (canvas_height - top_h) / 2, top_w, top_h};
-+            render_screen(presentation, 0, top_rect);
-+            draw_savestate_notice(renderer, top_rect, savestate_notice);
++            draw_savestate_notice(renderer, main_rect, savestate_notice);
 +        } else {
 +            const SDL_Rect top_rect{
 +                (presentation.canvas_width -
@@ -357,7 +462,112 @@
          ticks.draw += SDL_GetPerformanceCounter() - start;
          start = SDL_GetPerformanceCounter();
          SDL_RenderPresent(renderer);
-@@ -2429,7 +2445,7 @@
+@@ -2204,8 +2309,74 @@
+ 
+ } // namespace
+ 
++
++// Reads the persisted Sky aspect ratio before presentation creation. The
++// in-game menu writes this file immediately; the wider renderer width is
++// selected at launch so the GPU2D adaptive path can allocate the right
++// framebuffers and textures up front.
++uint16_t sky_saved_aspect_width(const std::string& path) {
++    int aspect = 2; // SkySettingsState defaults to 16:9.
++    if (!path.empty()) {
++        std::ifstream in(path);
++        std::string line;
++        while (std::getline(in, line)) {
++            const size_t eq = line.find('=');
++            if (eq == std::string::npos) continue;
++            std::string key = line.substr(0, eq);
++            const size_t first = key.find_first_not_of(" \t\r");
++            const size_t last = key.find_last_not_of(" \t\r");
++            if (first == std::string::npos) continue;
++            key = key.substr(first, last - first + 1);
++            if (key == "aspect_ratio") {
++                aspect = std::clamp(std::atoi(line.c_str() + eq + 1), 0, 3);
++                break;
++            }
++        }
++    }
++    static constexpr uint16_t kWidths[4] = {256, 308, 342, 448};
++    return kWidths[aspect];
++}
++
+ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+     NdsFrontendOptions options = initial_options;
++    // Title-owned adaptive widescreen is enabled only for the two verified
++    // PMD Sky revisions. Config-level `adaptive_capability` would require a
++    // single exact game.sha1, which would reject the other region.
++    const std::string& rom_sha1 = !options.savestate_rom_sha1.empty()
++        ? options.savestate_rom_sha1 : options.expected_rom_sha1;
++    const bool pmd_sky_rom =
++        rom_sha1 == "5fa96ca8d8dd6405d6cd2bad73ed68bc73a9d152" ||
++        rom_sha1 == "c838a5adf1ed32d2da8454976e5b1a1aa189c139";
++    if (pmd_sky_rom) {
++        options.adaptive_supported = NDS_ADAPTIVE_TOP;
++        const uint16_t saved_width =
++            sky_saved_aspect_width(options.runtime_settings_path);
++        if (saved_width > 256) {
++            options.adaptive_screens = NDS_ADAPTIVE_TOP;
++            options.adaptive_max_width[0] = saved_width;
++        } else {
++            options.adaptive_screens = NDS_ADAPTIVE_NONE;
++        }
++        options.adaptive_hud_anchor = true;
++        nds_gpu2d_set_adaptive_hud_anchor(true,
++                                          options.adaptive_hud_center_width);
++    }
++    if (options.adaptive_screens & NDS_ADAPTIVE_TOP) {
++        const uint16_t requested_width =
++            std::max<uint16_t>(options.adaptive_max_width[0], 256);
++        if (!nds_gpu3d_set_output_width(requested_width)) {
++            std::fprintf(stderr,
++                         "[sdl] adaptive width %u unavailable; using native "
++                         "256px instead\n",
++                         static_cast<unsigned>(requested_width));
++            options.adaptive_screens = NDS_ADAPTIVE_NONE;
++            options.adaptive_max_width[0] = 256;
++            options.adaptive_max_width[1] = 256;
++        } else {
++            std::fprintf(stderr, "[sdl] Sky widescreen width: %u\n",
++                         static_cast<unsigned>(requested_width));
++        }
++    }
+     SDL_SetMainReady();
+     // SDL_INIT_TIMER matters on Windows: it raises the OS timer resolution
+     // to 1 ms (SDL_HINT_TIMER_RESOLUTION default). Without it SDL_Delay(1)
+@@ -2245,8 +2416,27 @@
+         ? 0 : (presentation.canvas_width - presentation.screen_widths[0]) / 2;
+     const NdsLogicalRect stacked_top_screen{
+         top_content_left, 0, presentation.screen_widths[0], kScreenHeight};
+-    const NdsLogicalRect stacked_bottom_touch{
+-        bottom_content_left, kScreenHeight, kScreenWidth, kScreenHeight};
++    auto bottom_touch_rect = [&]() -> NdsLogicalRect {
++        if (presentation.single_screen) {
++            const SDL_Rect bottom = single_screen_bottom_rect(presentation);
++            return {bottom.x, bottom.y, bottom.w, bottom.h};
++        }
++        return {bottom_content_left, kScreenHeight, kScreenWidth,
++                kScreenHeight};
++    };
++    auto host_touch = [&](float x, float y, bool down) {
++        if (presentation.single_screen) {
++            const SDL_Rect bottom = single_screen_bottom_rect(presentation);
++            if (bottom.w <= 0 || bottom.h <= 0) {
++                if (down) nds_set_touch(0, 0, false);
++                return;
++            }
++            set_touch_from_rect(x, y, down, bottom);
++        } else {
++            set_touch_from_mouse(x, y, down, options.screen_layout,
++                                 bottom_logical_width);
++        }
++    };
+     std::fprintf(stderr,
+         "[sdl] layout=%s fullscreen=%s adaptive=%s supersampling=%ux aa=%ux "
+         "internal=%ux\n",
+@@ -2429,7 +2619,7 @@
  
      std::fprintf(stderr,
          "[sdl] controls: gamepad=Player 1 | bottom mouse=touch | "
@@ -366,7 +576,7 @@
          options.tab_turbo ? " | hold Tab=turbo" : "");
      std::fputs("[sdl] keyboard:", stderr);
      for (size_t row = 0; row < options.keyboard_bindings.size(); ++row)
-@@ -2518,6 +2534,9 @@
+@@ -2518,6 +2708,9 @@
      SDL_JoystickID controller_id = controller
          ? sdl_controller_id(controller)
          : -1;
@@ -376,7 +586,7 @@
      uint16_t keyboard_pressed = 0;
      uint16_t controller_pressed = 0;
      uint16_t mouse_pressed = 0;
-@@ -2549,37 +2568,45 @@
+@@ -2549,37 +2742,59 @@
      publish_keys();
      nds_set_touch(0, 0, false);
      bool running = true;
@@ -430,12 +640,21 @@
 +    apply_sky_shader_filter(
 +        presentation, settings_overlay.GetState().shader_filter);
 +    auto applied_shader_filter = settings_overlay.GetState().shader_filter;
++    auto applied_aspect_ratio = settings_overlay.GetState().aspect_ratio;
 +    auto applied_hud_layout = settings_overlay.GetState().hud_layout;
 +    presentation.single_screen =
 +        applied_hud_layout == skyrecomp::gpu2d::HudLayoutMode::SingleScreenModern;
 +    if (presentation.single_screen) {
 +        apply_single_screen_presentation(presentation, true);
 +    }
++    skyrecomp::pmdsky::Region hud_region = skyrecomp::pmdsky::Region::NA;
++    const std::string& hud_rom_sha1 = !options.savestate_rom_sha1.empty()
++        ? options.savestate_rom_sha1 : options.expected_rom_sha1;
++    if (hud_rom_sha1 == "c838a5adf1ed32d2da8454976e5b1a1aa189c139") {
++        hud_region = skyrecomp::pmdsky::Region::EU;
++    }
++    skyrecomp::shaders::WeatherShaderPipeline weather_pipeline(
++        hud_region, skyrecomp::shaders::ShaderFilterPreset::Nearest, true);
 +    if (!presentation.gl_top) {
 +        const int sky_refresh_hz = window_refresh_hz(presentation.windows[0]);
 +        if (sky_refresh_hz >= interpolation_min_refresh_hz) {
@@ -445,6 +664,11 @@
 +                skyrecomp::camera::RefreshRateMode::Locked_60Hz;
 +        }
 +    }
++    std::fprintf(stderr,
++                 "[sdl] frame interpolation: display=%dHz active=%s min=%dHz\n",
++                 interpolation_refresh_hz,
++                 interpolation_active ? "yes" : "no",
++                 interpolation_min_refresh_hz);
 +    RecompRuntimeUi* runtime_ui = settings_overlay.Handle();
      if (!runtime_ui) {
 -        std::fprintf(stderr, "[sdl] runtime menu unavailable\n");
@@ -452,7 +676,17 @@
      }
      bool compute_failed = false;
      bool mouse_down = false;
-@@ -2927,10 +2954,6 @@
+@@ -2871,7 +3086,9 @@
+     uint64_t shown_frames = 0;
+     uint64_t synthetic_presents = 0;
+     FrameBlendCache blend_cache{};
++    std::vector<uint32_t> present_overlay_surface;
+     uint64_t fps_frames = 0;
++    uint64_t fps_synthetic_start = 0;
+     uint64_t fps_start = SDL_GetPerformanceCounter();
+     const uint64_t frequency = SDL_GetPerformanceFrequency();
+     const uint64_t soak_frames = environment_u64("NDS_FRONTEND_MAX_FRAMES");
+@@ -2927,10 +3144,6 @@
          publish_keys();
      };
      auto finish_runtime_menu_input = [&](bool was_open) {
@@ -463,7 +697,7 @@
          if (!was_open && runtime_menu_open())
              clear_gameplay_input_for_runtime_menu();
      };
-@@ -3337,14 +3360,23 @@
+@@ -3337,14 +3550,23 @@
                               (int)event.key.repeat);
              }
              if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
@@ -489,7 +723,21 @@
                          event.key.repeat)) {
                      finish_runtime_menu_input(was_open);
                      continue;
-@@ -3476,6 +3508,9 @@
+@@ -3411,11 +3633,10 @@
+                         // before the restored machine executes a round.
+                         publish_keys();
+                         if (mouse_down) {
+-                            set_touch_from_mouse(
++                            host_touch(
+                                 static_cast<float>(last_touch_event_x),
+                                 static_cast<float>(last_touch_event_y),
+-                                true, options.screen_layout,
+-                                bottom_logical_width);
++                                true);
+                         } else {
+                             nds_set_touch(0, 0, false);
+                         }
+@@ -3476,6 +3697,9 @@
                  controller = nullptr;
                  controller_id = -1;
                  controller_pressed = 0;
@@ -499,7 +747,7 @@
                  // Pad-held Prime actions must not survive the device; the
                  // keyboard/mouse can re-press theirs on the next event.
                  clear_mph_prime_controls();
-@@ -3484,15 +3519,36 @@
+@@ -3484,15 +3708,36 @@
              }
              if (event.type == SDL_CONTROLLERBUTTONDOWN ||
                  event.type == SDL_CONTROLLERBUTTONUP) {
@@ -541,7 +789,45 @@
                      finish_runtime_menu_input(was_open);
                      continue;
                  }
-@@ -3724,6 +3780,33 @@
+@@ -3556,7 +3801,7 @@
+                     ? nds_route_stacked_relative_mouse_button(
+                         options.relative_mouse_touch,
+                         relative_mouse.captured(), stacked_top_screen,
+-                        stacked_bottom_touch, event.button.x, event.button.y)
++                        bottom_touch_rect(), event.button.x, event.button.y)
+                     : NdsStackedRelativeMouseRoute::None;
+             bool virtual_stylus_mouse_consumed = false;
+             if (event.type == SDL_MOUSEBUTTONDOWN &&
+@@ -3648,9 +3893,7 @@
+                 last_touch_event_y = event.button.y;
+                 touch_release_pending = false;
+                 touch_frames_held = 0;
+-                set_touch_from_mouse(event.button.x, event.button.y, true,
+-                                     options.screen_layout,
+-                                     bottom_logical_width);
++                host_touch(event.button.x, event.button.y, true);
+             }
+             if (!virtual_stylus_mouse_consumed &&
+                 event.type == SDL_MOUSEBUTTONUP &&
+@@ -3664,15 +3907,11 @@
+                 if (touch_frames_held < 2)
+                     touch_release_pending = true;
+                 else
+-                    set_touch_from_mouse(event.button.x, event.button.y, false,
+-                                         options.screen_layout,
+-                                         bottom_logical_width);
++                    host_touch(event.button.x, event.button.y, false);
+             }
+             if (event.type == SDL_MOUSEMOTION && mouse_down &&
+                 event.motion.windowID == presentation.window_ids[1])
+-                set_touch_from_mouse(event.motion.x, event.motion.y, true,
+-                                     options.screen_layout,
+-                                     bottom_logical_width);
++                host_touch(event.motion.x, event.motion.y, true);
+             if (event.type == SDL_MOUSEMOTION &&
+                 virtual_stylus_active() &&
+                 (event.motion.windowID == presentation.window_ids[0] ||
+@@ -3724,6 +3963,85 @@
                      nds_set_touch(0, 0, false);
              }
          }
@@ -551,11 +837,63 @@
 +            applied_shader_filter = sky_state.shader_filter;
 +            std::fprintf(stderr, "[sdl] shader filter changed\n");
 +        }
++        if (sky_state.aspect_ratio != applied_aspect_ratio) {
++            applied_aspect_ratio = sky_state.aspect_ratio;
++            if (!presentation.single_screen) {
++                std::fprintf(stderr,
++                             "[sdl] aspect ratio saved; switch to Hybrid or "
++                             "restart to apply the new widescreen width\n");
++            } else {
++                static constexpr uint16_t kAspectWidths[4] = {
++                    256, 308, 342, 448};
++                const int aspect_index = std::clamp<int>(
++                    static_cast<int>(sky_state.aspect_ratio), 0, 3);
++                const uint16_t new_width = kAspectWidths[aspect_index];
++                const uint16_t old_width = presentation.screen_widths[0];
++                if (new_width == old_width) {
++                    // No-op; keep the current renderer width.
++                } else if (!nds_gpu3d_set_output_width(new_width)) {
++                    std::fprintf(stderr,
++                                 "[sdl] aspect ratio: width %u is "
++                                 "unavailable\n",
++                                 static_cast<unsigned>(new_width));
++                } else {
++                    const uint8_t old_screens = options.adaptive_screens;
++                    const uint16_t old_max_width =
++                        options.adaptive_max_width[0];
++                    if (new_width > 256) {
++                        options.adaptive_screens = NDS_ADAPTIVE_TOP;
++                        options.adaptive_max_width[0] = new_width;
++                    } else {
++                        options.adaptive_screens = NDS_ADAPTIVE_NONE;
++                        options.adaptive_max_width[0] = 256;
++                    }
++                    if (!resize_top_screen_texture(
++                            presentation, new_width,
++                            sky_state.shader_filter)) {
++                        options.adaptive_screens = old_screens;
++                        options.adaptive_max_width[0] = old_max_width;
++                        (void)nds_gpu3d_set_output_width(old_width);
++                        std::fprintf(stderr,
++                                     "[sdl] aspect ratio: texture resize "
++                                     "failed; keeping %upx\n",
++                                     static_cast<unsigned>(old_width));
++                    } else {
++                        std::fprintf(stderr,
++                                     "[sdl] aspect ratio applied live: %upx\n",
++                                     static_cast<unsigned>(new_width));
++                    }
++                }
++            }
++        }
 +        if (sky_state.hud_layout != applied_hud_layout) {
 +            applied_hud_layout = sky_state.hud_layout;
 +            presentation.single_screen =
 +                applied_hud_layout ==
 +                skyrecomp::gpu2d::HudLayoutMode::SingleScreenModern;
++            presentation.bottom_main = false;
++            presentation.show_inset = false;
++            presentation.canvas_width = presentation.screen_widths[0];
 +            apply_single_screen_presentation(presentation,
 +                                             presentation.single_screen);
 +            std::fprintf(stderr, "[sdl] HUD layout changed\n");
@@ -575,7 +913,123 @@
          if (focus_release_pending) {
              if (!any_presentation_window_focused()) {
                  release_relative_mouse();
-@@ -4579,10 +4662,8 @@
+@@ -4214,6 +4532,89 @@
+             phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
+             observe_top_black_bands(native_top,shown_frames);
+         }
++        // Single-screen modern layout: draw the dungeon HP/belly/floor and
++        // minimap HUD over the top screen. The bottom screen remains a small
++        // touchable inset, so menus and pointer input stay reachable in one
++        // window instead of a stacked dual-screen layout.
++        const auto& frame_sky_state = settings_overlay.GetState();
++        const bool single_screen_frame =
++            presentation.single_screen && !presentation.gl_top;
++        const bool weather_bloom_frame =
++            frame_sky_state.weather_ambient_bloom;
++        if ((single_screen_frame || weather_bloom_frame) &&
++            top_pixels != nullptr && top_width > 0) {
++            BusRegion mainram{};
++            const bool have_mainram =
++                bus_get_region("mainram", &mainram) && mainram.ptr != nullptr &&
++                mainram.len != 0;
++            const skyrecomp::GuestMemoryView mem(
++                have_mainram ? mainram.ptr : nullptr,
++                have_mainram ? mainram.len : 0);
++            const size_t count = static_cast<size_t>(top_width) *
++                                 static_cast<size_t>(kScreenHeight);
++            present_overlay_surface.assign(top_pixels, top_pixels + count);
++            bool surface_changed = false;
++
++            if (weather_bloom_frame && mem.valid()) {
++                const auto weather =
++                    weather_pipeline.ReadWeatherStateFromGuest(mem);
++                if (weather.in_dungeon) {
++                    weather_pipeline.SetWeatherBloomEnabled(true);
++                    weather_pipeline.SetFilterPreset(
++                        skyrecomp::shaders::ShaderFilterPreset::Nearest);
++                    weather_pipeline.ApplyPostProcessArgb8888(
++                        std::span<uint32_t>(present_overlay_surface.data(),
++                                            count),
++                        top_width, kScreenHeight, weather);
++                    surface_changed = true;
++                }
++            }
++
++            if (single_screen_frame) {
++                presentation.bottom_main = false;
++                presentation.show_inset = false;
++                if (mem.valid()) {
++                    const auto ui_flags =
++                        skyrecomp::ui::ReadGuestUiFlags(mem, hud_region);
++                    const bool menu_view = ui_flags.top_screen_menu_open ||
++                                           ui_flags.team_menu_or_grid;
++                    presentation.bottom_main = menu_view;
++                    presentation.show_inset = true;
++                    static bool last_menu_view = false;
++                    static bool logged_menu_view = false;
++                    if (!logged_menu_view || menu_view != last_menu_view) {
++                        logged_menu_view = true;
++                        last_menu_view = menu_view;
++                        std::fprintf(
++                            stderr,
++                            "[ui] layout: guest_menu=%d bottom_main=%d inset=1\n",
++                            menu_view ? 1 : 0,
++                            presentation.bottom_main ? 1 : 0);
++                    }
++                }
++            }
++
++            if (surface_changed) {
++                top_pixels = present_overlay_surface.data();
++            }
++        }
++        if (presentation.single_screen) {
++            const bool host_menu = recomp_runtime_ui_is_open(runtime_ui);
++            if (host_menu) {
++                presentation.bottom_main = false;
++                presentation.show_inset = false;
++            }
++            const int main_w = presentation.bottom_main
++                ? presentation.screen_widths[1]
++                : presentation.screen_widths[0];
++            const int layout_w = presentation.show_inset
++                ? main_w + 108
++                : main_w;
++            if (layout_w != presentation.canvas_width) {
++                presentation.canvas_width = layout_w;
++                apply_single_screen_presentation(presentation, true);
++            }
++        }
+         // At most ONE synthetic frame, presented ahead of the real one, so
+         // the visible order stays real(N-1), blend(N-1,N), real(N). No
+         // scheduler round, no input sampling, no audio production happens
+@@ -4501,9 +4902,14 @@
+         if (counter - fps_start >= frequency) {
+             const double seconds = static_cast<double>(counter - fps_start) /
+                                    static_cast<double>(frequency);
+-            const double fps = static_cast<double>(fps_frames) / seconds;
+-            const std::string fps_text =
+-                std::to_string(fps).substr(0, 4) + " FPS";
++            const uint64_t synthetic_delta =
++                synthetic_presents - fps_synthetic_start;
++            const double fps =
++                static_cast<double>(fps_frames + synthetic_delta) / seconds;
++            char fps_buffer[32]{};
++            std::snprintf(fps_buffer, sizeof(fps_buffer), "%.1f FPS", fps);
++            std::string fps_text = fps_buffer;
++            if (synthetic_delta > 0) fps_text += " (interp)";
+             const std::string governor_text =
+                 perf_governor.apply_failed
+                     ? " - Gov disabled (apply failed, S" +
+@@ -4528,6 +4934,7 @@
+                                    bottom_title.c_str());
+             }
+             fps_frames = 0;
++            fps_synthetic_start = synthetic_presents;
+             fps_start = counter;
+         }
+ 
+@@ -4579,10 +4986,8 @@
      nds_compute_host_stop();
  #endif
      if (controller) SDL_GameControllerClose(controller);

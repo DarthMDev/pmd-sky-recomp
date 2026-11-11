@@ -42,7 +42,7 @@ struct SkySettingsState {
     gpu2d::AspectRatioPreset aspect_ratio = gpu2d::AspectRatioPreset::Widescreen_16_9;
     gpu2d::HudLayoutMode hud_layout = gpu2d::HudLayoutMode::DualScreenAnchored;
     camera::RefreshRateMode refresh_rate = camera::RefreshRateMode::ProMotion_120Hz;
-    shaders::ShaderFilterPreset shader_filter = shaders::ShaderFilterPreset::SharpBilinear;
+    shaders::ShaderFilterPreset shader_filter = shaders::ShaderFilterPreset::Nearest;
     bool weather_ambient_bloom = true;
     int audio_volume_percent = 100; // 0 .. 100 (step 10)
     bool audio_muted = false;

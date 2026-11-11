@@ -12,6 +12,8 @@ add_library(sky_runtime_enhancements STATIC
     "${CMAKE_CURRENT_LIST_DIR}/camera/subpixel_interpolator.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/shaders/weather_shader_pipeline.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/ui/settings_overlay.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/ui/remaster_hud.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/ui/guest_ui_state.cpp"
     "${NDS_RECOMP_UI_ROOT}/src/common/recomp_runtime_ui.c"
 )
 target_compile_features(sky_runtime_enhancements PUBLIC cxx_std_20)

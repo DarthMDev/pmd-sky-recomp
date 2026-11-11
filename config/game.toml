@@ -24,6 +24,8 @@ screen_layout = "stacked"
 fullscreen = "off"
 internal_resolution = 2
 frame_interpolation = "off"
+# Widescreen is enabled by the frontend only for verified PMD Sky ROMs, so
+# this shared config never applies another title's adaptive settings.
 
 [network]
 enabled = false

@@ -1,0 +1,165 @@
+--- a/runner/src/gpu2d.cpp
++++ b/runner/src/gpu2d.cpp
+@@ -2938,6 +2938,123 @@
+ }
+ 
+ }  // namespace
++
++
++struct Wide2dBgLine {
++    std::array<uint16_t, kMaxAdaptiveWidth> color{};
++    uint8_t prio = 0;
++    uint8_t target = 0;
++    uint8_t order = 0;
++};
++
++// PMD Sky dungeons are text-BG scenes (the 3D layer is not BG0). The native
++// 256px compositor samples BG map columns only inside the vanilla viewport;
++// widening the sample range by the margin lets the same 512x256 map supply
++// the extra left/right columns. Affine/bitmap/mosaic scenes still fall back
++// to the centered native image because their source coordinates do not have
++// an equivalent simple horizontal window.
++bool wide_2d_scene_supported(const Unit& u) {
++    const uint32_t mode = (u.dispcnt >> 16) & 3u;
++    if (mode != 0u && mode != 1u) return false;
++    if (u.dispcnt & 0x80u) return false;
++    if (g_present_capture_active) return false;
++    if (nds_gpu3d_render_xpos() != 0u) return false;
++    for (int bg = 0; bg < 4; ++bg) {
++        if (!(u.dispcnt & (0x100u << bg))) continue;
++        if (bg_kind(u, bg) != BgKind::Text) return false;
++        if (u.bgcnt[bg] & 0x40u) return false;
++    }
++    return true;
++}
++
++bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
++                             const uint8_t* oam,
++                             const NdsVramRendererView& vram,
++                             int output_width, int extra,
++                             AdaptiveFrame& out) {
++    if (!wide_2d_scene_supported(u)) return false;
++    static bool logged_wide_2d = false;
++    if (!logged_wide_2d) {
++        logged_wide_2d = true;
++        std::fprintf(stderr,
++                     "[gpu2d] wide text-BG compositor active at %dpx\n",
++                     output_width);
++    }
++    const uint16_t backdrop15 = view16(palette, 0);
++    const Pixel backdrop{rgb6(backdrop15), 0x20u, 0, 4, 5, true};
++    const uint32_t mbmode = u.master_bright >> 14;
++    const uint32_t mb = std::min<uint32_t>(16, u.master_bright & 0x1Fu);
++    const NdsGpu2dWindowState window_state{u.dispcnt, u.win};
++    int active_bgs[4]{};
++    size_t bg_count = 0;
++    const uint8_t active_mask = bg_active_mask(u, false);
++    for (int bg = 0; bg < 4; ++bg)
++        if (active_mask & (1u << bg)) active_bgs[bg_count++] = bg;
++
++    std::array<Pixel, kMaxAdaptiveWidth> obj{};
++    std::array<uint8_t, kMaxAdaptiveWidth> obj_window{};
++    std::array<Wide2dBgLine, 4> bg_lines{};
++
++    for (int y = 0; y < 192; ++y) {
++        render_obj_line(u, 0, y, obj.data(), output_width, oam, palette, vram,
++                        obj_window.data());
++        for (size_t i = 0; i < bg_count; ++i) {
++            const int bg = active_bgs[i];
++            TextLine line = prepare_text_line(u, 0, bg, y, palette, &vram);
++            Wide2dBgLine& line_out = bg_lines[i];
++            line_out.prio = static_cast<uint8_t>(line.cnt & 3u);
++            line_out.target = static_cast<uint8_t>(1u << bg);
++            line_out.order = static_cast<uint8_t>(bg + 1);
++            for (int x = 0; x < output_width; ++x) {
++                const Pixel p = text_pixel(line, x - extra);
++                line_out.color[x] = p.valid
++                    ? static_cast<uint16_t>(p.color | 0x8000u) : 0u;
++            }
++        }
++        uint32_t* dst = out.data() + static_cast<size_t>(y) * output_width;
++        auto ahead = [](const Pixel& a, const Pixel& b) {
++            return a.priority < b.priority ||
++                   (a.priority == b.priority && a.order < b.order);
++        };
++        for (int x = 0; x < output_width; ++x) {
++            const int hud_x = x - extra;
++            const uint8_t window_x =
++                nds_gpu2d_adaptive_window_x(x, extra, hud_x);
++            const uint8_t window_mask = nds_gpu2d_window_mask(
++                window_state, window_x, static_cast<uint8_t>(y),
++                obj_window[x] != 0u);
++            Pixel top = backdrop;
++            Pixel below = backdrop;
++            auto push = [&](const Pixel& pixel) {
++                if (ahead(pixel, top)) {
++                    below = top;
++                    top = pixel;
++                } else if (ahead(pixel, below)) {
++                    below = pixel;
++                }
++            };
++            for (size_t i = 0; i < bg_count; ++i) {
++                const uint16_t c = bg_lines[i].color[x];
++                if (!(c & 0x8000u) ||
++                    !(window_mask & bg_lines[i].target)) {
++                    continue;
++                }
++                push(Pixel{rgb6(static_cast<uint16_t>(c & 0x7FFFu)),
++                           bg_lines[i].target, 0, bg_lines[i].prio,
++                           bg_lines[i].order, true});
++            }
++            if (obj[x].valid && (window_mask & 0x10u)) push(obj[x]);
++            uint32_t color = compose(u, top, below,
++                                     (window_mask & 0x20u) != 0u);
++            if (mbmode == 1u)
++                color = brighten(color, mb, 0u);
++            else if (mbmode == 2u)
++                color = darken(color, mb, 15u);
++            dst[x] = to_rgb32(color);
++        }
++    }
++    return true;
++}
+ 
+ const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width) {
+     drain_pool(NDS_GPU2D_FENCE_PRESENT);
+@@ -2954,6 +3071,21 @@
+     if (output_width < 256 || (output_width == 256 && !g_hd_emit_enabled)) {
+         if (width) *width = 256;
+         return native;
++    }
++    static bool logged_adaptive_top = false;
++    if (!logged_adaptive_top && screen == 0 && output_width > 256) {
++        logged_adaptive_top = true;
++        const Unit& tu = g_unit[engine];
++        std::fprintf(stderr,
++                     "[gpu2d] adaptive top: engine=%d mode=%u "
++                     "dispcnt=%08x bg0=%04x bg1=%04x bg2=%04x bg3=%04x "
++                     "capture=%d xpos=%d center_native=%d lowpoly=%u\n",
++                     engine, (tu.dispcnt >> 16) & 3u, tu.dispcnt,
++                     tu.bgcnt[0], tu.bgcnt[1], tu.bgcnt[2], tu.bgcnt[3],
++                     g_present_capture_active ? 1 : 0,
++                     static_cast<int>(nds_gpu3d_render_xpos()),
++                     g_adaptive_center_native ? 1 : 0,
++                     g_adaptive_center_max_polygons);
+     }
+ 
+     AdaptiveFrame& adaptive = g_adaptive_frame[screen & 1];
+@@ -2990,6 +3122,16 @@
+     const uint32_t mode = (u.dispcnt >> 16) & 3u;
+     const bool bg0_3d = (u.dispcnt & 0x8u) != 0 &&
+                         (u.dispcnt & 0x100u) != 0;
++    // PMD Sky's dungeon compositor is text-BG based. Widen those layers by
++    // sampling the same 512x256 maps outside the vanilla viewport before the
++    // 3D-only adaptive path rejects the scene.
++    if (!bg0_3d && palette && oam && vram && wide_2d_scene_supported(u)) {
++        if (composite_2d_wide_frame(u, palette, oam, *vram, output_width,
++                                    extra, adaptive)) {
++            ++g_adaptive_fallback_frames[NDS_GPU2D_ADAPTIVE_WIDE];
++            return adaptive.data();
++        }
++    }
+     // Known-safe adaptive scenes use main-engine 3D plus OBJ. Text BG planes
+     // can either be title-anchored into left/center/right bands or kept as a
+     // native-width centered overlay. Affine/bitmap backgrounds still retain a

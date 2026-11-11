@@ -30,8 +30,8 @@ constexpr const char* const kAspectChoices[] = {
 };
 
 constexpr const char* const kHudLayoutChoices[] = {
-    "Dual-Screen Edge-Anchored",
-    "Single-Screen Modern",
+    "Dual-Screen (Default)",
+    "Hybrid",
 };
 
 constexpr const char* const kRefreshChoices[] = {
@@ -61,7 +61,7 @@ constexpr RecompRuntimeUiItem kMenuItems[] = {
         .key = kKeyAspectRatio,
         .section = kSectionName,
         .label = "Aspect Ratio",
-        .description = "True 2D widescreen viewport width & overlay29 tile-column streaming radius.",
+        .description = "True 2D widescreen width. Saved now; restart to apply the new render width.",
         .type = RECOMP_RUNTIME_UI_CHOICE,
         .minimum = 0,
         .maximum = 3,
@@ -74,7 +74,7 @@ constexpr RecompRuntimeUiItem kMenuItems[] = {
         .key = kKeyHudLayout,
         .section = kSectionName,
         .label = "HUD Layout",
-        .description = "Edge-anchored classic HUD or single-screen modern translucent HUD + minimap.",
+        .description = "Stacked top/bottom (default), or a single-window hybrid with one main screen and one small inset.",
         .type = RECOMP_RUNTIME_UI_CHOICE,
         .minimum = 0,
         .maximum = 1,

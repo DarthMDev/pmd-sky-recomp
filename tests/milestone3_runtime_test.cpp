@@ -8,6 +8,8 @@
 #include "../runtime/camera/subpixel_interpolator.hpp"
 #include "../runtime/gpu2d/widescreen_ppu.hpp"
 #include "../runtime/shaders/weather_shader_pipeline.hpp"
+#include "../runtime/ui/guest_ui_state.hpp"
+#include "../runtime/ui/remaster_hud.hpp"
 #include "../runtime/ui/settings_overlay.hpp"
 
 #include <algorithm>
@@ -379,6 +381,135 @@ void TestWeatherShaderPipeline() {
     assert(out_r > out_b);
 }
 
+/// Verifies the live party/weather bridge against a synthetic PMD Sky RAM image.
+void TestGuestUiStateBridge() {
+    using namespace skyrecomp;
+
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0);
+    constexpr uint32_t kTeamMemberTable = 0x022ABDE0u;
+    constexpr uint32_t kRosterOffset = 0x936Cu;
+    constexpr uint32_t kActiveTeamOffset = 0x9877u;
+    constexpr uint32_t kTeamMemberSize = 104u;
+    constexpr uint32_t kEntityTableActiveMonsters = 0x50u;
+    constexpr uint32_t kMonsterIsNotTeamMember = 0x06u;
+    constexpr uint32_t kMonsterIsLeader = 0x07u;
+    constexpr uint32_t kMonsterLevel = 0x0Au;
+    constexpr uint32_t kMonsterTeamIndex = 0x0Cu;
+    constexpr uint32_t kMonsterHp = 0x10u;
+    constexpr uint32_t kMonsterMaxHpStat = 0x12u;
+    constexpr uint32_t kMonsterMaxHpBoost = 0x16u;
+    constexpr uint32_t kMonsterBelly = 0x146u;
+    constexpr uint32_t kMonsterMaxBelly = 0x14Au;
+
+    WriteGuest<uint8_t>(ram, kTeamMemberTable + kActiveTeamOffset, 0);
+    auto write_member = [&](uint32_t slot, bool leader, uint8_t level,
+                            int16_t hp, int16_t max_hp, int16_t belly,
+                            int16_t max_belly, const char* name) {
+        const uint32_t addr =
+            kTeamMemberTable + kRosterOffset + slot * kTeamMemberSize;
+        WriteGuest<uint8_t>(ram, addr, 1);
+        WriteGuest<uint8_t>(ram, addr + 1, leader ? 1 : 0);
+        WriteGuest<uint8_t>(ram, addr + 2, level);
+        WriteGuest<int16_t>(ram, addr + 0x0E, hp);
+        WriteGuest<int16_t>(ram, addr + 0x10, max_hp);
+        WriteGuest<int16_t>(ram, addr + 0x44, belly);
+        WriteGuest<int16_t>(ram, addr + 0x48, max_belly);
+        for (size_t i = 0; name[i] != '\0' && i < 10; ++i) {
+            WriteGuest<uint8_t>(ram, addr + 0x5E + static_cast<uint32_t>(i),
+                                static_cast<uint8_t>(name[i]));
+        }
+    };
+    write_member(0, true, 12, 40, 80, 25, 50, "PIKACHU");
+    write_member(1, false, 10, 30, 60, 20, 50, "EEVEE");
+
+    const uint32_t dungeon = 0x02080000u;
+    WriteGuest<uint32_t>(
+        ram, pmdsky::Get(pmdsky::Region::NA).DUNGEON_PTR_MASTER, dungeon);
+    WriteGuest<uint8_t>(ram, dungeon + layout::dungeon::kWeatherOffset, 4);
+
+    const uint32_t entity_table =
+        dungeon + layout::dungeon::kEntityTableOffset;
+    const uint32_t entity = 0x02081000u;
+    const uint32_t monster = 0x02082000u;
+    WriteGuest<uint32_t>(
+        ram, entity_table + kEntityTableActiveMonsters, entity);
+    WriteGuest<int32_t>(ram, entity + layout::entity::kTypeOffset, 1);
+    WriteGuest<uint32_t>(ram, entity + layout::entity::kInfoPtrOffset,
+                         monster);
+    WriteGuest<uint8_t>(ram, monster + kMonsterIsNotTeamMember, 0);
+    WriteGuest<uint8_t>(ram, monster + kMonsterIsLeader, 1);
+    WriteGuest<uint8_t>(ram, monster + kMonsterLevel, 13);
+    WriteGuest<int16_t>(ram, monster + kMonsterTeamIndex, 0);
+    WriteGuest<int16_t>(ram, monster + kMonsterHp, 35);
+    WriteGuest<int16_t>(ram, monster + kMonsterMaxHpStat, 80);
+    WriteGuest<int16_t>(ram, monster + kMonsterMaxHpBoost, 0);
+    WriteGuest<int16_t>(ram, monster + kMonsterBelly, 22);
+    WriteGuest<int16_t>(ram, monster + kMonsterMaxBelly, 50);
+
+    const GuestMemoryView mem(ram.data(), ram.size());
+    const auto party = ui::ReadGuestParty(mem, pmdsky::Region::NA);
+    assert(party.count >= 2);
+    assert(party.party[0].active);
+    assert(party.party[0].leader);
+    assert(party.party[0].hp == 35);
+    assert(party.party[0].max_hp == 80);
+    assert(party.party[0].belly == 22);
+    assert(std::strcmp(party.party[0].name.data(), "PIKACHU") == 0);
+    assert(party.party[1].active);
+    assert(party.party[1].hp == 30);
+    assert(std::strcmp(party.party[1].name.data(), "EEVEE") == 0);
+    assert(ui::ReadGuestWeatherId(mem, pmdsky::Region::NA) == 4);
+
+    constexpr uint32_t kWindowListNA = 0x022A88DCu;
+    WriteGuest<int8_t>(ram, kWindowListNA + 0xB6, 1);
+    WriteGuest<uint8_t>(ram, kWindowListNA + 0x08, 1);  // SCREEN_SUB = top
+    WriteGuest<uint8_t>(
+        ram,
+        dungeon + layout::dungeon::kDisplayDataOffset +
+            layout::display_data::kTeamMenuOrGridOffset,
+        1);
+    const auto flags = ui::ReadGuestUiFlags(mem, pmdsky::Region::NA);
+    assert(flags.top_screen_menu_open);
+    assert(flags.team_menu_or_grid);
+}
+
+/// Verifies the layout-first remaster HUD draws party, floor/weather, and minimap.
+void TestRemasterHudLayout() {
+    using namespace skyrecomp::ui;
+
+    RemasterHudState state{};
+    state.party[0].active = true;
+    state.party[0].leader = true;
+    state.party[0].level = 12;
+    state.party[0].hp = 40;
+    state.party[0].max_hp = 80;
+    state.party[0].belly = 25;
+    state.party[0].max_belly = 50;
+    std::strcpy(state.party[0].name.data(), "PIKACHU");
+    state.party[1].active = true;
+    state.party[1].level = 10;
+    state.party[1].hp = 30;
+    state.party[1].max_hp = 60;
+    state.party[1].belly = 20;
+    state.party[1].max_belly = 50;
+    std::strcpy(state.party[1].name.data(), "EEVEE");
+    state.party_count = 2;
+    state.floor_number = 7;
+    state.weather_id = 4;
+    state.minimap_enabled = true;
+    state.minimap_cells[5 * 56 + 10] = 3;
+
+    RemasterHud hud;
+    hud.SetState(state);
+    std::vector<uint32_t> fb(342 * 192, 0xFF000000u);
+    hud.RenderArgb8888(fb, 342, 192);
+
+    // Leader panel changed the top-left.
+    assert(fb[6 * 342 + 6] != 0xFF000000u);
+    // Minimap changed near the top-right edge.
+    assert(fb[8 * 342 + (342 - 56 - 8 + 10)] != 0xFF000000u);
+}
+
 /// Verifies recomp-ui settings overlay input, rendering, runtime bindings, and persistence.
 void TestRecompUiSettingsOverlay() {
     using namespace skyrecomp::ui;
@@ -566,6 +697,8 @@ int main() {
     TestSubpixelInterpolationDeterminism();
     TestWeatherShaderPipeline();
     TestRecompUiSettingsOverlay();
+    TestGuestUiStateBridge();
+    TestRemasterHudLayout();
     TestPmdSpaceWidescreenEdgeCases();
 
     std::cout << "[milestone3_runtime_test] ALL MILESTONE 3 RUNTIME TESTS PASSED!\n";
