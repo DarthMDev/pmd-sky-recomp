@@ -312,6 +312,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
 @property(nonatomic, strong) NSArray<UIButton*>* keys;
 @property(nonatomic, strong) UIButton* back;
 @property(nonatomic, strong) UIButton* toggle;
+@property(nonatomic, strong) UIButton* settings;
 @end
 
 @implementation SkyControls
@@ -335,6 +336,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
     self.dpad.frame = CGRectMake(left, padTop, cell * 3, cell * 3);
     self.back.frame = CGRectMake(center - 80, top, 76, 44);
     self.toggle.frame = CGRectMake(center + 4, top, 76, 44);
+    self.settings.frame = CGRectMake(center + 88, top, 56, 44);
 
     const CGRect frames[] = {
         CGRectMake(faceLeft + 2 * cell, padTop + cell, cell, cell), // A
@@ -384,6 +386,18 @@ void sky_show_game_controls(SDL_Window* window) {
         sky_clear_touch_keys();
     }] forControlEvents:UIControlEventTouchUpInside];
     [controls addSubview:controls.toggle];
+
+    controls.settings = game_button(@"⚙", 24);
+    controls.settings.accessibilityLabel = @"Open settings";
+    [controls.settings addAction:[UIAction actionWithHandler:^(UIAction*) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.windowID = SDL_GetWindowID(window);
+        event.key.scancode = SDL_SCANCODE_F1;
+        event.key.key = SDLK_F1;
+        SDL_PushEvent(&event);
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [controls addSubview:controls.settings];
 
     NSArray<NSString*>* labels = @[@"A", @"B", @"X", @"Y", @"L", @"R", @"Start", @"Select"];
     NSMutableArray<UIButton*>* keys = [NSMutableArray arrayWithCapacity:labels.count];
@@ -449,6 +463,8 @@ bool show_launcher(NSURL* rom, NSURL* console, NSURL* documents, NSURL* saves,
             "--rom", rom.fileSystemRepresentation,
             "--save-path", child(saves, @"pmdsky.sav").fileSystemRepresentation,
             "--savestate-dir", saves.fileSystemRepresentation,
+            "--runtime-settings-path",
+            child(saves, @"sky_settings.toml").fileSystemRepresentation,
             "--internal-resolution", "1",
             "--network", "off", "--local-wireless", "off",
             "--no-coverage-manifest"

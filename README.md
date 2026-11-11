@@ -31,6 +31,23 @@
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 
+### Opening and using in-game settings
+
+Press **F1** during gameplay, or press **Guide** on a controller. You can also
+open settings with **Select+Start**. On iPhone or iPad, tap the **⚙** button in
+the on-screen controls. The settings open on the category list:
+**Video**, **Controller**, **Keyboard**, and **System**. Use the arrow keys or
+D-pad to choose a category and press **Enter** or **A** to open it. Press
+**Escape** or **B/Back** to return to the category list; press it again to close
+settings.
+
+In **Controller** or **Keyboard**, select an action such as **A** or **Up** and
+press **Enter** or **A**. Then press the controller button, move the stick, or
+press the keyboard key you want to assign. **Backspace** clears a binding;
+**Escape** or **Guide** cancels assignment. Each page has a **Restore defaults**
+action. On iOS, a connected keyboard or controller can assign inputs; the touch
+controls remain available on screen.
+
 ### Can I play a European ROM in another language?
 
 The European cartridge includes English, French, German, Italian, and Spanish.

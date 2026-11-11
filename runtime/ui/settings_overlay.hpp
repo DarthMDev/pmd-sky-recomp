@@ -9,6 +9,7 @@ extern "C" {
 #include "recomp_runtime_ui.h"
 }
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -17,14 +18,16 @@ extern "C" {
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace skyrecomp::ui {
 
 /// Controller button preset for PMD: Explorers of Sky (Task 3.4).
 enum class ControllerRemapPreset : uint8_t {
-    StandardNintendoDs = 0, // A=Confirm/Attack, B=Cancel/Menu, X=Menu, Y=Sort/Diagonal, L/R=Moves/Throw
-    ModernDungeon = 1,      // South=Confirm, East=Cancel, LB=Diagonal Lock, RB=Set Move, LT=Look Around
-    SwappedConfirmCancel = 2, // Swaps A <-> B for Western Xbox/PC controller muscle memory
+    StandardNintendoDs = 0, // Default DS button layout
+    ModernDungeon = 1,      // L/Y swapped for dungeon diagonals / move shortcut
+    SwappedConfirmCancel = 2, // A/B swapped for confirm/cancel preference
+    Custom = 3,             // Individual controller bindings edited by the user
 };
 
 /// Resolved DS keypad bitmask remap table for a controller preset.
@@ -37,6 +40,18 @@ struct DsButtonMapping {
     uint16_t shoulder_r_bit = (1u << 8); // KEY_R
 };
 
+/// Binding slots shared by the controller and keyboard remap pages.
+/// Order: Up, Down, Left, Right, A, B, X, Y, L, R, Start, Select.
+inline constexpr size_t kBindingCount = 12;
+using BindingArray = std::array<int, kBindingCount>;
+
+/// Default gamepad codes are SDL controller-button enum values + 1.
+inline constexpr BindingArray kDefaultControllerBindings = {
+    12, 13, 14, 15, 1, 2, 3, 4, 10, 11, 7, 5};
+/// Default keyboard codes are SDL scancodes.
+inline constexpr BindingArray kDefaultKeyboardBindings = {
+    82, 81, 80, 79, 29, 27, 22, 4, 20, 26, 40, 42};
+
 /// Complete user-configurable settings state managed by the in-game `recomp-ui` overlay.
 struct SkySettingsState {
     gpu2d::AspectRatioPreset aspect_ratio = gpu2d::AspectRatioPreset::Widescreen_16_9;
@@ -47,6 +62,8 @@ struct SkySettingsState {
     int audio_volume_percent = 100; // 0 .. 100 (step 10)
     bool audio_muted = false;
     ControllerRemapPreset controller_preset = ControllerRemapPreset::StandardNintendoDs;
+    BindingArray controller_bindings = kDefaultControllerBindings;
+    BindingArray keyboard_bindings = kDefaultKeyboardBindings;
 };
 
 /// Host input snapshot for driving the overlay toggle (`F1` / `Guide` / `Select+Start`) and navigation.
@@ -67,8 +84,7 @@ enum class SettingsItemIndex : size_t {
     WeatherBloom = 4,
     AudioVolume = 5,
     ControllerMapping = 6,
-    ResumeGame = 7,
-    Count = 8,
+    Count = 7,
 };
 
 /// Live runtime consumers bound to `SkySettingsOverlay` so changes made in the overlay or loaded
@@ -80,6 +96,8 @@ struct RuntimeConsumerBindings {
     shaders::WeatherShaderPipeline* shader_pipeline = nullptr;
     std::function<void(int effective_volume_percent, bool muted)> on_audio_settings_changed{};
     std::function<void(const DsButtonMapping& mapping)> on_controller_mapping_changed{};
+    std::function<void(const BindingArray&)> on_controller_bindings_changed{};
+    std::function<void(const BindingArray&)> on_keyboard_bindings_changed{};
     std::filesystem::path config_file_path{};
 };
 
@@ -115,6 +133,18 @@ public:
 
     /// Returns the index of the currently highlighted row in the settings overlay.
     [[nodiscard]] size_t GetSelectedIndex() const noexcept;
+
+    /// True while a controller or keyboard binding row is waiting for input.
+    [[nodiscard]] bool IsCapturingBinding() const noexcept {
+        return capture_binding_slot_ >= 0;
+    }
+    [[nodiscard]] bool IsCapturingControllerBinding() const noexcept {
+        return IsCapturingBinding() && capture_controller_binding_;
+    }
+
+    /// Completes or cancels a pending binding capture. Return true if consumed.
+    bool CaptureKeyboardBinding(int scancode) noexcept;
+    bool CaptureControllerBinding(int binding_code) noexcept;
 
     /// Binds live graphics subsystems, audio/controller callbacks, and an optional config file path,
     /// immediately applying the current settings state to all bound consumers.
@@ -176,10 +206,16 @@ private:
     static int CallbackIsEnabled(void* context, const RecompRuntimeUiItem* item) noexcept;
     /// `recomp-ui` callback invoked after any value change to persist settings to disk.
     static void CallbackSave(void* context) noexcept;
+    void RefreshBindingLabels() noexcept;
+    void FinishBindingCapture(int value, bool cancel) noexcept;
 
     SkySettingsState state_{};
     RuntimeConsumerBindings bindings_{};
+    std::vector<RecompRuntimeUiItem> menu_items_{};
+    std::array<std::string, kBindingCount * 2> binding_labels_{};
     RecompRuntimeUi* ui_ = nullptr;
+    int capture_binding_slot_ = -1;
+    bool capture_controller_binding_ = false;
     bool prev_chord_held_ = false;
 };
 

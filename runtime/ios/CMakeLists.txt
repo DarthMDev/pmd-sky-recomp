@@ -35,6 +35,24 @@ foreach(bank IN ITEMS NDS_TITLE_BANK_DIR NDS_TITLE_BANK_DIRS
 endforeach()
 add_subdirectory("${SKY_NDSRECOMP_DIR}/runner" runner EXCLUDE_FROM_ALL)
 
+add_library(sky_runtime_enhancements STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/../gpu2d/widescreen_ppu.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../camera/dungeon_camera.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../camera/subpixel_interpolator.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../shaders/weather_shader_pipeline.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../ui/settings_overlay.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../ui/remaster_hud.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../ui/guest_ui_state.cpp"
+    "${SKY_NDSRECOMP_DIR}/../recomp-ui/src/common/recomp_runtime_ui.c"
+)
+target_compile_features(sky_runtime_enhancements PUBLIC cxx_std_20)
+target_include_directories(sky_runtime_enhancements PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/../../include"
+    "${CMAKE_CURRENT_LIST_DIR}/.."
+    "${SKY_NDSRECOMP_DIR}/../recomp-ui/src"
+)
+target_link_libraries(nds_runner PRIVATE sky_runtime_enhancements)
+
 target_sources(nds_runner PRIVATE Launcher.mm RomCompiler.cpp)
 target_include_directories(nds_runner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(nds_runner PRIVATE SKY_IOS=1)

@@ -576,17 +576,19 @@
          options.tab_turbo ? " | hold Tab=turbo" : "");
      std::fputs("[sdl] keyboard:", stderr);
      for (size_t row = 0; row < options.keyboard_bindings.size(); ++row)
-@@ -2518,6 +2708,9 @@
+@@ -2518,6 +2708,11 @@
      SDL_JoystickID controller_id = controller
          ? sdl_controller_id(controller)
          : -1;
 +    bool pad_select_held = false;
 +    bool pad_start_held = false;
 +    bool prev_guide_chord_held = false;
++    bool controller_axis_capture_armed = true;
++    bool controller_capture_was_active = false;
      uint16_t keyboard_pressed = 0;
      uint16_t controller_pressed = 0;
      uint16_t mouse_pressed = 0;
-@@ -2549,37 +2742,59 @@
+@@ -2549,37 +2744,75 @@
      publish_keys();
      nds_set_touch(0, 0, false);
      bool running = true;
@@ -619,7 +621,14 @@
 -    runtime_menu_config.back_label = "B / Backspace";
 -    RecompRuntimeUi* runtime_ui =
 -        recomp_runtime_ui_create(&runtime_menu_config);
-+    skyrecomp::ui::SkySettingsOverlay settings_overlay;
++    skyrecomp::ui::SkySettingsState initial_settings;
++    initial_settings.controller_bindings = options.gamepad_bindings;
++    initial_settings.keyboard_bindings = options.keyboard_bindings;
++    if (options.custom_gamepad_bindings) {
++        initial_settings.controller_preset =
++            skyrecomp::ui::ControllerRemapPreset::Custom;
++    }
++    skyrecomp::ui::SkySettingsOverlay settings_overlay(initial_settings);
 +    std::filesystem::path settings_path;
 +    if (!options.runtime_settings_path.empty()) {
 +        settings_path = options.runtime_settings_path;
@@ -634,6 +643,15 @@
 +                audio_queue.volume_percent.store(
 +                    muted ? 0 : std::clamp(volume, 0, 100),
 +                    std::memory_order_relaxed);
++            },
++        .on_controller_bindings_changed =
++            [&options](const skyrecomp::ui::BindingArray& bindings) {
++                options.gamepad_bindings = bindings;
++                options.custom_gamepad_bindings = true;
++            },
++        .on_keyboard_bindings_changed =
++            [&options](const skyrecomp::ui::BindingArray& bindings) {
++                options.keyboard_bindings = bindings;
 +            },
 +        .config_file_path = settings_path,
 +    });
@@ -676,7 +694,7 @@
      }
      bool compute_failed = false;
      bool mouse_down = false;
-@@ -2871,7 +3086,9 @@
+@@ -2871,7 +3104,9 @@
      uint64_t shown_frames = 0;
      uint64_t synthetic_presents = 0;
      FrameBlendCache blend_cache{};
@@ -686,7 +704,7 @@
      uint64_t fps_start = SDL_GetPerformanceCounter();
      const uint64_t frequency = SDL_GetPerformanceFrequency();
      const uint64_t soak_frames = environment_u64("NDS_FRONTEND_MAX_FRAMES");
-@@ -2927,10 +3144,6 @@
+@@ -2927,10 +3162,6 @@
          publish_keys();
      };
      auto finish_runtime_menu_input = [&](bool was_open) {
@@ -697,7 +715,7 @@
          if (!was_open && runtime_menu_open())
              clear_gameplay_input_for_runtime_menu();
      };
-@@ -3337,14 +3550,23 @@
+@@ -3337,14 +3568,30 @@
                               (int)event.key.repeat);
              }
              if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
@@ -705,6 +723,13 @@
                  const SDL_Scancode scancode = sdl_event_scancode(event);
 +                const bool key_down = event.type == SDL_KEYDOWN;
                  const bool was_open = runtime_menu_open();
++                if (settings_overlay.IsCapturingBinding()) {
++                    if (key_down && !event.key.repeat)
++                        settings_overlay.CaptureKeyboardBinding(
++                            static_cast<int>(scancode));
++                    finish_runtime_menu_input(was_open);
++                    continue;
++                }
 +                // F1 opens the Milestone 3 settings overlay directly. Shift+F1
 +                // keeps its existing savestate-slot shortcut.
 +                if (key_down && !event.key.repeat &&
@@ -723,7 +748,7 @@
                          event.key.repeat)) {
                      finish_runtime_menu_input(was_open);
                      continue;
-@@ -3411,11 +3633,10 @@
+@@ -3411,11 +3658,10 @@
                          // before the restored machine executes a round.
                          publish_keys();
                          if (mouse_down) {
@@ -737,7 +762,7 @@
                          } else {
                              nds_set_touch(0, 0, false);
                          }
-@@ -3476,6 +3697,9 @@
+@@ -3476,6 +3722,9 @@
                  controller = nullptr;
                  controller_id = -1;
                  controller_pressed = 0;
@@ -747,7 +772,7 @@
                  // Pad-held Prime actions must not survive the device; the
                  // keyboard/mouse can re-press theirs on the next event.
                  clear_mph_prime_controls();
-@@ -3484,15 +3708,36 @@
+@@ -3484,15 +3733,43 @@
              }
              if (event.type == SDL_CONTROLLERBUTTONDOWN ||
                  event.type == SDL_CONTROLLERBUTTONUP) {
@@ -758,12 +783,19 @@
 -                if (runtime_menu_controller_input(button, &menu_input) &&
 +                const bool button_down =
 +                    event.type == SDL_CONTROLLERBUTTONDOWN;
++                const bool was_open = runtime_menu_open();
++                if (settings_overlay.IsCapturingBinding()) {
++                    if (button_down)
++                        settings_overlay.CaptureControllerBinding(
++                            static_cast<int>(button) + 1);
++                    finish_runtime_menu_input(was_open);
++                    continue;
++                }
 +                if (button == SDL_CONTROLLER_BUTTON_BACK)
 +                    pad_select_held = button_down;
 +                else if (button == SDL_CONTROLLER_BUTTON_START)
 +                    pad_start_held = button_down;
 +
-+                const bool was_open = runtime_menu_open();
 +                const bool chord_now = pad_select_held && pad_start_held;
 +                const bool guide_pressed =
 +                    button_down && button == SDL_CONTROLLER_BUTTON_GUIDE;
@@ -789,7 +821,7 @@
                      finish_runtime_menu_input(was_open);
                      continue;
                  }
-@@ -3556,7 +3801,7 @@
+@@ -3556,7 +3833,7 @@
                      ? nds_route_stacked_relative_mouse_button(
                          options.relative_mouse_touch,
                          relative_mouse.captured(), stacked_top_screen,
@@ -798,7 +830,7 @@
                      : NdsStackedRelativeMouseRoute::None;
              bool virtual_stylus_mouse_consumed = false;
              if (event.type == SDL_MOUSEBUTTONDOWN &&
-@@ -3648,9 +3893,7 @@
+@@ -3648,9 +3925,7 @@
                  last_touch_event_y = event.button.y;
                  touch_release_pending = false;
                  touch_frames_held = 0;
@@ -809,7 +841,7 @@
              }
              if (!virtual_stylus_mouse_consumed &&
                  event.type == SDL_MOUSEBUTTONUP &&
-@@ -3664,15 +3907,11 @@
+@@ -3664,15 +3939,11 @@
                  if (touch_frames_held < 2)
                      touch_release_pending = true;
                  else
@@ -827,7 +859,7 @@
              if (event.type == SDL_MOUSEMOTION &&
                  virtual_stylus_active() &&
                  (event.motion.windowID == presentation.window_ids[0] ||
-@@ -3724,6 +3963,85 @@
+@@ -3724,6 +3995,85 @@
                      nds_set_touch(0, 0, false);
              }
          }
@@ -913,7 +945,42 @@
          if (focus_release_pending) {
              if (!any_presentation_window_focused()) {
                  release_relative_mouse();
-@@ -4214,6 +4532,89 @@
+@@ -3992,1 +4342,34 @@
++        if (settings_overlay.IsCapturingControllerBinding() && controller) {
++            if (!controller_capture_was_active) {
++                controller_axis_capture_armed = false;
++                controller_capture_was_active = true;
++            }
++            if (!controller_axis_capture_armed) {
++                controller_axis_capture_armed = true;
++                for (int axis_index = 0; axis_index < 6; ++axis_index) {
++                    const auto axis = static_cast<decltype(SDL_CONTROLLER_AXIS_LEFTX)>(axis_index);
++                    const int value = SDL_GameControllerGetAxis(controller, axis);
++                    const bool neutral = axis_index >= 4 ? value <= 8000
++                        : (value >= -12000 && value <= 12000);
++                    if (!neutral) controller_axis_capture_armed = false;
++                }
++            }
++            if (controller_axis_capture_armed) {
++                for (int axis_index = 0; axis_index < 6 &&
++                     settings_overlay.IsCapturingControllerBinding(); ++axis_index) {
++                    const auto axis = static_cast<decltype(SDL_CONTROLLER_AXIS_LEFTX)>(axis_index);
++                    const int value = SDL_GameControllerGetAxis(controller, axis);
++                    if (axis_index >= 4) {
++                        if (value > 16000)
++                            settings_overlay.CaptureControllerBinding(100 + axis_index * 2);
++                    } else if (value > 18000 || value < -18000) {
++                        settings_overlay.CaptureControllerBinding(
++                            100 + axis_index * 2 + (value < 0 ? 1 : 0));
++                    }
++                }
++            }
++        } else {
++            controller_capture_was_active = false;
++            controller_axis_capture_armed = true;
++        }
+         if (options.custom_gamepad_bindings) {
+@@ -4214,6 +4597,89 @@
              phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
              observe_top_black_bands(native_top,shown_frames);
          }
@@ -1003,7 +1070,7 @@
          // At most ONE synthetic frame, presented ahead of the real one, so
          // the visible order stays real(N-1), blend(N-1,N), real(N). No
          // scheduler round, no input sampling, no audio production happens
-@@ -4501,9 +4902,14 @@
+@@ -4501,9 +4967,14 @@
          if (counter - fps_start >= frequency) {
              const double seconds = static_cast<double>(counter - fps_start) /
                                     static_cast<double>(frequency);
@@ -1021,7 +1088,7 @@
              const std::string governor_text =
                  perf_governor.apply_failed
                      ? " - Gov disabled (apply failed, S" +
-@@ -4528,6 +4934,7 @@
+@@ -4528,6 +4999,7 @@
                                     bottom_title.c_str());
              }
              fps_frames = 0;
@@ -1029,7 +1096,7 @@
              fps_start = counter;
          }
  
-@@ -4579,10 +4986,8 @@
+@@ -4579,10 +5051,8 @@
      nds_compute_host_stop();
  #endif
      if (controller) SDL_GameControllerClose(controller);

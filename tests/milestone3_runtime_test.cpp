@@ -591,17 +591,25 @@ void TestRecompUiSettingsOverlay() {
     overlay.ScaleAudioSamplesInt16(samples);
     assert(samples[0] == 800 && samples[1] == -800);
 
-    // Navigate to ControllerMapping (item 6) and switch to SwappedConfirmCancel (swaps A/B)
-    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN}); // ControllerMapping
-    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::ControllerMapping));
-    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // ModernDungeon
-    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // SwappedConfirmCancel
+    // Return to the section list, enter Controller, and choose the swapped A/B preset.
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_BACK});
+    assert(overlay.GetSelectedIndex() == 0); // Video section
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
+    assert(overlay.GetSelectedIndex() == 1); // Controller section
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_ACCEPT});
+    assert(overlay.GetSelectedIndex() == 0); // Preset row
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // Modern Dungeon
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT}); // Swapped B/A
     assert(overlay.GetState().controller_preset == ControllerRemapPreset::SwappedConfirmCancel);
-    assert(observed_mapping.confirm_bit == (1u << 1));
-    // Pressing logical A (bit 0 = 1) should map to DS B (bit 1 = 1)
+    assert(observed_mapping.confirm_bit == (1u << 0));
+    assert(observed_mapping.cancel_bit == (1u << 1));
+    // The preset edits gamepad bindings directly: SDL EAST (code 2) now
+    // generates DS A, while SDL SOUTH (code 1) generates DS B.
+    assert(overlay.GetState().controller_bindings[4] == 2);
+    assert(overlay.GetState().controller_bindings[5] == 1);
     const uint16_t remapped_mask = overlay.RemapDsKeyinputMask(0x0001u);
-    assert((remapped_mask & 0x0002u) != 0u);
-    assert((remapped_mask & 0x0001u) == 0u);
+    assert((remapped_mask & 0x0001u) != 0u);
+    assert((remapped_mask & 0x0002u) == 0u);
 
     // 7. Test TOML and file round-trip persistence (CallbackSave already persisted to tmp_cfg_path)
     SkySettingsOverlay restored;
@@ -611,6 +619,10 @@ void TestRecompUiSettingsOverlay() {
     assert(restored.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
     assert(restored.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
     assert(restored.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+    assert(restored.GetState().controller_preset == ControllerRemapPreset::SwappedConfirmCancel);
+    assert(restored.GetState().controller_bindings[4] == 2);
+    assert(restored.GetState().controller_bindings[5] == 1);
+    assert(restored.GetState().keyboard_bindings == kDefaultKeyboardBindings);
     assert(restored_ppu.GetAspectRatio() == gpu2d::AspectRatioPreset::Ultrawide_21_9);
     assert(restored_ppu.GetHudLayoutMode() == gpu2d::HudLayoutMode::SingleScreenModern);
     std::filesystem::remove(tmp_cfg_path);
