@@ -5,6 +5,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -193,13 +194,13 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
 namespace {
 
 SkyTouchInput touchInput;
-bool settingsTouchMode = false;
+std::atomic_bool settingsTouchMode{false};
 SDL_Window* activeGameWindow = nullptr;
 constexpr uint16_t dpadButtons =
     kNdsButtonMasks[0] | kNdsButtonMasks[1] | kNdsButtonMasks[2] | kNdsButtonMasks[3];
 
 void sendSettingsKey(SDL_Keycode key, SDL_Scancode scancode) {
-    if (!settingsTouchMode || !activeGameWindow) return;
+    if (!settingsTouchMode.load(std::memory_order_relaxed) || !activeGameWindow) return;
     SDL_Event event{};
     event.type = SDL_EVENT_KEY_DOWN;
     event.key.windowID = SDL_GetWindowID(activeGameWindow);
@@ -233,9 +234,12 @@ UIButton* game_button(NSString* title, CGFloat fontSize, bool accent = false) {
                            : control_surface();
     key.backgroundColor = idle;
     [key addAction:[UIAction actionWithHandler:^(UIAction* action) {
-        UIButton* sender = (UIButton*)action.sender;
-        sender.backgroundColor = sender.highlighted ? control_highlight() : idle;
-    }] forControlEvents:UIControlEventAllTouchEvents];
+        ((UIButton*)action.sender).backgroundColor = control_highlight();
+    }] forControlEvents:UIControlEventTouchDown];
+    [key addAction:[UIAction actionWithHandler:^(UIAction* action) {
+        ((UIButton*)action.sender).backgroundColor = idle;
+    }] forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
+                     UIControlEventTouchCancel];
     return key;
 }
 
@@ -244,6 +248,9 @@ UIButton* game_button(NSString* title, CGFloat fontSize, bool accent = false) {
 uint16_t sky_current_touch_keys() { return touchInput.current(); }
 uint16_t sky_begin_touch_frame() { return touchInput.beginFrame(); }
 void sky_clear_touch_keys() { touchInput.clear(); }
+void sky_ios_set_settings_visible(bool visible) {
+    settingsTouchMode.store(visible, std::memory_order_relaxed);
+}
 
 @interface SkyDPad : UIView
 @property(nonatomic) uint16_t directions;
@@ -262,7 +269,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
     if (std::abs(y) > deadZone && std::abs(y) >= std::abs(x) * 0.55)
         next |= kNdsButtonMasks[y < 0 ? 0 : 1];
     self.directions = next;
-    if (settingsTouchMode) {
+    if (settingsTouchMode.load(std::memory_order_relaxed)) {
         if (next & kNdsButtonMasks[0]) sendSettingsKey(SDLK_UP, SDL_SCANCODE_UP);
         else if (next & kNdsButtonMasks[1]) sendSettingsKey(SDLK_DOWN, SDL_SCANCODE_DOWN);
         else if (next & kNdsButtonMasks[2]) sendSettingsKey(SDLK_LEFT, SDL_SCANCODE_LEFT);
@@ -286,7 +293,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
 - (void)releaseDirections {
     self.trackingTouch = nil;
     self.directions = 0;
-    if (!settingsTouchMode) touchInput.set(dpadButtons, 0);
+    if (!settingsTouchMode.load(std::memory_order_relaxed)) touchInput.set(dpadButtons, 0);
     [self setNeedsDisplay];
 }
 
@@ -353,16 +360,17 @@ void sky_clear_touch_keys() { touchInput.clear(); }
     const CGFloat padTop = bottom - cell * 3;
     const CGFloat faceLeft = right - cell * 3;
     self.dpad.frame = CGRectMake(left, padTop, cell * 3, cell * 3);
-    self.back.frame = CGRectMake(center - 80, top, 76, 44);
-    self.toggle.frame = CGRectMake(center + 4, top, 76, 44);
-    self.settings.frame = CGRectMake(center + 88, top, 56, 44);
+    self.back.frame = CGRectMake(left, top, 72, 44);
+    self.toggle.frame = CGRectMake(left + 80, top, 84, 44);
+    self.settings.frame = CGRectMake(left + 172, top, 56, 44);
 
     const CGRect frames[] = {
         CGRectMake(faceLeft + 2 * cell, padTop + cell, cell, cell), // A
         CGRectMake(faceLeft + cell, padTop + 2 * cell, cell, cell), // B
         CGRectMake(faceLeft + cell, padTop, cell, cell), // X
         CGRectMake(faceLeft, padTop + cell, cell, cell), // Y
-        CGRectMake(left, top, 56, 44), CGRectMake(right - 56, top, 56, 44), // L / R
+        CGRectMake(left, padTop - 50, 56, 44),
+        CGRectMake(right - 56, padTop - 50, 56, 44), // L / R
         CGRectMake(center - 28, bottom - 92, 56, 44), // Start
         CGRectMake(center - 28, bottom - 44, 56, 44), // Select
     };
@@ -377,7 +385,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
 
 void sky_show_game_controls(SDL_Window* window) {
     activeGameWindow = window;
-    settingsTouchMode = false;
+    settingsTouchMode.store(false, std::memory_order_relaxed);
     sky_clear_touch_keys();
     UIWindow* host = native_window(window);
     SkyControls* controls = [[SkyControls alloc] initWithFrame:host.bounds];
@@ -409,14 +417,9 @@ void sky_show_game_controls(SDL_Window* window) {
     [controls addSubview:controls.toggle];
 
     controls.settings = game_button(@"⚙", 24);
-    controls.settings.accessibilityLabel = @"Open settings";
-    __weak SkyControls* weakOverlay = controls;
+    controls.settings.accessibilityLabel = @"Open or close settings";
     [controls.settings addAction:[UIAction actionWithHandler:^(UIAction*) {
-        SkyControls* overlay = weakOverlay;
-        settingsTouchMode = !settingsTouchMode;
         sky_clear_touch_keys();
-        [overlay.settings setTitle:(settingsTouchMode ? @"Done" : @"⚙") forState:UIControlStateNormal];
-        overlay.settings.accessibilityLabel = settingsTouchMode ? @"Close settings" : @"Open settings";
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.windowID = SDL_GetWindowID(window);
@@ -432,7 +435,7 @@ void sky_show_game_controls(SDL_Window* window) {
         UIButton* key = game_button(labels[i], i < 4 ? 19 : 13, i == 0);
         const uint16_t mask = kNdsButtonMasks[i + 4];
         [key addAction:[UIAction actionWithHandler:^(UIAction*) {
-            if (settingsTouchMode) {
+            if (settingsTouchMode.load(std::memory_order_relaxed)) {
                 switch (mask) {
                     case kNdsButtonMasks[4]: sendSettingsKey(SDLK_RETURN, SDL_SCANCODE_RETURN); break;
                     case kNdsButtonMasks[5]: sendSettingsKey(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE); break;
@@ -443,7 +446,7 @@ void sky_show_game_controls(SDL_Window* window) {
             } else touchInput.set(mask, mask);
         }]
          forControlEvents:UIControlEventTouchDown];
-        [key addAction:[UIAction actionWithHandler:^(UIAction*) { if (!settingsTouchMode) touchInput.set(mask, 0); }]
+        [key addAction:[UIAction actionWithHandler:^(UIAction*) { if (!settingsTouchMode.load(std::memory_order_relaxed)) touchInput.set(mask, 0); }]
          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
                           UIControlEventTouchCancel];
         [keys addObject:key];
