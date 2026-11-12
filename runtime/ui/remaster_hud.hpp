@@ -44,6 +44,9 @@ public:
 
     /// Renders the HUD over an ARGB8888 top-screen framebuffer.
     void RenderArgb8888(std::span<uint32_t> framebuffer, int width, int height) const noexcept;
+    /// Draws a compact FPS badge anchored to the top-right of a guest frame.
+    static void RenderFpsMeter(std::span<uint32_t> framebuffer, int width, int height,
+                               double fps) noexcept;
 
 private:
     RemasterHudState state_{};

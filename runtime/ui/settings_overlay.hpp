@@ -59,6 +59,7 @@ struct SkySettingsState {
     camera::RefreshRateMode refresh_rate = camera::RefreshRateMode::ProMotion_120Hz;
     shaders::ShaderFilterPreset shader_filter = shaders::ShaderFilterPreset::Nearest;
     bool weather_ambient_bloom = true;
+    bool show_fps_meter = false;
     int audio_volume_percent = 100; // 0 .. 100 (step 10)
     bool audio_muted = false;
     ControllerRemapPreset controller_preset = ControllerRemapPreset::StandardNintendoDs;
@@ -83,8 +84,9 @@ enum class SettingsItemIndex : size_t {
     ShaderFilter = 3,
     WeatherBloom = 4,
     AudioVolume = 5,
-    ControllerMapping = 6,
-    Count = 7,
+    FpsMeter = 6,
+    ControllerMapping = 7,
+    Count = 8,
 };
 
 /// Live runtime consumers bound to `SkySettingsOverlay` so changes made in the overlay or loaded

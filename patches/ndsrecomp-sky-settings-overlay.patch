@@ -1,3 +1,5 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+index 7d9d4eb..0c0ce03 100644
 --- a/runner/src/frontend.cpp
 +++ b/runner/src/frontend.cpp
 @@ -33,6 +33,7 @@
@@ -8,17 +10,18 @@
  #include "spu.h"
  #include "title_patches.h"
  #if defined(NDS_HAVE_COMPUTE_RENDERER)
-@@ -213,6 +214,9 @@
- #include <SDL.h>
+@@ -214,6 +215,10 @@ void observe_top_black_bands(const uint32_t* pixels, uint64_t frame,
  #endif
  #include "recomp_runtime_ui.h"
-+
+ 
 +#include "ui/guest_ui_state.hpp"
 +#include "ui/settings_overlay.hpp"
- 
++#include "ui/remaster_hud.hpp"
++
  #include "frontend_latency.h"
  
-@@ -277,6 +281,8 @@
+ namespace {
+@@ -277,6 +282,8 @@ namespace {
  #define SDL_CONTROLLER_BUTTON_A SDL_GAMEPAD_BUTTON_SOUTH
  #define SDL_CONTROLLER_BUTTON_B SDL_GAMEPAD_BUTTON_EAST
  #define SDL_CONTROLLER_BUTTON_BACK SDL_GAMEPAD_BUTTON_BACK
@@ -27,7 +30,7 @@
  #define SDL_CONTROLLER_BUTTON_DPAD_DOWN SDL_GAMEPAD_BUTTON_DPAD_DOWN
  #define SDL_CONTROLLER_BUTTON_DPAD_LEFT SDL_GAMEPAD_BUTTON_DPAD_LEFT
  #define SDL_CONTROLLER_BUTTON_DPAD_RIGHT SDL_GAMEPAD_BUTTON_DPAD_RIGHT
-@@ -729,6 +735,7 @@
+@@ -729,6 +736,7 @@ constexpr uint32_t kAudioCapacityFrames = 65536;
  struct AudioQueue {
      // Host output only. Consumption, guest mixing and pacing remain active.
      bool output_muted = false;
@@ -35,7 +38,7 @@
  #if !defined(NDS_HAVE_SDL3)
      std::array<int16_t, kAudioCapacityFrames * 2> samples{};
      uint32_t read = 0;
-@@ -987,6 +994,25 @@
+@@ -987,6 +995,25 @@ void set_touch_from_mouse(float x, float y, bool down,
      nds_set_touch(touch_x, touch_y, true);
  }
  
@@ -61,7 +64,7 @@
  uint32_t audio_queue_count(const NdsAudioDevice& device, AudioQueue& queue) {
      if (!device) return 0;
  #if defined(NDS_HAVE_SDL3)
-@@ -1017,6 +1043,14 @@
+@@ -1017,6 +1044,14 @@ uint32_t drain_audio(const NdsAudioDevice& device, AudioQueue& queue,
              std::copy_n(owned_pcm->data()+pcm_offset,frames*2u,samples.data());
              pcm_offset+=frames*2u;
          }
@@ -76,12 +79,10 @@
          bool pushed = false;
          while (!pushed) {
  #if defined(NDS_HAVE_SDL3)
-@@ -1184,123 +1218,14 @@
-         }
-     }
+@@ -1180,121 +1215,12 @@ uint64_t framebuffer_rgb_fnv(int screen) {
      return hash;
--}
--
+ }
+ 
 -constexpr const char* kRuntimeMouseSensitivityKey =
 -    "input.mouse_sensitivity";
 -constexpr const char* kRuntimeResumeKey = "system.resume";
@@ -131,8 +132,8 @@
 -    for (const std::string& line : lines)
 -        out << line << '\n';
 -    return static_cast<bool>(out);
- }
- 
+-}
+-
 -int runtime_menu_get_value(void* context, const RecompRuntimeUiItem* item,
 -                           int* value_out) {
 -    auto* state = static_cast<RuntimeMenuState*>(context);
@@ -201,7 +202,7 @@
              return true;
          case SDL_SCANCODE_BACKSPACE:
              *input = RECOMP_RUNTIME_UI_INPUT_BACK;
-@@ -1330,9 +1255,6 @@
+@@ -1324,9 +1250,6 @@ bool runtime_menu_controller_input(SDL_GameControllerButton button,
                                     RecompRuntimeUiInput* input) {
      if (!input) return false;
      switch (button) {
@@ -211,7 +212,7 @@
          case SDL_CONTROLLER_BUTTON_BACK:
          case SDL_CONTROLLER_BUTTON_B:
              *input = RECOMP_RUNTIME_UI_INPUT_BACK;
-@@ -1374,9 +1296,19 @@
+@@ -1368,9 +1291,19 @@ const uint32_t* runtime_menu_overlay(RecompRuntimeUi* ui,
      return surface.data();
  }
  
@@ -231,22 +232,22 @@
      SDL_Window* windows[2]{};
      SDL_Renderer* renderers[2]{};
      SDL_Texture* textures[2]{};
-@@ -1613,6 +1545,14 @@
-     return SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
- #else
-     return SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest) == 0;
-+#endif
-+}
-+
+@@ -1610,6 +1543,14 @@ bool set_texture_scale_nearest(SDL_Texture* texture) {
+ #endif
+ }
+ 
 +bool set_texture_scale_linear(SDL_Texture* texture) {
 +#if defined(NDS_HAVE_SDL3)
 +    return SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
 +#else
 +    return SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear) == 0;
- #endif
- }
- 
-@@ -1954,6 +1894,36 @@
++#endif
++}
++
+ void render_texture(SDL_Renderer* renderer, SDL_Texture* texture,
+                     const SDL_Rect* destination) {
+ #if defined(NDS_HAVE_SDL3)
+@@ -1948,6 +1889,36 @@ bool create_presentation(const NdsFrontendOptions& options,
      return true;
  }
  
@@ -283,13 +284,13 @@
  void render_screen(FrontendPresentation& presentation, int screen,
                     const SDL_Rect& destination) {
      SDL_Renderer* renderer = presentation.renderers[screen];
-@@ -1967,8 +1937,125 @@
+@@ -1961,6 +1932,123 @@ void render_screen(FrontendPresentation& presentation, int screen,
          source = presentation.sample_targets[screen];
      }
      render_texture(renderer, source, &destination);
 +    draw_post_filter(renderer, destination, presentation.post_filter);
- }
- 
++}
++
 +void apply_sky_shader_filter(FrontendPresentation& presentation,
 +                             skyrecomp::shaders::ShaderFilterPreset filter) {
 +    bool linear = true;
@@ -404,12 +405,10 @@
 +        return single_screen_inset_rect(presentation);
 +    }
 +    return {0, 0, 0, 0};
-+}
-+
+ }
+ 
  struct PresentationTicks {
-     uint64_t upload = 0;
-     uint64_t draw = 0;
-@@ -2160,20 +2247,38 @@
+@@ -2154,20 +2242,38 @@ PresentationTicks present_screens(FrontendPresentation& presentation,
          start = SDL_GetPerformanceCounter();
          SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
          SDL_RenderClear(renderer);
@@ -462,7 +461,7 @@
          ticks.draw += SDL_GetPerformanceCounter() - start;
          start = SDL_GetPerformanceCounter();
          SDL_RenderPresent(renderer);
-@@ -2204,8 +2309,74 @@
+@@ -2198,8 +2304,74 @@ PresentationTicks present_screens(FrontendPresentation& presentation,
  
  } // namespace
  
@@ -537,7 +536,7 @@
      SDL_SetMainReady();
      // SDL_INIT_TIMER matters on Windows: it raises the OS timer resolution
      // to 1 ms (SDL_HINT_TIMER_RESOLUTION default). Without it SDL_Delay(1)
-@@ -2245,8 +2416,27 @@
+@@ -2235,8 +2407,27 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
          ? 0 : (presentation.canvas_width - presentation.screen_widths[0]) / 2;
      const NdsLogicalRect stacked_top_screen{
          top_content_left, 0, presentation.screen_widths[0], kScreenHeight};
@@ -567,7 +566,7 @@
      std::fprintf(stderr,
          "[sdl] layout=%s fullscreen=%s adaptive=%s supersampling=%ux aa=%ux "
          "internal=%ux\n",
-@@ -2429,7 +2619,7 @@
+@@ -2419,7 +2610,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
  
      std::fprintf(stderr,
          "[sdl] controls: gamepad=Player 1 | bottom mouse=touch | "
@@ -576,7 +575,7 @@
          options.tab_turbo ? " | hold Tab=turbo" : "");
      std::fputs("[sdl] keyboard:", stderr);
      for (size_t row = 0; row < options.keyboard_bindings.size(); ++row)
-@@ -2518,6 +2708,11 @@
+@@ -2508,6 +2699,11 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
      SDL_JoystickID controller_id = controller
          ? sdl_controller_id(controller)
          : -1;
@@ -588,7 +587,7 @@
      uint16_t keyboard_pressed = 0;
      uint16_t controller_pressed = 0;
      uint16_t mouse_pressed = 0;
-@@ -2549,37 +2744,75 @@
+@@ -2525,37 +2721,75 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
      publish_keys();
      nds_set_touch(0, 0, false);
      bool running = true;
@@ -694,17 +693,18 @@
      }
      bool compute_failed = false;
      bool mouse_down = false;
-@@ -2871,7 +3104,9 @@
+@@ -2847,7 +3081,10 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
      uint64_t shown_frames = 0;
      uint64_t synthetic_presents = 0;
      FrameBlendCache blend_cache{};
 +    std::vector<uint32_t> present_overlay_surface;
      uint64_t fps_frames = 0;
 +    uint64_t fps_synthetic_start = 0;
++    double fps_current = 0.0;
      uint64_t fps_start = SDL_GetPerformanceCounter();
      const uint64_t frequency = SDL_GetPerformanceFrequency();
      const uint64_t soak_frames = environment_u64("NDS_FRONTEND_MAX_FRAMES");
-@@ -2927,10 +3162,6 @@
+@@ -2903,10 +3140,6 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
          publish_keys();
      };
      auto finish_runtime_menu_input = [&](bool was_open) {
@@ -715,7 +715,7 @@
          if (!was_open && runtime_menu_open())
              clear_gameplay_input_for_runtime_menu();
      };
-@@ -3337,14 +3568,30 @@
+@@ -3306,14 +3539,30 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                               (int)event.key.repeat);
              }
              if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
@@ -748,7 +748,7 @@
                          event.key.repeat)) {
                      finish_runtime_menu_input(was_open);
                      continue;
-@@ -3411,11 +3658,10 @@
+@@ -3380,11 +3629,10 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                          // before the restored machine executes a round.
                          publish_keys();
                          if (mouse_down) {
@@ -762,7 +762,7 @@
                          } else {
                              nds_set_touch(0, 0, false);
                          }
-@@ -3476,6 +3722,9 @@
+@@ -3445,6 +3693,9 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                  controller = nullptr;
                  controller_id = -1;
                  controller_pressed = 0;
@@ -772,7 +772,7 @@
                  // Pad-held Prime actions must not survive the device; the
                  // keyboard/mouse can re-press theirs on the next event.
                  clear_mph_prime_controls();
-@@ -3484,15 +3733,43 @@
+@@ -3453,15 +3704,43 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
              }
              if (event.type == SDL_CONTROLLERBUTTONDOWN ||
                  event.type == SDL_CONTROLLERBUTTONUP) {
@@ -821,7 +821,7 @@
                      finish_runtime_menu_input(was_open);
                      continue;
                  }
-@@ -3556,7 +3833,7 @@
+@@ -3525,7 +3804,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                      ? nds_route_stacked_relative_mouse_button(
                          options.relative_mouse_touch,
                          relative_mouse.captured(), stacked_top_screen,
@@ -830,7 +830,7 @@
                      : NdsStackedRelativeMouseRoute::None;
              bool virtual_stylus_mouse_consumed = false;
              if (event.type == SDL_MOUSEBUTTONDOWN &&
-@@ -3648,9 +3925,7 @@
+@@ -3617,9 +3896,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                  last_touch_event_y = event.button.y;
                  touch_release_pending = false;
                  touch_frames_held = 0;
@@ -841,7 +841,7 @@
              }
              if (!virtual_stylus_mouse_consumed &&
                  event.type == SDL_MOUSEBUTTONUP &&
-@@ -3664,15 +3939,11 @@
+@@ -3633,15 +3910,11 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                  if (touch_frames_held < 2)
                      touch_release_pending = true;
                  else
@@ -859,7 +859,7 @@
              if (event.type == SDL_MOUSEMOTION &&
                  virtual_stylus_active() &&
                  (event.motion.windowID == presentation.window_ids[0] ||
-@@ -3724,6 +3995,85 @@
+@@ -3693,6 +3966,85 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                      nds_set_touch(0, 0, false);
              }
          }
@@ -945,7 +945,10 @@
          if (focus_release_pending) {
              if (!any_presentation_window_focused()) {
                  release_relative_mouse();
-@@ -3992,1 +4342,34 @@
+@@ -3989,6 +4341,39 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                     nds_set_touch(128, 96, true);
+             }
+         }
 +        if (settings_overlay.IsCapturingControllerBinding() && controller) {
 +            if (!controller_capture_was_active) {
 +                controller_axis_capture_armed = false;
@@ -980,7 +983,9 @@
 +            controller_axis_capture_armed = true;
 +        }
          if (options.custom_gamepad_bindings) {
-@@ -4214,6 +4597,89 @@
+             // Button events handle digital bindings; poll signed axes here.
+             // Each row has one source, so clearing an axis row cannot release
+@@ -4164,6 +4549,97 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
              phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
              observe_top_black_bands(native_top,shown_frames);
          }
@@ -993,7 +998,8 @@
 +            presentation.single_screen && !presentation.gl_top;
 +        const bool weather_bloom_frame =
 +            frame_sky_state.weather_ambient_bloom;
-+        if ((single_screen_frame || weather_bloom_frame) &&
++        const bool fps_meter_frame = frame_sky_state.show_fps_meter;
++        if ((single_screen_frame || weather_bloom_frame || fps_meter_frame) &&
 +            top_pixels != nullptr && top_width > 0) {
 +            BusRegion mainram{};
 +            const bool have_mainram =
@@ -1020,6 +1026,13 @@
 +                        top_width, kScreenHeight, weather);
 +                    surface_changed = true;
 +                }
++            }
++
++            if (fps_meter_frame) {
++                skyrecomp::ui::RemasterHud::RenderFpsMeter(
++                    std::span<uint32_t>(present_overlay_surface.data(), count),
++                    top_width, kScreenHeight, fps_current);
++                surface_changed = true;
 +            }
 +
 +            if (single_screen_frame) {
@@ -1070,7 +1083,7 @@
          // At most ONE synthetic frame, presented ahead of the real one, so
          // the visible order stays real(N-1), blend(N-1,N), real(N). No
          // scheduler round, no input sampling, no audio production happens
-@@ -4501,9 +4967,14 @@
+@@ -4451,9 +4927,15 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
          if (counter - fps_start >= frequency) {
              const double seconds = static_cast<double>(counter - fps_start) /
                                     static_cast<double>(frequency);
@@ -1081,6 +1094,7 @@
 +                synthetic_presents - fps_synthetic_start;
 +            const double fps =
 +                static_cast<double>(fps_frames + synthetic_delta) / seconds;
++            fps_current = fps;
 +            char fps_buffer[32]{};
 +            std::snprintf(fps_buffer, sizeof(fps_buffer), "%.1f FPS", fps);
 +            std::string fps_text = fps_buffer;
@@ -1088,7 +1102,7 @@
              const std::string governor_text =
                  perf_governor.apply_failed
                      ? " - Gov disabled (apply failed, S" +
-@@ -4528,6 +4999,7 @@
+@@ -4478,6 +4960,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                                     bottom_title.c_str());
              }
              fps_frames = 0;
@@ -1096,7 +1110,7 @@
              fps_start = counter;
          }
  
-@@ -4579,10 +5051,8 @@
+@@ -4529,10 +5012,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
      nds_compute_host_stop();
  #endif
      if (controller) SDL_GameControllerClose(controller);

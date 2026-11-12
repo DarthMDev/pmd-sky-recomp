@@ -185,6 +185,23 @@ std::string_view TrimName(const std::array<char, 11>& name) noexcept {
 
 } // namespace
 
+void RemasterHud::RenderFpsMeter(std::span<uint32_t> framebuffer, int width,
+                                     int height, double fps) noexcept {
+    if (width <= 0 || height <= 0 || framebuffer.size() <
+        static_cast<size_t>(width) * static_cast<size_t>(height)) return;
+    char text[24]{};
+    std::snprintf(text, sizeof(text), "%.1f FPS", std::max(0.0, fps));
+    const std::string_view label(text);
+    const int scale = std::max(1, height / 192);
+    const int margin = 4 * scale;
+    const int panel_w = TextWidth(label, scale) + 10 * scale;
+    const int panel_h = 15 * scale;
+    const int x = std::max(0, width - panel_w - margin);
+    DrawPanel(framebuffer, width, height, x, margin, panel_w, panel_h);
+    DrawText(framebuffer, width, height, x + 5 * scale, margin + 4 * scale,
+             label, kTextMain, scale);
+}
+
 void RemasterHud::RenderArgb8888(std::span<uint32_t> framebuffer, int width,
                                  int height) const noexcept {
     if (width <= 0 || height <= 0 ||

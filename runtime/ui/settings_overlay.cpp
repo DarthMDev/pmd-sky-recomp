@@ -21,6 +21,7 @@ constexpr const char* kKeyHudLayout = "sky.hud_layout";
 constexpr const char* kKeyRefreshRate = "sky.refresh_rate";
 constexpr const char* kKeyShaderFilter = "sky.shader_filter";
 constexpr const char* kKeyWeatherBloom = "sky.weather_bloom";
+constexpr const char* kKeyFpsMeter = "sky.fps_meter";
 constexpr const char* kKeyAudioVolume = "sky.audio_volume";
 constexpr const char* kKeyControllerPreset = "sky.controller_preset";
 constexpr const char* kKeyControllerPresetPage = "sky.controller_preset_page";
@@ -214,6 +215,19 @@ constexpr RecompRuntimeUiItem kMenuItems[] = {
         .minimum = 0,
         .maximum = 100,
         .step = 10,
+        .choices = nullptr,
+        .choice_count = 0,
+        .choice_values = nullptr,
+    },
+    {
+        .key = kKeyFpsMeter,
+        .section = kSectionVideo,
+        .label = "FPS Meter",
+        .description = "Show the current frame rate in the top-right corner.",
+        .type = RECOMP_RUNTIME_UI_BOOL,
+        .minimum = 0,
+        .maximum = 1,
+        .step = 1,
         .choices = nullptr,
         .choice_count = 0,
         .choice_values = nullptr,
@@ -485,6 +499,10 @@ int SkySettingsOverlay::CallbackGetValue(
         *value_out = self->state_.weather_ambient_bloom ? 1 : 0;
         return 1;
     }
+    if (key == kKeyFpsMeter) {
+        *value_out = self->state_.show_fps_meter ? 1 : 0;
+        return 1;
+    }
     if (key == kKeyAudioVolume) {
         *value_out = self->state_.audio_volume_percent;
         return 1;
@@ -529,6 +547,9 @@ int SkySettingsOverlay::CallbackSetValue(
         changed = true;
     } else if (key == kKeyWeatherBloom) {
         self->state_.weather_ambient_bloom = (value != 0);
+        changed = true;
+    } else if (key == kKeyFpsMeter) {
+        self->state_.show_fps_meter = (value != 0);
         changed = true;
     } else if (key == kKeyAudioVolume) {
         self->state_.audio_volume_percent = std::clamp(value, 0, 100);
@@ -922,7 +943,8 @@ std::string SkySettingsOverlay::SerializeToToml() const {
     oss << "hud_layout = " << static_cast<int>(state_.hud_layout) << "\n";
     oss << "refresh_rate = " << static_cast<int>(state_.refresh_rate) << "\n";
     oss << "shader_filter = " << static_cast<int>(state_.shader_filter) << "\n";
-    oss << "weather_ambient_bloom = " << (state_.weather_ambient_bloom ? "true" : "false") << "\n\n";
+    oss << "weather_ambient_bloom = " << (state_.weather_ambient_bloom ? "true" : "false") << "\n";
+    oss << "show_fps_meter = " << (state_.show_fps_meter ? "true" : "false") << "\n\n";
     oss << "[audio]\n";
     oss << "volume_percent = " << state_.audio_volume_percent << "\n";
     oss << "muted = " << (state_.audio_muted ? "true" : "false") << "\n\n";
@@ -978,6 +1000,8 @@ bool SkySettingsOverlay::LoadFromToml(std::string_view toml_text) noexcept {
             parsed.shader_filter = static_cast<shaders::ShaderFilterPreset>(v);
         } else if (key == "weather_ambient_bloom") {
             parsed.weather_ambient_bloom = (val == "true" || val == "1");
+        } else if (key == "show_fps_meter") {
+            parsed.show_fps_meter = (val == "true" || val == "1");
         } else if (key == "volume_percent") {
             parsed.audio_volume_percent = std::clamp(std::atoi(val.c_str()), 0, 100);
         } else if (key == "muted") {

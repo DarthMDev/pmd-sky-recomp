@@ -508,6 +508,10 @@ void TestRemasterHudLayout() {
     assert(fb[6 * 342 + 6] != 0xFF000000u);
     // Minimap changed near the top-right edge.
     assert(fb[8 * 342 + (342 - 56 - 8 + 10)] != 0xFF000000u);
+
+    std::vector<uint32_t> fps_fb(342 * 192, 0xFF000000u);
+    RemasterHud::RenderFpsMeter(fps_fb, 342, 192, 59.9);
+    assert(fps_fb[5 * 342 + 280] != 0xFF000000u);
 }
 
 /// Verifies recomp-ui settings overlay input, rendering, runtime bindings, and persistence.
@@ -593,6 +597,10 @@ void TestRecompUiSettingsOverlay() {
     std::vector<int16_t> samples = {1000, -1000};
     overlay.ScaleAudioSamplesInt16(samples);
     assert(samples[0] == 800 && samples[1] == -800);
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_DOWN});
+    assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::FpsMeter));
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
+    assert(overlay.GetState().show_fps_meter);
 
     // Return to the section list, enter Controller, and choose the swapped A/B preset.
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_BACK});
@@ -622,6 +630,7 @@ void TestRecompUiSettingsOverlay() {
     assert(restored.GetState().aspect_ratio == gpu2d::AspectRatioPreset::Ultrawide_21_9);
     assert(restored.GetState().hud_layout == gpu2d::HudLayoutMode::SingleScreenModern);
     assert(restored.GetState().refresh_rate == camera::RefreshRateMode::HighRefresh_144Hz);
+    assert(restored.GetState().show_fps_meter);
     assert(restored.GetState().controller_preset == ControllerRemapPreset::SwappedConfirmCancel);
     assert(restored.GetState().controller_bindings[4] == 2);
     assert(restored.GetState().controller_bindings[5] == 1);

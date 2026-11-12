@@ -308,7 +308,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    name: Publish prerelease and platform packages
+    name: Publish release and platform packages
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-macos, build-linux, build-windows, build-ios]
     runs-on: ubuntu-latest
@@ -343,9 +343,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
-          ## What's new in v0.2.0-alpha
+          ## What's new in v0.2.1
 
-          This release includes the Milestone 3 graphics/runtime work since v0.1.0-alpha:
+          This release adds an optional on-screen FPS meter, displayed at the top right on desktop and mobile. It also includes the Milestone 3 graphics/runtime work since v0.1.0-alpha:
 
           - Native 16:10, 16:9, and 21:9 widescreen rendering, expanded camera/tile streaming, anchored HUD, and hybrid single-window layout.
           - High-refresh camera and entity interpolation for 120Hz, 144Hz, 240Hz, and uncapped VRR.
@@ -355,14 +355,17 @@ jobs:
 
           All packages are ROM-free. Provide your own legally dumped Explorers of Sky ROM. Desktop release packages execute cartridge code at runtime.
 
-          This is an alpha release. Windows and Linux packages pass automated build and smoke checks; gameplay has not been manually verified on every platform.
+          All four platform packages pass their automated build/package checks. Gameplay has not been manually verified on every device.
           EOF
+          release_flags=(--verify-tag)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "SkyRecompiled ${GITHUB_REF_NAME}" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
-            --prerelease \
-            --verify-tag \
+            "${release_flags[@]}" \
             build/dist/SkyRecompiled-"${GITHUB_REF_NAME}"-macos-arm64.zip \
             build/dist/SkyRecompiled-"${GITHUB_REF_NAME}"-windows-x64.zip \
             build/dist/SkyRecompiled-"${GITHUB_REF_NAME}"-linux-x86_64.tar.gz \
