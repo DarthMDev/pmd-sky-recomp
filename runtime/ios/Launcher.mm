@@ -193,8 +193,22 @@ NSString* import_rom(NSURL* source, NSURL* destination) {
 namespace {
 
 SkyTouchInput touchInput;
+bool settingsTouchMode = false;
+SDL_Window* activeGameWindow = nullptr;
 constexpr uint16_t dpadButtons =
     kNdsButtonMasks[0] | kNdsButtonMasks[1] | kNdsButtonMasks[2] | kNdsButtonMasks[3];
+
+void sendSettingsKey(SDL_Keycode key, SDL_Scancode scancode) {
+    if (!settingsTouchMode || !activeGameWindow) return;
+    SDL_Event event{};
+    event.type = SDL_EVENT_KEY_DOWN;
+    event.key.windowID = SDL_GetWindowID(activeGameWindow);
+    event.key.scancode = scancode;
+    event.key.key = key;
+    SDL_PushEvent(&event);
+    event.type = SDL_EVENT_KEY_UP;
+    SDL_PushEvent(&event);
+}
 
 UIColor* control_surface() {
     return [UIColor colorWithWhite:0.16 alpha:0.92];
@@ -248,7 +262,12 @@ void sky_clear_touch_keys() { touchInput.clear(); }
     if (std::abs(y) > deadZone && std::abs(y) >= std::abs(x) * 0.55)
         next |= kNdsButtonMasks[y < 0 ? 0 : 1];
     self.directions = next;
-    touchInput.set(dpadButtons, next);
+    if (settingsTouchMode) {
+        if (next & kNdsButtonMasks[0]) sendSettingsKey(SDLK_UP, SDL_SCANCODE_UP);
+        else if (next & kNdsButtonMasks[1]) sendSettingsKey(SDLK_DOWN, SDL_SCANCODE_DOWN);
+        else if (next & kNdsButtonMasks[2]) sendSettingsKey(SDLK_LEFT, SDL_SCANCODE_LEFT);
+        else if (next & kNdsButtonMasks[3]) sendSettingsKey(SDLK_RIGHT, SDL_SCANCODE_RIGHT);
+    } else touchInput.set(dpadButtons, next);
     [self setNeedsDisplay];
 }
 
@@ -267,7 +286,7 @@ void sky_clear_touch_keys() { touchInput.clear(); }
 - (void)releaseDirections {
     self.trackingTouch = nil;
     self.directions = 0;
-    touchInput.set(dpadButtons, 0);
+    if (!settingsTouchMode) touchInput.set(dpadButtons, 0);
     [self setNeedsDisplay];
 }
 
@@ -357,6 +376,8 @@ void sky_clear_touch_keys() { touchInput.clear(); }
 @end
 
 void sky_show_game_controls(SDL_Window* window) {
+    activeGameWindow = window;
+    settingsTouchMode = false;
     sky_clear_touch_keys();
     UIWindow* host = native_window(window);
     SkyControls* controls = [[SkyControls alloc] initWithFrame:host.bounds];
@@ -389,7 +410,13 @@ void sky_show_game_controls(SDL_Window* window) {
 
     controls.settings = game_button(@"⚙", 24);
     controls.settings.accessibilityLabel = @"Open settings";
+    __weak SkyControls* weakOverlay = controls;
     [controls.settings addAction:[UIAction actionWithHandler:^(UIAction*) {
+        SkyControls* overlay = weakOverlay;
+        settingsTouchMode = !settingsTouchMode;
+        sky_clear_touch_keys();
+        [overlay.settings setTitle:(settingsTouchMode ? @"Done" : @"⚙") forState:UIControlStateNormal];
+        overlay.settings.accessibilityLabel = settingsTouchMode ? @"Close settings" : @"Open settings";
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.windowID = SDL_GetWindowID(window);
@@ -404,9 +431,19 @@ void sky_show_game_controls(SDL_Window* window) {
     for (NSUInteger i = 0; i < labels.count; ++i) {
         UIButton* key = game_button(labels[i], i < 4 ? 19 : 13, i == 0);
         const uint16_t mask = kNdsButtonMasks[i + 4];
-        [key addAction:[UIAction actionWithHandler:^(UIAction*) { touchInput.set(mask, mask); }]
+        [key addAction:[UIAction actionWithHandler:^(UIAction*) {
+            if (settingsTouchMode) {
+                switch (mask) {
+                    case kNdsButtonMasks[4]: sendSettingsKey(SDLK_RETURN, SDL_SCANCODE_RETURN); break;
+                    case kNdsButtonMasks[5]: sendSettingsKey(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE); break;
+                    case kNdsButtonMasks[6]: sendSettingsKey(SDLK_RIGHT, SDL_SCANCODE_RIGHT); break;
+                    case kNdsButtonMasks[7]: sendSettingsKey(SDLK_LEFT, SDL_SCANCODE_LEFT); break;
+                    default: sendSettingsKey(SDLK_RETURN, SDL_SCANCODE_RETURN); break;
+                }
+            } else touchInput.set(mask, mask);
+        }]
          forControlEvents:UIControlEventTouchDown];
-        [key addAction:[UIAction actionWithHandler:^(UIAction*) { touchInput.set(mask, 0); }]
+        [key addAction:[UIAction actionWithHandler:^(UIAction*) { if (!settingsTouchMode) touchInput.set(mask, 0); }]
          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
                           UIControlEventTouchCancel];
         [keys addObject:key];
