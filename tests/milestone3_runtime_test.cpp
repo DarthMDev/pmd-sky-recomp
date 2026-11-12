@@ -552,6 +552,9 @@ void TestRecompUiSettingsOverlay() {
     assert(overlay.HandleInput(OverlayInputState{.f1_pressed = true}));
     assert(overlay.IsVisible());
 
+    // Settings now open on the category list; enter Video before changing rows.
+    (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_ACCEPT});
+
     // 2. Adjust Aspect Ratio (item 0) from 16:9 -> 21:9 using Right action
     assert(overlay.GetSelectedIndex() == static_cast<size_t>(SettingsItemIndex::AspectRatio));
     (void)overlay.HandleInput(OverlayInputState{.nav_input = RECOMP_RUNTIME_UI_INPUT_RIGHT});
