@@ -56,6 +56,8 @@ class TestMilestone3Runtime(unittest.TestCase):
             str(REPO_ROOT / "runtime" / "camera" / "subpixel_interpolator.cpp"),
             str(REPO_ROOT / "runtime" / "shaders" / "weather_shader_pipeline.cpp"),
             str(REPO_ROOT / "runtime" / "ui" / "settings_overlay.cpp"),
+            str(REPO_ROOT / "runtime" / "ui" / "guest_ui_state.cpp"),
+            str(REPO_ROOT / "runtime" / "ui" / "remaster_hud.cpp"),
             str(recomp_ui_obj),
             "-o",
             str(bin_path),
