@@ -463,6 +463,8 @@ void TestGuestUiStateBridge() {
     constexpr uint32_t kWindowListNA = 0x022A88DCu;
     WriteGuest<int8_t>(ram, kWindowListNA + 0xB6, 1);
     WriteGuest<uint8_t>(ram, kWindowListNA + 0x08, 1);  // SCREEN_SUB = top
+    WriteGuest<int8_t>(ram, kWindowListNA + 224u + 0xB6, 1);
+    WriteGuest<uint8_t>(ram, kWindowListNA + 224u + 0x08, 0); // SCREEN_MAIN = bottom
     WriteGuest<uint8_t>(
         ram,
         dungeon + layout::dungeon::kDisplayDataOffset +
@@ -470,6 +472,7 @@ void TestGuestUiStateBridge() {
         1);
     const auto flags = ui::ReadGuestUiFlags(mem, pmdsky::Region::NA);
     assert(flags.top_screen_menu_open);
+    assert(flags.bottom_screen_window_open);
     assert(flags.team_menu_or_grid);
 }
 

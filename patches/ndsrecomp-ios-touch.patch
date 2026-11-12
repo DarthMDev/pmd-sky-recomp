@@ -1,7 +1,7 @@
 diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 --- a/runner/src/frontend.cpp
 +++ b/runner/src/frontend.cpp
-@@ -1053,6 +1053,9 @@
+@@ -1088,6 +1088,9 @@
                      queue_error = true;
                      return audio_queue_count(device, queue);
                  }
@@ -11,7 +11,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
                  SDL_Delay(1);
              }
          }
-@@ -1069,6 +1072,9 @@
+@@ -1104,6 +1107,9 @@
      while (throttle && queued > pace_floor) {
          // Spend existing audio pacing slack preparing qualified native code.
          // Guest CPUs remain paused; under load/no slack demand execution wins.
@@ -21,7 +21,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
          if (!nds_arm9_native_prepare_idle(1000)) SDL_Delay(1);
          queued = audio_queue_count(device, queue);
      }
-@@ -2520,12 +2526,26 @@
+@@ -2716,12 +2722,27 @@
      // everywhere), kept separate from button-event state so a wobbling
      // stick never fights explicit D-pad presses.
      uint16_t stick_pressed = 0;
@@ -31,6 +31,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 +    extern uint16_t sky_current_touch_keys();
 +    extern uint16_t sky_begin_touch_frame();
 +    extern void sky_clear_touch_keys();
++    extern void sky_ios_set_settings_visible(bool visible);
 +#endif
 +    uint16_t touch_pressed = 0;
 +    auto key_mask = [&]() {
@@ -51,7 +52,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
      publish_keys();
      nds_set_touch(0, 0, false);
      bool running = true;
-@@ -2974,10 +2994,7 @@
+@@ -3207,10 +3228,7 @@
          g_input_debug.stick_pressed = stick_pressed;
          g_input_debug.pad_engaged = mph_prime_pad_engaged ? 1 : 0;
          g_input_debug.pad_aim_writes = mph_pad_aim_writes;
@@ -63,7 +64,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
          g_input_debug.relative_direct_writes = relative_direct_writes;
          g_input_debug.mph_prime_key_downs = mph_prime_key_downs;
          g_input_debug.mph_prime_mouse_downs = mph_prime_mouse_downs;
-@@ -3278,6 +3295,10 @@
+@@ -3511,6 +3529,10 @@
                  release_relative_mouse();
                  running = false;
              }
@@ -74,29 +75,32 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
              if (sdl_window_event_is(event, SDL_EVENT_WINDOW_FOCUS_LOST) &&
                  is_presentation_window(event.window.windowID)) {
                  const int index =
-@@ -4021,6 +4042,10 @@
+@@ -4406,6 +4428,12 @@
                  publish_keys();
              }
          }
 +#if defined(SKY_IOS)
-+        // Sample after UIKit's events and before the next guest frame.
++        // Sync native touch routing with actual menu visibility, including Back
++        // and controller exits, before sampling UIKit's touch state.
++        sky_ios_set_settings_visible(settings_overlay.IsVisible());
 +        publish_touch_keys(sky_begin_touch_frame());
 +#endif
          publish_input_debug();
-
+ 
          // Quit/control requests are resolved while the producer is joined.
-@@ -4093,9 +4118,24 @@
+@@ -4478,9 +4506,24 @@
              const uint64_t now = scheduler_system_timestamp();
              const uint64_t next_frame =
                  (now / kSystemCyclesPerFrame + 1u) * kSystemCyclesPerFrame;
+-            while (running && scheduler_system_timestamp() < next_frame &&
+-                   !(scheduler_cpu_terminal_halted(0) && scheduler_cpu_terminal_halted(1)))
 +#if defined(SKY_IOS)
 +            // UIKit shares this thread. Give it a chance to deliver touches
 +            // during slow guest frames, and apply them at a scheduler boundary.
 +            const uint64_t touch_poll_interval = frequency / 250; // 4 ms
 +            uint64_t next_touch_poll = phase0 + touch_poll_interval;
 +#endif
-             while (running && scheduler_system_timestamp() < next_frame &&
--                   !(scheduler_cpu_terminal_halted(0) && scheduler_cpu_terminal_halted(1)))
++            while (running && scheduler_system_timestamp() < next_frame &&
 +                   !(scheduler_cpu_terminal_halted(0) && scheduler_cpu_terminal_halted(1))) {
                  scheduler_run_round();
 +#if defined(SKY_IOS)

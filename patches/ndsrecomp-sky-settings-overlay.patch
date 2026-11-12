@@ -1,5 +1,5 @@
 diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
-index 7d9d4eb..9b55853 100644
+index 8cbd6a2..a5c8244 100644
 --- a/runner/src/frontend.cpp
 +++ b/runner/src/frontend.cpp
 @@ -33,6 +33,7 @@
@@ -985,7 +985,7 @@ index 7d9d4eb..9b55853 100644
          if (options.custom_gamepad_bindings) {
              // Button events handle digital bindings; poll signed axes here.
              // Each row has one source, so clearing an axis row cannot release
-@@ -4164,6 +4549,106 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+@@ -4164,6 +4549,153 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
              phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
              observe_top_black_bands(native_top,shown_frames);
          }
@@ -1041,29 +1041,76 @@ index 7d9d4eb..9b55853 100644
 +                if (mem.valid()) {
 +                    const auto ui_flags =
 +                        skyrecomp::ui::ReadGuestUiFlags(mem, hud_region);
-+                    const auto& scene_symbols =
-+                        skyrecomp::pmdsky::Get(hud_region);
-+                    const uint32_t ground_bg = mem.read_or<uint32_t>(
-+                        scene_symbols.GROUND_STATE_MAP, 0u);
-+                    const skyrecomp::camera::DungeonCameraHook scene_camera(
-+                        hud_region);
-+                    const bool cutscene_picture =
-+                        scene_camera.IsGroundMapStaticFullScreenPicture(
-+                            mem, ground_bg);
++                    const bool actors_present =
++                        ui_flags.ground_characters_present;
 +                    const bool menu_view = ui_flags.top_screen_menu_open ||
 +                                           ui_flags.team_menu_or_grid;
-+                    presentation.bottom_main = menu_view || cutscene_picture;
++                    // Chapter title cards are rendered directly to the bottom
++                    // framebuffer, without a guest window. Detect that state by
++                    // a nearly black top screen and visible bottom-screen pixels.
++                    int sampled_pixels = 0;
++                    int dark_top_pixels = 0;
++                    int visible_bottom_pixels = 0;
++                    if (top_pixels != nullptr && bottom_pixels != nullptr) {
++                        const int sample_width =
++                            std::min<int>(top_width, bottom_width);
++                        for (int y = 0; y < kScreenHeight; y += 8) {
++                            for (int x = 0; x < sample_width; x += 8) {
++                                const uint32_t top_rgb =
++                                    top_pixels[y * top_width + x] & 0x00FFFFFFu;
++                                const uint32_t bottom_rgb =
++                                    bottom_pixels[y * bottom_width + x] & 0x00FFFFFFu;
++                                const uint32_t top_r = (top_rgb >> 16) & 0xFFu;
++                                const uint32_t top_g = (top_rgb >> 8) & 0xFFu;
++                                const uint32_t top_b = top_rgb & 0xFFu;
++                                const uint32_t bottom_r = (bottom_rgb >> 16) & 0xFFu;
++                                const uint32_t bottom_g = (bottom_rgb >> 8) & 0xFFu;
++                                const uint32_t bottom_b = bottom_rgb & 0xFFu;
++                                if (top_r <= 12u && top_g <= 12u && top_b <= 12u)
++                                    ++dark_top_pixels;
++                                if (bottom_r > 24u || bottom_g > 24u ||
++                                    bottom_b > 24u)
++                                    ++visible_bottom_pixels;
++                                ++sampled_pixels;
++                            }
++                        }
++                    }
++                    const bool chapter_card =
++                        sampled_pixels > 0 &&
++                        dark_top_pixels * 100 >= sampled_pixels * 98 &&
++                        visible_bottom_pixels >= 4;
++                    const bool bottom_content =
++                        ui_flags.bottom_screen_window_open || chapter_card ||
++                        actors_present;
++                    static uint64_t bottom_focus_until = 0;
++                    const uint64_t now_ms = SDL_GetTicks();
++                    if (bottom_content) bottom_focus_until = now_ms + 10000;
++                    const bool keep_bottom_main = now_ms < bottom_focus_until;
++                    presentation.bottom_main = menu_view || keep_bottom_main;
 +                    presentation.show_inset = true;
 +                    static bool last_menu_view = false;
-+                    static bool logged_menu_view = false;
-+                    if (!logged_menu_view || menu_view != last_menu_view) {
-+                        logged_menu_view = true;
++                    static bool last_bottom_content = false;
++                    static bool last_chapter_card = false;
++                    static bool last_actors_present = false;
++                    static bool last_keep_bottom_main = false;
++                    static bool logged_layout = false;
++                    if (!logged_layout || menu_view != last_menu_view ||
++                        bottom_content != last_bottom_content ||
++                        chapter_card != last_chapter_card ||
++                        actors_present != last_actors_present ||
++                        keep_bottom_main != last_keep_bottom_main) {
++                        logged_layout = true;
 +                        last_menu_view = menu_view;
++                        last_bottom_content = bottom_content;
++                        last_chapter_card = chapter_card;
++                        last_actors_present = actors_present;
++                        last_keep_bottom_main = keep_bottom_main;
 +                        std::fprintf(
 +                            stderr,
-+                            "[ui] layout: guest_menu=%d cutscene=%d bottom_main=%d inset=1\n",
-+                            menu_view ? 1 : 0, cutscene_picture ? 1 : 0,
-+                            presentation.bottom_main ? 1 : 0);
++                            "[ui] layout: guest_menu=%d bottom_window=%d chapter_card=%d characters=%d focus_hold=%d bottom_main=%d inset=1\n",
++                            menu_view ? 1 : 0, ui_flags.bottom_screen_window_open ? 1 : 0,
++                            chapter_card ? 1 : 0, actors_present ? 1 : 0,
++                            keep_bottom_main ? 1 : 0, presentation.bottom_main ? 1 : 0);
 +                    }
 +                }
 +            }
@@ -1092,7 +1139,7 @@ index 7d9d4eb..9b55853 100644
          // At most ONE synthetic frame, presented ahead of the real one, so
          // the visible order stays real(N-1), blend(N-1,N), real(N). No
          // scheduler round, no input sampling, no audio production happens
-@@ -4451,9 +4936,15 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+@@ -4451,9 +4983,15 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
          if (counter - fps_start >= frequency) {
              const double seconds = static_cast<double>(counter - fps_start) /
                                     static_cast<double>(frequency);
@@ -1111,7 +1158,7 @@ index 7d9d4eb..9b55853 100644
              const std::string governor_text =
                  perf_governor.apply_failed
                      ? " - Gov disabled (apply failed, S" +
-@@ -4478,6 +4969,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+@@ -4478,6 +5016,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
                                     bottom_title.c_str());
              }
              fps_frames = 0;
@@ -1119,7 +1166,7 @@ index 7d9d4eb..9b55853 100644
              fps_start = counter;
          }
  
-@@ -4529,10 +5021,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+@@ -4529,10 +5068,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
      nds_compute_host_stop();
  #endif
      if (controller) SDL_GameControllerClose(controller);

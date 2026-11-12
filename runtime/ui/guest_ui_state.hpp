@@ -29,10 +29,12 @@ struct GuestPartyState {
 /// Menu/window flags used to decide whether the corner dungeon inset is safe.
 struct GuestUiFlags {
     bool top_screen_menu_open = false;
+    bool bottom_screen_window_open = false;
+    bool ground_characters_present = false;
     bool team_menu_or_grid = false;
 };
 
-/// Reads active top-screen menu windows and the dungeon team-menu/touch-grid flag.
+/// Reads active windows, Ground Mode characters, and the dungeon team-menu/touch-grid flag.
 [[nodiscard]] GuestUiFlags ReadGuestUiFlags(GuestMemoryView mem,
                                             pmdsky::Region region) noexcept;
 

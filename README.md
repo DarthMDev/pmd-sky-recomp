@@ -1,29 +1,29 @@
 # SkyRecompiled
 
 [![Latest Release](https://img.shields.io/github/v/release/DarthMDev/pmd-sky-recomp?label=Latest%20Release&color=blue)](https://github.com/DarthMDev/pmd-sky-recomp/releases/latest)
-[![macOS Download](https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-brightgreen?logo=apple)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-macos-arm64.zip)
-[![Windows Download](https://img.shields.io/badge/Download-Windows%20x64%20-blue?logo=windows)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-windows-x64.zip)
-[![Linux Download](https://img.shields.io/badge/Download-Linux%20x86__64%20-orange?logo=linux)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-linux-x86_64.tar.gz)
+[![macOS Download](https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-brightgreen?logo=apple)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-macos-arm64.zip)
+[![Windows Download](https://img.shields.io/badge/Download-Windows%20x64%20-blue?logo=windows)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-windows-x64.zip)
+[![Linux Download](https://img.shields.io/badge/Download-Linux%20x86__64%20-orange?logo=linux)](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-linux-x86_64.tar.gz)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/DarthMDev/pmd-sky-recomp/ci.yml?branch=main&label=CI)](https://github.com/DarthMDev/pmd-sky-recomp/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/neWFpX9ps7)
 
 **SkyRecompiled** is a native ahead-of-time (AOT) static recompilation PC port of *Pokémon Mystery Dungeon: Explorers of Sky*, built on [`ndsrecomp`](https://github.com/RetroPortingToolKit/ndsrecomp) and [`pmdsky-debug`](https://github.com/UsernameFodder/pmdsky-debug).
 
-### Downloads (v0.2.2)
+### Downloads (v0.2.3)
 
 | Platform | Build Status | Package |
 | :--- | :--- | :--- |
-| **macOS Apple Silicon (`arm64`)** | Release | [SkyRecompiled-v0.2.2-macos-arm64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-macos-arm64.zip) |
-| **Windows (`x86_64`)** | Release | [SkyRecompiled-v0.2.2-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-windows-x64.zip) |
-| **Linux (`x86_64`)** | Release | [SkyRecompiled-v0.2.2-linux-x86_64.tar.gz](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-linux-x86_64.tar.gz) |
-| **iOS / iPadOS** | AltStore sideload | [SkyRecompiled-v0.2.2-ios.ipa](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.2/SkyRecompiled-v0.2.2-ios.ipa) |
+| **macOS Apple Silicon (`arm64`)** | Release | [SkyRecompiled-v0.2.3-macos-arm64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-macos-arm64.zip) |
+| **Windows (`x86_64`)** | Release | [SkyRecompiled-v0.2.3-windows-x64.zip](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-windows-x64.zip) |
+| **Linux (`x86_64`)** | Release | [SkyRecompiled-v0.2.3-linux-x86_64.tar.gz](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-linux-x86_64.tar.gz) |
+| **iOS / iPadOS** | AltStore sideload | [SkyRecompiled-v0.2.3-ios.ipa](https://github.com/DarthMDev/pmd-sky-recomp/releases/download/v0.2.3/SkyRecompiled-v0.2.3-ios.ipa) |
 
-### What's new in v0.2.2
+### What's new in v0.2.3
 
-- **iOS controls:** touch input returns to gameplay after closing settings, touch highlights clear after release, toolbar buttons no longer overlap, and the hybrid inset is larger. During detected static-picture cutscenes, the dialogue screen becomes the main image and the background moves to the inset.
-
-- **FPS meter:** enable an on-screen frame-rate badge in Video settings; it appears at the top right, including on iPhone and iPad.
+- **iOS touch settings:** touch navigation stays available while settings are open and returns cleanly to gameplay afterward.
+- **Hybrid cutscenes:** the character screen stays enlarged through dialogue and dialogue gaps. Chapter cards also promote the bottom screen when the top screen is blank, and brief scene-state changes no longer flash the background into focus.
+- **FPS meter:** the on-screen frame-rate badge remains available at the top right, including on iPhone and iPad.
 
 - **Widescreen and hybrid display:** native 16:10, 16:9, and 21:9 dungeon
   rendering, expanded camera/tile streaming, anchored HUD elements, and a
@@ -126,7 +126,7 @@ After the build succeeds, `& .\build\runner\nds_runner.exe --help` checks that t
 
 ## iPhone and iPad
 
-Download the pre-built `SkyRecompiled-v0.2.2-ios.ipa` from the [v0.2.2 GitHub Release](https://github.com/DarthMDev/pmd-sky-recomp/releases/tag/v0.2.2), or build from source on a Mac with Xcode, CMake, Ninja, and Python 3:
+Download the pre-built `SkyRecompiled-v0.2.3-ios.ipa` from the [v0.2.3 GitHub Release](https://github.com/DarthMDev/pmd-sky-recomp/releases/tag/v0.2.3), or build from source on a Mac with Xcode, CMake, Ninja, and Python 3:
 
 ```bash
 python3 scripts/build_ios.py

@@ -384,23 +384,8 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
         return false;
     }
 
-    // Ported from Asphaltian/pmd-space FullScreenPictures.cs & OffScreenActors.IsAnyActorLive (GPL-3.0).
-    // 1. If any live_actor is enabled and valid, it's an interactive scene, not a static picture.
-    const auto& syms = pmdsky::Get(region_);
-    const uint32_t actors_ptr =
-        mem.read_or<uint32_t>(syms.GROUND_STATE_PTRS + layout::ground::kGroundActorsPtrOffset, 0u);
-    if (mem.in_range(actors_ptr, layout::ground::kLiveActorSize * layout::ground::kMaxLiveActors)) {
-        for (int i = 0; i < layout::ground::kMaxLiveActors; ++i) {
-            const uint32_t act = actors_ptr + static_cast<uint32_t>(i) * layout::ground::kLiveActorSize;
-            const uint8_t enabled = mem.read_or<uint8_t>(act + layout::ground::kLiveActorEnabledOffset, 0u);
-            const int16_t kind = mem.read_or<int16_t>(act + layout::ground::kLiveActorKindOffset, -1);
-            if (enabled != 0u && kind != -1) {
-                return false;
-            }
-        }
-    }
-
-    // 2. Check if all active map_render entries use 3x3 chunks and fit strictly inside 32x24 8x8 tiles (256x192).
+    // Dialogue scenes can have active performers over a static full-screen
+    // backdrop. Decide from the background map bounds, not actor presence.
     const int cam_count = std::clamp(
         mem.read_or<int32_t>(ground_bg_addr + layout::ground::kGroundBgCameraCountOffset, 0),
         0,

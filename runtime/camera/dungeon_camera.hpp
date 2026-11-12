@@ -160,9 +160,8 @@ public:
         int tile_col,
         int tile_row) noexcept;
 
-    /// Detects whether a Ground Mode `ground_bg` represents a static 256x192 full-screen chapter/cutscene
-    /// illustration (whose non-zero tile bounds fit inside 32x24 tiles with no active actors), so margins
-    /// can be cleanly pillarboxed instead of streaming empty/garbage tiles.
+    /// Detects whether a Ground Mode `ground_bg` has a static full-screen background
+    /// that fits inside the native 256x192 tile bounds. Actors may be layered over it.
     /// Adapted from Asphaltian/pmd-space (`FullScreenPictures.cs`, GPL-3.0).
     [[nodiscard]] bool IsGroundMapStaticFullScreenPicture(
         GuestMemoryView mem,

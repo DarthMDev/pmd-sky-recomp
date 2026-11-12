@@ -170,7 +170,53 @@ GuestUiFlags ReadGuestUiFlags(GuestMemoryView mem,
         //              SCREEN_SUB  = 1 (top engine B).
         if (screen == 1u) {
             flags.top_screen_menu_open = true;
-            break;
+        } else {
+            flags.bottom_screen_window_open = true;
+        }
+    }
+
+    const auto& symbols = pmdsky::Get(region);
+    const uint32_t ground_bg =
+        mem.read_or<uint32_t>(symbols.GROUND_STATE_MAP, 0u);
+    if (mem.in_range(ground_bg, layout::ground::kGroundBgSize) &&
+        mem.in_range(symbols.GROUND_STATE_PTRS,
+                     layout::ground::kMainGroundDataSize)) {
+        const uint32_t actors = mem.read_or<uint32_t>(
+            symbols.GROUND_STATE_PTRS + layout::ground::kGroundActorsPtrOffset,
+            0u);
+        if (mem.in_range(actors, layout::ground::kLiveActorSize *
+                                     layout::ground::kMaxLiveActors)) {
+            for (int i = 0; i < layout::ground::kMaxLiveActors; ++i) {
+                const uint32_t actor = actors +
+                    static_cast<uint32_t>(i) * layout::ground::kLiveActorSize;
+                if (mem.read_or<uint8_t>(
+                        actor + layout::ground::kLiveActorEnabledOffset,
+                        0u) != 0u) {
+                    flags.ground_characters_present = true;
+                    break;
+                }
+            }
+        }
+
+        const uint32_t performers = mem.read_or<uint32_t>(
+            symbols.GROUND_STATE_PTRS +
+                layout::ground::kGroundPerformersPtrOffset,
+            0u);
+        if (!flags.ground_characters_present &&
+            mem.in_range(performers, layout::ground::kLivePerformerSize *
+                                         layout::ground::kMaxLivePerformers)) {
+            for (int i = 0; i < layout::ground::kMaxLivePerformers; ++i) {
+                const uint32_t performer = performers +
+                    static_cast<uint32_t>(i) *
+                        layout::ground::kLivePerformerSize;
+                if (mem.read_or<uint8_t>(
+                        performer +
+                            layout::ground::kLivePerformerEnabledOffset,
+                        0u) != 0u) {
+                    flags.ground_characters_present = true;
+                    break;
+                }
+            }
         }
     }
 

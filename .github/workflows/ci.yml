@@ -343,19 +343,17 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
-          ## What's new in v0.2.2
+          ## What's new in v0.2.3
 
-          This release fixes iOS touch controls restoring after settings, clears button highlights on release, improves mobile toolbar spacing, enlarges the hybrid inset, and places the dialogue screen in the main view during detected static-picture cutscenes. It also includes the configurable FPS meter and Milestone 3 graphics/runtime work since v0.1.0-alpha:
+          This patch release addresses the final iOS issues found during on-device testing:
 
-          - Native 16:10, 16:9, and 21:9 widescreen rendering, expanded camera/tile streaming, anchored HUD, and hybrid single-window layout.
-          - High-refresh camera and entity interpolation for 120Hz, 144Hz, 240Hz, and uncapped VRR.
-          - Pixel-art filters, LCD/CRT effects, and weather-aware dungeon lighting.
-          - In-game Video, Controller, Keyboard, and System settings with assignable inputs, controller presets, defaults, and persistence.
-          - iPhone and iPad support with ROM import, on-device compilation, touch controls, Files-accessible saves/logs, and a settings gear.
+          - Touch navigation works throughout the settings overlay and returns cleanly to gameplay.
+          - Hybrid view keeps Ground Mode character scenes as the main image through dialogue and pauses between lines.
+          - Chapter cards promote the bottom screen when the top screen is blank, and short-lived scene-state gaps no longer switch focus back to the background.
 
-          All packages are ROM-free. Provide your own legally dumped Explorers of Sky ROM. Desktop release packages execute cartridge code at runtime.
+          This builds on v0.2.2, which added the configurable FPS meter and the Milestone 3 graphics, runtime, and settings features. All packages are ROM-free; provide your own legally dumped Explorers of Sky ROM. Desktop release packages execute cartridge code at runtime.
 
-          All four platform packages pass their automated build/package checks. Gameplay has not been manually verified on every device.
+          All four platform packages pass their automated build/package checks. The iOS touch and hybrid scene changes were verified on an iPhone 17 Pro.
           EOF
           release_flags=(--verify-tag)
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then

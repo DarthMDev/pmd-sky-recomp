@@ -31,6 +31,6 @@ jobs:
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: SkyRecompiled-v0.2.2-ios
-          path: build/dist/SkyRecompiled-v0.2.2-ios.ipa
+          name: SkyRecompiled-v0.2.3-ios
+          path: build/dist/SkyRecompiled-v0.2.3-ios.ipa
           if-no-files-found: error
