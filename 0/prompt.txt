@@ -1,0 +1,254 @@
+cancel 3.5 tasks in  TASKS_FLASH_MEDIUM we deemed it not worth it for this project and the amount of effort it take, so i'd delete that section
+Then help with finishing the task of "i dont think controller presets are working and also they dont even show what these presets are (ex: modern dungeon what does that remap to) i think controller should be a seperate section or tab  on the f1 ui, and like wiicompiled u can remap controller or keyboard inputs to whatever you want"
+Another AI agent stopped in the middle of the task when it hit its limits
+
+---
+
+build and package the .app so i can test please
+
+---
+
+how do i get to the controls section?
+
+---
+
+reset my controller and keyboard back to default i dont like this system it should be an assign input system
+
+---
+
+when ur done on these settings  also add to readme instructions on how to navigate to the settings, similar to wiicompiled (also maybe instead of opening in video it should open in the menu beforehand that shows video, controller, keyboard, etc
+
+---
+
+after we're done implement or make sure we have iOS support for all our new features (settings menu via a gear toggle like other recomps?) let me know if we need a higher gpt model for this im trying to keep things to luna bc my weekly usage is getting low so only using sol when absolutely needed
+
+---
+
+oh yeah can the iOS app expose the files folder if not already?
+
+---
+
+commit and push, no local documents besides whats already tracked in the remote repo
+I think we might be ready to prepare a release soon
+
+---
+
+# Files mentioned by the user:
+
+## codex-clipboard-46a06fa0-2c5a-4698-8671-5dee48c2c1c3.png: /var/folders/9b/419m4hqs453_18_fftblwxhm0000gn/T/codex-clipboard-46a06fa0-2c5a-4698-8671-5dee48c2c1c3.png
+Image attachment: true
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+one last before release:
+The bottom description is cut off, we just need to describe what modern dungeon does when it is selected
+
+---
+
+looks good lets start a release for all our new features now
+
+---
+
+is this a major or minor release?
+
+---
+
+and its not just the settings btw its also the other milestone 3 stuff, compare git changes from alpha 1
+
+---
+
+<send_user_message_question_reply>
+[{"questionItemId":"[\"request_user_input_async\",\"call_fb0f062284f94fc9badd2be0bb505742\",0]","question":"Run CI tests locally?","answer":"Yes, diagnose the CI failure (Recommended)"}]
+</send_user_message_question_reply>
+
+---
+
+Create a human looking announcement draft for discord , also for reddit and twitter then advise me which subreddits to post this update to(allowed, and make sense) (i already posted the initial alpha releases before to mysterydungeon, decomps, recomps and macgaming)
+
+---
+
+maybe post on the existing posts i put on  the subreddits when we have a substantial new major release?
+
+---
+
+settings on mobile we need to fix and then reupload ipa when its finished on github:
+When clicking the gear the touch controls dont takeover the settings so i cant navigate, its also not touch friendly
+
+---
+
+sounds good fix it please
+
+---
+
+stop stopping and do it please unless u need a higher gpt model
+
+---
+
+ok do not stop till both are complete or u need my input
+
+---
+
+no new tagged release just upload it via gh to the 2.0 alpha release
+
+---
+
+lets add a toggle fps setting (toggles fps meter to top right) , especially for mobile where we cant view fps on the window 
+Then add a 0.2.1 release
+Dont stop till its done or u need input
+
+---
+
+# Files mentioned by the user:
+
+## codex-clipboard-fda2e89f-028b-4b65-99dc-5c8a00c395f5.png: /var/folders/9b/419m4hqs453_18_fftblwxhm0000gn/T/codex-clipboard-fda2e89f-028b-4b65-99dc-5c8a00c395f5.png
+Image attachment: true
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+touch controls stop working after exiting settings and also during cutscenes in hybrid (i switched off widescreen since its phone)  and the second panel is so hard to see bc its so small 
+Maybe these should be swapped in cutscene mode in hybrid where the dialogue part is the bigger image and the background cloud thing is the smaller image
+
+---
+
+also why do they remained colored in when tapped and let go
+
+---
+
+i pushed it, time for another minor minor release?
+
+---
+
+do it then please
+
+---
+
+now we're back to touch controls not working for settings, and the the cutscene dialogue is not the main focus still
+
+---
+
+for better testing i connected my phone to my computer
+that way we dont have to wait to commit and redownload and test
+
+---
+
+▶ $xcrun devicectl list devices             
+
+Name                   Hostname   Identifier                                    State                Model                        Reality  
+
+\--------------------   --------   -------------------------------------------   ------------------   --------------------------   ---------
+
+Michael’s iPhone (2)              00008150-000824420200401C (UDID)              available (paired)   iPhone 17 Pro (iPhone18,1)   physical 
+
+iPhone 16 Pro                     46E345DF-5BCB-493C-9410-2FD434C7B61F (UDID)   shutdown             iPhone 16 Pro (iPhone17,1)   simulated
+
+iPhone 16e                        BB367328-9EFC-45D3-9F93-2CB9B0E806EC (UDID)   shutdown             iPhone 16e (iPhone17,5)      simulated
+
+**\~**
+
+---
+
+i just recently installed another app through this method so thats weird and ik i have signing identities
+
+---
+
+also try not doing timeout
+
+---
+
+give me the commands to run bc the command works outside the sandbox
+
+---
+
+▶ cd /Users/michael/projects/pmd-sky-recomp
+
+security find-identity -v -p codesigning
+
+ls -la \~/Library/MobileDevice/Provisioning\ Profiles
+
+xcrun devicectl list devices
+
+xcrun devicectl device install app --device 00008150-000824420200401C build/ios/device/SkyRecompiled.app
+
+  1) B3FCC9D1C5DD38F768FF975DD3983693FE21E696 "Apple Development: mgracer48@yahoo.com (C36787LL6C)"
+
+     1 valid identities found
+
+total 0
+
+drwxr-xr-x  2 michael  staff  64 Dec 21  2022 .
+
+drwxr-xr-x  3 michael  staff  96 Aug  3  2022 ..
+
+Name                   Hostname   Identifier                                    State       Model                        Reality  
+
+\--------------------   --------   -------------------------------------------   ---------   --------------------------   ---------
+
+Michael’s iPhone (2)              00008150-000824420200401C (UDID)              connected   iPhone 17 Pro (iPhone18,1)   physical 
+
+iPhone 16 Pro                     46E345DF-5BCB-493C-9410-2FD434C7B61F (UDID)   shutdown    iPhone 16 Pro (iPhone17,1)   simulated
+
+iPhone 16e                        BB367328-9EFC-45D3-9F93-2CB9B0E806EC (UDID)   shutdown    iPhone 16e (iPhone17,5)      simulated
+
+**ERROR:&#x20;**&#x46;ailed to install the app on the device. (com.apple.dt.CoreDeviceError error 3002 (0xBBA))
+
+**&#xA0;     &#x20;**&#x4E;SURL = file:///Users/michael/projects/pmd-sky-recomp/build/ios/device/SkyRecompiled.app/
+
+\--------------------------------------------------------------------------------
+
+**ERROR:&#x20;**&#xA0;   Unable to Install “SkyRecompiled” (IXUserPresentableErrorDomain error 14 (0x0E))
+
+**&#xA0;     &#x20;**&#xA0;   NSLocalizedRecoverySuggestion = Failed to verify code signature of /var/installd/Library/Caches/com.apple.mobile.installd.staging/temp.glyFSh/extracted/SkyRecompiled.app : 0xe8008016 (The executable was signed with invalid entitlements.)
+
+**&#xA0;     &#x20;**&#xA0;   NSLocalizedFailureReason = This app cannot be installed because its integrity could not be verified.
+
+\--------------------------------------------------------------------------------
+
+**ERROR:&#x20;**&#xA0;       Failed to verify code signature of /var/installd/Library/Caches/com.apple.mobile.installd.staging/temp.glyFSh/extracted/SkyRecompiled.app : 0xe8008016 (The executable was signed with invalid entitlements.) (MIInstallerErrorDomain error 13 (0x0D))
+
+**&#xA0;     &#x20;**&#xA0;       LibMISErrorNumber = -402620394
+
+**&#xA0;     &#x20;**&#xA0;       SourceFileLine = 80
+
+**&#xA0;     &#x20;**&#xA0;       FunctionName = +[MICodeSigningVerifier \_validateSignatureAndCopyInfoForURL:withOptions:error:]
+
+**&#xA0;     &#x20;**&#xA0;       LegacyErrorString = ApplicationVerificationFailed
+
+---
+
+a bit concerning but i cant access SkyRecompiled folder to copy the save over to SkyRecompiled Test
+
+---
+
+"app bundle is missing game.toml"
+
+---
+
+good i can navigate settings again:
+cutscene still has same issue 
+If it helps also the thing before says chapter 2 but in the smaller window while main window has black screen so that should be swapped too
+
+---
+
+yes issue is finally fixed! only chapter text was on smaller screen now
+
+---
+
+btw it keeps switching back and forth when advancing dialogue should probably fix that, when u see the characters stay focused on them
+
+---
+
+its better but i still even when no dialogue is happening it should stay focused on the characters instead of the static background image lol
+
+---
+
+it still swapped briefly at some point during my dialogue to the static background with clouds (also it sometimes might be clouds might be something else, i dont remember everything for this game )
+
+---
+
+just entered my password and cleared it
+
+---
+
+sweet it works well even when exiting the cutscene it still focuses on the characters this is ready to push for hopefully last patch release till major
