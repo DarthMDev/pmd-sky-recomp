@@ -1,0 +1,123 @@
+cancel 3.5 tasks in  TASKS_FLASH_MEDIUM we deemed it not worth it for this project and the amount of effort it take, so i'd delete that section
+Then help with finishing the task of "i dont think controller presets are working and also they dont even show what these presets are (ex: modern dungeon what does that remap to) i think controller should be a seperate section or tab  on the f1 ui, and like wiicompiled u can remap controller or keyboard inputs to whatever you want"
+Another AI agent stopped in the middle of the task when it hit its limits
+
+---
+
+build and package the .app so i can test please
+
+---
+
+how do i get to the controls section?
+
+---
+
+reset my controller and keyboard back to default i dont like this system it should be an assign input system
+
+---
+
+when ur done on these settings  also add to readme instructions on how to navigate to the settings, similar to wiicompiled (also maybe instead of opening in video it should open in the menu beforehand that shows video, controller, keyboard, etc
+
+---
+
+after we're done implement or make sure we have iOS support for all our new features (settings menu via a gear toggle like other recomps?) let me know if we need a higher gpt model for this im trying to keep things to luna bc my weekly usage is getting low so only using sol when absolutely needed
+
+---
+
+oh yeah can the iOS app expose the files folder if not already?
+
+---
+
+commit and push, no local documents besides whats already tracked in the remote repo
+I think we might be ready to prepare a release soon
+
+---
+
+# Files mentioned by the user:
+
+## codex-clipboard-46a06fa0-2c5a-4698-8671-5dee48c2c1c3.png: /var/folders/9b/419m4hqs453_18_fftblwxhm0000gn/T/codex-clipboard-46a06fa0-2c5a-4698-8671-5dee48c2c1c3.png
+Image attachment: true
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+one last before release:
+The bottom description is cut off, we just need to describe what modern dungeon does when it is selected
+
+---
+
+looks good lets start a release for all our new features now
+
+---
+
+is this a major or minor release?
+
+---
+
+and its not just the settings btw its also the other milestone 3 stuff, compare git changes from alpha 1
+
+---
+
+<send_user_message_question_reply>
+[{"questionItemId":"[\"request_user_input_async\",\"call_fb0f062284f94fc9badd2be0bb505742\",0]","question":"Run CI tests locally?","answer":"Yes, diagnose the CI failure (Recommended)"}]
+</send_user_message_question_reply>
+
+---
+
+Create a human looking announcement draft for discord , also for reddit and twitter then advise me which subreddits to post this update to(allowed, and make sense) (i already posted the initial alpha releases before to mysterydungeon, decomps, recomps and macgaming)
+
+---
+
+maybe post on the existing posts i put on  the subreddits when we have a substantial new major release?
+
+---
+
+settings on mobile we need to fix and then reupload ipa when its finished on github:
+When clicking the gear the touch controls dont takeover the settings so i cant navigate, its also not touch friendly
+
+---
+
+sounds good fix it please
+
+---
+
+stop stopping and do it please unless u need a higher gpt model
+
+---
+
+ok do not stop till both are complete or u need my input
+
+---
+
+no new tagged release just upload it via gh to the 2.0 alpha release
+
+---
+
+lets add a toggle fps setting (toggles fps meter to top right) , especially for mobile where we cant view fps on the window 
+Then add a 0.2.1 release
+Dont stop till its done or u need input
+
+---
+
+# Files mentioned by the user:
+
+## codex-clipboard-fda2e89f-028b-4b65-99dc-5c8a00c395f5.png: /var/folders/9b/419m4hqs453_18_fftblwxhm0000gn/T/codex-clipboard-fda2e89f-028b-4b65-99dc-5c8a00c395f5.png
+Image attachment: true
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+touch controls stop working after exiting settings and also during cutscenes in hybrid (i switched off widescreen since its phone)  and the second panel is so hard to see bc its so small 
+Maybe these should be swapped in cutscene mode in hybrid where the dialogue part is the bigger image and the background cloud thing is the smaller image
+
+---
+
+also why do they remained colored in when tapped and let go
+
+---
+
+i pushed it, time for another minor minor release?
+
+---
+
+do it then please
