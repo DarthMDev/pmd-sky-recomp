@@ -71,6 +71,14 @@ class TestNitroFSSynthetic(unittest.TestCase):
         self.assertEqual([mod_id for mod_id, _ in applied], ["a_mod", "z_mod"])
         self.assertEqual(fs.files["data/file.bin"], b"z")
 
+    def test_ignores_directories_without_romfs_before_metadata_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            mods = Path(td)
+            unrelated = mods / "not-a-mod"
+            unrelated.mkdir()
+            (unrelated / "mod.toml").write_text('id = "invalid id"\n')
+            self.assertEqual(NitroFS().apply_layered_mods(mods), [])
+
     def test_rejects_duplicate_ids_invalid_paths_and_symlinks(self):
         with tempfile.TemporaryDirectory() as td:
             mods = Path(td)

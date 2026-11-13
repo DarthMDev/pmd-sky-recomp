@@ -153,17 +153,18 @@ class NitroFS:
         for entry in sorted(mods_root.iterdir()):
             if entry.is_symlink() or not entry.is_dir():
                 continue
+            romfs_dir = entry / "romfs"
+            if romfs_dir.is_symlink():
+                raise ValueError(f"Mod romfs must not be a symlink: {romfs_dir}")
+            if not romfs_dir.is_dir():
+                continue
             meta = self._parse_mod_toml(entry / "mod.toml", entry.name)
             if not meta.id or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in meta.id):
                 raise ValueError(f"Invalid mod ID: {meta.id!r}")
             if meta.id in seen_ids:
                 raise ValueError(f"Duplicate mod ID: {meta.id}")
             seen_ids.add(meta.id)
-            romfs_dir = entry / "romfs"
-            if romfs_dir.is_symlink():
-                raise ValueError(f"Mod romfs must not be a symlink: {romfs_dir}")
-            if romfs_dir.is_dir():
-                discovered_mods.append((meta, romfs_dir))
+            discovered_mods.append((meta, romfs_dir))
 
         # Sort by priority ascending (so higher priority applies last / wins)
         discovered_mods.sort(key=lambda m: (m[0].priority, m[0].id))
