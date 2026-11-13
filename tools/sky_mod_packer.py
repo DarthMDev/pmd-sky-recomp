@@ -46,23 +46,36 @@ class NitroFS:
             raise ValueError("ROM size is too small for a Nintendo DS header")
 
         fnt_off, fnt_sz, fat_off, fat_sz = struct.unpack_from("<IIII", rom, 0x40)
+
+        def check_region(offset: int, size: int, label: str) -> None:
+            if offset < 0 or size < 0 or offset > len(rom) or size > len(rom) - offset:
+                raise ValueError(f"{label} lies outside the ROM")
+
+        check_region(fnt_off, fnt_sz, "FNT")
+        check_region(fat_off, fat_sz, "FAT")
+        if fnt_sz < 8 or fat_sz % 8:
+            raise ValueError("Invalid NitroFS FNT/FAT size")
         num_fat_entries = fat_sz // 8
 
         # 1. Read all file slices from FAT
         fat_entries: List[Tuple[int, int]] = []
         for i in range(num_fat_entries):
             s, e = struct.unpack_from("<II", rom, fat_off + i * 8)
+            if s > e or e > len(rom):
+                raise ValueError(f"Invalid FAT range for file ID {i}")
             fat_entries.append((s, e))
 
         # 2. Parse FNT directory table
         # Root directory is ID 0xF000
         root_sub_off, root_first_file, num_dirs = struct.unpack_from("<IHH", rom, fnt_off)
-        if num_dirs > 4096 or num_dirs == 0:
+        if num_dirs == 0 or num_dirs > 4096 or num_dirs * 8 > fnt_sz:
             raise ValueError(f"Invalid NitroFS directory count: {num_dirs}")
 
         dir_table: List[Tuple[int, int, int]] = []
         for d in range(num_dirs):
             sub_off, first_fid, parent_id = struct.unpack_from("<IHH", rom, fnt_off + d * 8)
+            if sub_off < num_dirs * 8 or sub_off >= fnt_sz or first_fid > num_fat_entries:
+                raise ValueError(f"Invalid FNT directory entry {d}")
             dir_table.append((sub_off, first_fid, parent_id))
 
         # Directory path reconstruction
@@ -75,29 +88,42 @@ class NitroFS:
             cur_path = dir_paths.get(dir_id, "")
 
             pos = fnt_off + sub_off
-            while pos < fnt_off + fnt_sz:
+            fnt_end = fnt_off + fnt_sz
+            terminated = False
+            while pos < fnt_end:
                 t_len = rom[pos]
                 pos += 1
                 if t_len == 0x00:
+                    terminated = True
                     break
 
                 is_dir = (t_len & 0x80) != 0
                 name_len = t_len & 0x7F
+                if name_len == 0 or pos + name_len + (2 if is_dir else 0) > fnt_end:
+                    raise ValueError(f"Truncated FNT name in directory {dir_idx}")
                 name = rom[pos : pos + name_len].decode("latin-1", errors="replace")
                 pos += name_len
 
                 if is_dir:
                     sub_dir_id = struct.unpack_from("<H", rom, pos)[0]
                     pos += 2
+                    if sub_dir_id < 0xF000 or sub_dir_id >= 0xF000 + num_dirs:
+                        raise ValueError(f"Invalid FNT subdirectory ID: {sub_dir_id:#x}")
+                    cls._validate_virtual_path(name)
                     sub_path = f"{cur_path}/{name}" if cur_path else name
                     dir_paths[sub_dir_id] = sub_path
                 else:
                     file_path = f"{cur_path}/{name}" if cur_path else name
-                    if cur_file_id < len(fat_entries):
-                        fs_start, fs_end = fat_entries[cur_file_id]
-                        if fs_start <= len(rom) and fs_end <= len(rom) and fs_start <= fs_end:
-                            fs.files[file_path] = rom[fs_start:fs_end]
+                    cls._validate_virtual_path(file_path)
+                    if cur_file_id >= len(fat_entries):
+                        raise ValueError(f"FNT references missing file ID {cur_file_id}")
+                    fs_start, fs_end = fat_entries[cur_file_id]
+                    if file_path in fs.files:
+                        raise ValueError(f"Duplicate NitroFS path: {file_path}")
+                    fs.files[file_path] = rom[fs_start:fs_end]
                     cur_file_id += 1
+            if not terminated:
+                raise ValueError(f"Unterminated FNT directory {dir_idx}")
 
         return fs
 
@@ -123,11 +149,19 @@ class NitroFS:
             return []
 
         discovered_mods: List[Tuple[ModMetadata, Path]] = []
-        for entry in mods_root.iterdir():
-            if not entry.is_dir():
+        seen_ids = set()
+        for entry in sorted(mods_root.iterdir()):
+            if entry.is_symlink() or not entry.is_dir():
                 continue
             meta = self._parse_mod_toml(entry / "mod.toml", entry.name)
+            if not meta.id or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in meta.id):
+                raise ValueError(f"Invalid mod ID: {meta.id!r}")
+            if meta.id in seen_ids:
+                raise ValueError(f"Duplicate mod ID: {meta.id}")
+            seen_ids.add(meta.id)
             romfs_dir = entry / "romfs"
+            if romfs_dir.is_symlink():
+                raise ValueError(f"Mod romfs must not be a symlink: {romfs_dir}")
             if romfs_dir.is_dir():
                 discovered_mods.append((meta, romfs_dir))
 
@@ -137,15 +171,36 @@ class NitroFS:
         applied: List[Tuple[str, int]] = []
         for meta, romfs_dir in discovered_mods:
             override_count = 0
-            for root, _dirs, files in os.walk(romfs_dir):
+            for root, dirs, files in os.walk(romfs_dir, followlinks=False):
+                root_path = Path(root)
+                for name in dirs + files:
+                    if (root_path / name).is_symlink():
+                        raise ValueError(f"Symlinks are not allowed in mod layers: {root_path / name}")
                 for f in files:
-                    full_p = Path(root) / f
-                    rel_p = str(full_p.relative_to(romfs_dir)).replace("\\", "/")
+                    full_p = root_path / f
+                    rel_p = full_p.relative_to(romfs_dir).as_posix()
+                    self._validate_virtual_path(rel_p)
+                    if len(self.files) >= 65535 and rel_p not in self.files:
+                        raise ValueError("NitroFS file count exceeds the 16-bit file ID limit")
                     self.files[rel_p] = full_p.read_bytes()
                     override_count += 1
             applied.append((meta.id, override_count))
 
         return applied
+
+    @staticmethod
+    def _validate_virtual_path(path: str) -> None:
+        parts = path.split("/")
+        if (not path or path.startswith("/") or "\\" in path or ":" in path
+                or any(part in ("", ".", "..") for part in parts)):
+            raise ValueError(f"Invalid NitroFS path: {path!r}")
+        for part in parts:
+            try:
+                encoded = part.encode("latin-1")
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"NitroFS path is not representable in the FNT: {path!r}") from exc
+            if len(encoded) > 127 or any(ord(ch) < 32 for ch in part):
+                raise ValueError(f"Invalid NitroFS path component: {part!r}")
 
     @staticmethod
     def _parse_mod_toml(toml_path: Path, default_id: str) -> ModMetadata:
@@ -179,7 +234,10 @@ class NitroFS:
         # 1. Build directory tree from self.files keys
         # Tree node: { "files": [name...], "dirs": { name: node } }
         tree: dict = {"files": [], "dirs": {}}
+        if len(self.files) > 65535:
+            raise ValueError("NitroFS file count exceeds the 16-bit file ID limit")
         for file_path in sorted(self.files.keys()):
+            self._validate_virtual_path(file_path)
             parts = file_path.split("/")
             cur = tree
             for folder in parts[:-1]:
@@ -208,6 +266,8 @@ class NitroFS:
                 queue.append((cur_path, cur_node, cur_id))
 
         total_dirs = len(all_nodes)
+        if total_dirs > 4096:
+            raise ValueError("NitroFS directory count exceeds the supported limit")
         dir_table_size = total_dirs * 8
 
         # 2. Build sub-tables and determine file IDs
@@ -226,8 +286,8 @@ class NitroFS:
 
             # Files first
             for fname in sorted(node["files"]):
-                enc_name = fname.encode("latin-1", errors="replace")
-                buf.append(len(enc_name) & 0x7F)
+                enc_name = fname.encode("latin-1")
+                buf.append(len(enc_name))
                 buf.extend(enc_name)
                 full_path = f"{dpath}/{fname}" if dpath else fname
                 ordered_files.append(full_path)
@@ -235,8 +295,8 @@ class NitroFS:
 
             # Sub-directories
             for dname in sorted(node["dirs"].keys()):
-                enc_dname = dname.encode("latin-1", errors="replace")
-                buf.append((len(enc_dname) & 0x7F) | 0x80)
+                enc_dname = dname.encode("latin-1")
+                buf.append(len(enc_dname) | 0x80)
                 buf.extend(enc_dname)
                 # Locate assigned sub_dir_id
                 sub_id = next(nid for nid, n, _ in all_nodes if n is node["dirs"][dname])

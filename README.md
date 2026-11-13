@@ -48,6 +48,7 @@
 - **Milestone 2:** Native **Windows (`x86_64`)** and **Linux (`x86_64` / `arm64`)** builds & packaging.
 - **Milestone 3:** **Beyond-Emulator Graphics & Smoothness** -- True `16:9` / `21:9` native 2D widescreen (`overlay29` & `overlay11` camera/tile hooks + anchored HUD), **120Hz / 144Hz / 240Hz** sub-pixel camera & sprite interpolation, and custom Apple Metal / `SDL_GPU` pixel-art & weather shaders.
 - **Milestone 4:** **Launcher, SkyTemple Mod Loader & Online Rescue Board** -- Zero-recompile layered NitroFS mod overrides, SkyTemple custom ASM hack recompilation, and an asynchronous *Rescue Team DX*-style Online Rescue Bulletin Board backed by vanilla **Wonder Mail S / SOS / A-OK Mail** structs (with 54-character passwords preserved forever as an offline fallback).
+- **Milestone 5 (Planned):** **Cross-Device Saves & Graphics Backends** -- iCloud save synchronization between iOS and macOS devices, plus Vulkan support for the custom pixel-art and weather shader pipeline alongside Metal.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical specification.
 
