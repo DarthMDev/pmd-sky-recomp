@@ -242,9 +242,13 @@ class NitroFS:
             parts = file_path.split("/")
             cur = tree
             for folder in parts[:-1]:
+                if folder in cur["files"]:
+                    raise ValueError(f"NitroFS path is both a file and directory: {file_path!r}")
                 if folder not in cur["dirs"]:
                     cur["dirs"][folder] = {"files": [], "dirs": {}}
                 cur = cur["dirs"][folder]
+            if parts[-1] in cur["dirs"]:
+                raise ValueError(f"NitroFS path is both a file and directory: {file_path!r}")
             cur["files"].append(parts[-1])
 
         # Assign directory IDs (Breadth-first search)

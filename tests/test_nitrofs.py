@@ -44,6 +44,12 @@ class TestNitroFSSynthetic(unittest.TestCase):
         fs.files = {"one": b"x", "nested/two": b"1234567"}
         self.assertEqual(NitroFS.from_rom(synthetic_rom(fs.files)).files, fs.files)
 
+    def test_rebuild_rejects_file_directory_path_collision(self):
+        fs = NitroFS()
+        fs.files = {"data": b"file", "data/child.bin": b"child"}
+        with self.assertRaisesRegex(ValueError, "both a file and directory"):
+            fs.build_fnt_and_fat()
+
     def test_rejects_out_of_bounds_header_regions(self):
         rom = bytearray(0x200)
         struct.pack_into("<IIII", rom, 0x40, 0x1ff, 8, 0, 0)
