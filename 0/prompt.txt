@@ -1,0 +1,5 @@
+Using the repository context you already gathered, create or update `MILESTONE4_PLAN.md` at the repo root. Do not reread files unless a specific missing fact prevents you from writing it. Keep the document concise and actionable.
+
+Audit the current implementation of the launcher, NitroFS mod loading, SkyTemple ASM support, and online rescue board. Reconcile the conflicting Milestone 4 status in `TASKS_FLASH_MEDIUM.md` versus `README.md` and `ARCHITECTURE.md`, using file evidence and distinguishing complete, partial, scaffolded, and missing work.
+
+Include the current-state audit, scope and exclusions, implementation phases with dependencies and acceptance criteria, key risks and mitigations, tests to add (do not run them), owner decisions, and a release checklist. Label assumptions and open questions. Do not implement code, modify other files, run tests, use the network, commit, or delegate. After writing, report the file path and a brief summary.
