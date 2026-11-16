@@ -1,0 +1,10 @@
+theres work that was left for later for milestone 3: i'd like to start working on them let me know when we need high reasoning, do this in a new branch, no codex prefix:
+
+1. **Affine/bitmap widescreen**: many of those scenes are full-screen static pictures. Widening them without the static-picture detection would look wrong or show garbage at the edges. Current centered-native fallback is the safe behavior.
+2. **HD shader pipeline**: the Metal path is a platform-specific renderer project, not a small patch. The SDL/CPU approximation is good enough for RC.
+3. **21:9 margin culling**: needs guest-side culling/sprite hooks. 16:9 is the safe target.
+4. **Full 120 Hz subpixel interpolator**: this is the big one — camera/entity interpolation plus OAM shifting, deep renderer work. High risk, not an RC task.
+
+---
+
+ready to continue, let me know when to switch back to medium please
