@@ -3,7 +3,7 @@
   "checkpoint_id": "01M7Q4ZMNGQTTF5HSBKWRXYJ19",
   "strategy": "manual-commit",
   "branch": "feature/milestone-3-renderer-followups",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "include/skyrecomp/guest_mem.hpp",
     "patches/ndsrecomp-sky-widescreen.patch",
@@ -19,6 +19,12 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
@@ -30,14 +36,14 @@
     "subagent_tokens_complete": true
   },
   "redaction": {
-    "replacements": 2,
+    "replacements": 37,
     "layers": {
-      "betterleaks": 0,
+      "betterleaks": 18,
       "connection_string": 0,
       "credential_key": 0,
-      "credential_value": 0,
+      "credential_value": 11,
       "credentialed_uri": 0,
-      "entropy": 2,
+      "entropy": 8,
       "key_context": 0,
       "provider_token": 0,
       "shell_stdin": 0

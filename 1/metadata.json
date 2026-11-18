@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7Q4ZMNGQTTF5HSBKWRXYJ19",
+  "session_id": "5446217d-9350-40a2-b9ce-8144eda9ae9d",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-18T10:59:32.812951Z",
+  "branch": "feature/milestone-3-renderer-followups",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "include/skyrecomp/guest_mem.hpp",
+    "patches/ndsrecomp-sky-widescreen.patch",
+    "runtime/camera/dungeon_camera.cpp",
+    "runtime/camera/dungeon_camera.hpp",
+    "scripts/setup_third_party.sh",
+    "tests/milestone3_runtime_test.cpp"
+  ],
+  "agent": "Antigravity",
+  "model": "gemini-pro-orchestrator-g1-pro",
+  "turn_id": "e649a643410a",
+  "checkpoint_transcript_start": 200,
+  "transcript_lines_at_start": 200,
+  "redaction": {
+    "replacements": 35,
+    "layers": {
+      "betterleaks": 18,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 11,
+      "credentialed_uri": 0,
+      "entropy": 6,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
