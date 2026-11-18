@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7Q4JDBJJXS9BQBWN48KW2J1",
+  "session_id": "5446217d-9350-40a2-b9ce-8144eda9ae9d",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-18T10:52:18.90757Z",
+  "branch": "feat/milestone4-core-slices",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "scripts/launcher.py",
+    "services/rescue-worker/package.json",
+    "services/rescue-worker/schema.sql",
+    "services/rescue-worker/src/index.ts",
+    "src/SkyRecompiled.Launcher/Services/RomPreparationService.cs",
+    "src/SkyRecompiled.Launcher/ViewModels/MainViewModel.cs",
+    "tests/test_launcher.py",
+    "tests/test_nitrofs.py",
+    "tests/test_prepare_rom.py",
+    "tests/test_rescue_worker.py",
+    "tests/test_wondermail.py",
+    "tools/sky_mod_packer.py",
+    "tools/wondermail.py",
+    "translator/prepare_rom.py"
+  ],
+  "agent": "Antigravity",
+  "model": "gemini-pro-orchestrator-g1-pro",
+  "turn_id": "e364b678ef99",
+  "redaction": {
+    "replacements": 35,
+    "layers": {
+      "betterleaks": 18,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 11,
+      "credentialed_uri": 0,
+      "entropy": 6,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
