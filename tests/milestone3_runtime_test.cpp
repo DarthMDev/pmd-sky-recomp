@@ -715,10 +715,54 @@ void TestPmdSpaceWidescreenEdgeCases() {
     assert(adj.delta_x_q8 == -43 * 256);
 }
 
+void TestStaticGroundPictureCentering() {
+    using namespace layout::ground;
+    using camera::GroundBackground;
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0u);
+    const GuestMemoryView mem(ram.data(), ram.size());
+    const camera::DungeonCameraHook camera_hook(pmdsky::Region::EU);
+    constexpr uint32_t kGround = 0x02180000u;
+    constexpr uint32_t kMap = kGround + kGroundBgMapRenderOffset;
+    constexpr uint32_t kChunks = 0x02190000u;
+    constexpr uint32_t kTiles = 0x021A0000u;
+
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::Unknown);
+    WriteGuest<uint32_t>(ram, pmdsky::EU.GROUND_STATE_MAP, kGround);
+    WriteGuest<int32_t>(ram, kGround + kGroundBgCameraCountOffset, 1);
+    WriteGuest<int16_t>(ram, kMap + kMapRenderChunkDimensionsOffset, kMapRenderChunks3x3);
+    WriteGuest<int16_t>(ram, kMap + kMapRenderNumBgsOffset, 1);
+    WriteGuest<int32_t>(ram, kMap + kMapRenderWidthChunksOffset, 11);
+    WriteGuest<int32_t>(ram, kMap + kMapRenderHeightChunksOffset, 8);
+    WriteGuest<uint32_t>(ram, kMap + kMapRenderChunkMapPtrOffset, kChunks);
+    WriteGuest<uint32_t>(ram, kMap + kMapRenderChunkTilesPtrOffset, kTiles);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::Unknown);
+
+    // Art starts at column 0. In the rightmost chunk it reaches column 31.
+    WriteGuest<uint16_t>(ram, kChunks, 1);
+    WriteGuest<uint16_t>(ram, kChunks + 10 * 2, 2);
+    constexpr uint32_t kChunkBytes = kChunkTileSize * kChunkTileSize * 2;
+    WriteGuest<uint16_t>(ram, kTiles + kChunkBytes, 1);
+    WriteGuest<uint16_t>(ram, kTiles + 2 * kChunkBytes + 2, 1);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::StaticPicture);
+
+    WriteGuest<uint16_t>(ram, kTiles + 2 * kChunkBytes + 4, 1);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::WideMap);
+    WriteGuest<uint16_t>(ram, kTiles + 2 * kChunkBytes + 4, 0);
+    WriteGuest<uint8_t>(ram, kGround + kGroundBgScreenOffset, 1);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::Unknown);
+    WriteGuest<uint8_t>(ram, kGround + kGroundBgScreenOffset, 0);
+    WriteGuest<uint32_t>(ram, pmdsky::EU.DUNGEON_PTR_MASTER, 0x02200000u);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::Unknown);
+    WriteGuest<uint32_t>(ram, pmdsky::EU.DUNGEON_PTR_MASTER, 0);
+    WriteGuest<int32_t>(ram, kMap + kMapRenderWidthChunksOffset, kChunkMapStride + 1);
+    assert(camera_hook.ReadGroundBackground(mem) == GroundBackground::Unknown);
+}
+
 } // namespace
 
 /// Entry point for the Milestone 3 runtime enhancement test suite.
 int main() {
+    TestStaticGroundPictureCentering();
     TestWidescreenPpuAndHudAnchoring();
     TestOverlay29CameraAndTileStreaming();
     TestSubpixelInterpolationDeterminism();

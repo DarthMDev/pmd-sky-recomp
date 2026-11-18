@@ -139,6 +139,7 @@ inline constexpr uint32_t kGroundBgBackgroundIdOffset = 0x1BEu;   // int16_t
 inline constexpr uint32_t kGroundBgCameraCountOffset = 0x1FCu;    // int32_t
 inline constexpr uint32_t kGroundBgCameraPixelPosOffset = 0x200u; // struct pixel_position[2] (each 8 bytes: int32_t x, y in 24.8 fixed-point)
 inline constexpr uint32_t kGroundBgMapRenderOffset = 0x210u;      // struct map_render[2] (each 0x54 bytes)
+inline constexpr uint32_t kGroundBgScreenOffset = 0x2BCu;          // uint8_t (0 = engine A)
 inline constexpr uint32_t kMapRenderSize = 0x54u;
 
 // struct map_render (size: 0x54 = 84 bytes, embedded in ground_bg at +0x210)

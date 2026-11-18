@@ -94,6 +94,7 @@ apply_patches() {
     apply_patch "${ndsrecomp}" ndsrecomp-window-title.patch
     apply_patch "${ndsrecomp}" ndsrecomp-sky-settings-overlay.patch
     apply_patch "${ndsrecomp}" ndsrecomp-sky-widescreen.patch
+    apply_patch "${ndsrecomp}" ndsrecomp-sky-static-pictures.patch required
     if [[ "${1:-}" == "--ios" ]]; then
         apply_patch "${ndsrecomp}" ndsrecomp-ios.patch required
         apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch required

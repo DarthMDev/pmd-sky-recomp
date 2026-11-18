@@ -1,6 +1,7 @@
 #include "dungeon_camera.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 
 namespace skyrecomp::camera {
@@ -343,7 +344,8 @@ uint16_t DungeonCameraHook::SampleGroundMapTileEntry(
         mem.read_or<int32_t>(map_render_addr + layout::ground::kMapRenderWidthChunksOffset, 0);
     const int height_chunks =
         mem.read_or<int32_t>(map_render_addr + layout::ground::kMapRenderHeightChunksOffset, 0);
-    if (width_chunks <= 0 || height_chunks <= 0) {
+    if (width_chunks <= 0 || width_chunks > layout::ground::kChunkMapStride ||
+        height_chunks <= 0 || height_chunks > layout::ground::kChunkMapStride) {
         return 0u;
     }
 
@@ -360,6 +362,10 @@ uint16_t DungeonCameraHook::SampleGroundMapTileEntry(
     const uint32_t chunk_tiles_ptr = mem.read_or<uint32_t>(
         map_render_addr + layout::ground::kMapRenderChunkTilesPtrOffset + static_cast<uint32_t>(bg_index * 4),
         0u);
+    if (!mem.in_range(chunks_ptr, sizeof(uint16_t)) ||
+        !mem.in_range(chunk_tiles_ptr, sizeof(uint16_t))) {
+        return 0u;
+    }
 
     const uint32_t chunk_idx_addr =
         chunks_ptr + static_cast<uint32_t>((chunk_row * layout::ground::kChunkMapStride + chunk_col) * 2);
@@ -380,23 +386,29 @@ uint16_t DungeonCameraHook::SampleGroundMapTileEntry(
 bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
     GuestMemoryView mem,
     uint32_t ground_bg_addr) const noexcept {
+    return ClassifyGroundBackground(mem, ground_bg_addr) == GroundBackground::StaticPicture;
+}
+
+GroundBackground DungeonCameraHook::ClassifyGroundBackground(
+    GuestMemoryView mem,
+    uint32_t ground_bg_addr) noexcept {
     if (!mem.in_range(ground_bg_addr, layout::ground::kGroundBgSize)) {
-        return false;
+        return GroundBackground::Unknown;
     }
 
     // Dialogue scenes can have active performers over a static full-screen
     // backdrop. Decide from the background map bounds, not actor presence.
-    const int cam_count = std::clamp(
-        mem.read_or<int32_t>(ground_bg_addr + layout::ground::kGroundBgCameraCountOffset, 0),
-        0,
-        2);
-    if (cam_count <= 0) {
-        return false;
+    const int cam_count =
+        mem.read_or<int32_t>(ground_bg_addr + layout::ground::kGroundBgCameraCountOffset, 0);
+    if (cam_count < 1 || cam_count > 2) {
+        return GroundBackground::Unknown;
     }
 
     constexpr int kVanillaColumns = gpu2d::kVanillaWidth / 8; // 32
     constexpr int kVanillaRows = gpu2d::kVanillaHeight / 8;   // 24
 
+    bool all_cameras_wide = true;
+    bool all_cameras_fit = true;
     for (int idx = 0; idx < cam_count; ++idx) {
         const uint32_t mr_addr =
             ground_bg_addr + layout::ground::kGroundBgMapRenderOffset +
@@ -404,20 +416,22 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
         const int16_t chunk_dims =
             mem.read_or<int16_t>(mr_addr + layout::ground::kMapRenderChunkDimensionsOffset, 0);
         if (chunk_dims != layout::ground::kMapRenderChunks3x3) {
-            return false;
+            return GroundBackground::Unknown;
         }
 
-        const int num_bgs = std::clamp<int>(
-            mem.read_or<int16_t>(mr_addr + layout::ground::kMapRenderNumBgsOffset, 0),
-            0,
-            2);
-        constexpr int kMaxChunks = 192 / layout::ground::kChunkTileSize;
-        const int total_cols = std::clamp<int32_t>(
-            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderWidthChunksOffset, 0),
-            0, kMaxChunks) * layout::ground::kChunkTileSize;
-        const int total_rows = std::clamp<int32_t>(
-            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderHeightChunksOffset, 0),
-            0, kMaxChunks) * layout::ground::kChunkTileSize;
+        const int num_bgs =
+            mem.read_or<int16_t>(mr_addr + layout::ground::kMapRenderNumBgsOffset, 0);
+        const int width_chunks =
+            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderWidthChunksOffset, 0);
+        const int height_chunks =
+            mem.read_or<int32_t>(mr_addr + layout::ground::kMapRenderHeightChunksOffset, 0);
+        constexpr int kMaxChunks = layout::ground::kChunkMapStride;
+        if (num_bgs < 1 || num_bgs > 2 || width_chunks < 1 || width_chunks > kMaxChunks ||
+            height_chunks < 1 || height_chunks > kMaxChunks) {
+            return GroundBackground::Unknown;
+        }
+        const int total_cols = width_chunks * layout::ground::kChunkTileSize;
+        const int total_rows = height_chunks * layout::ground::kChunkTileSize;
 
         int first_col = total_cols;
         int last_col = -1;
@@ -425,28 +439,58 @@ bool DungeonCameraHook::IsGroundMapStaticFullScreenPicture(
         int last_row = -1;
 
         for (int bg = 0; bg < num_bgs; ++bg) {
-            for (int r = 0; r < total_rows; ++r) {
-                for (int c = 0; c < total_cols; ++c) {
-                    if (SampleGroundMapTileEntry(mem, mr_addr, bg, c, r) != 0u) {
-                        first_col = std::min(first_col, c);
-                        last_col = std::max(last_col, c);
-                        first_row = std::min(first_row, r);
-                        last_row = std::max(last_row, r);
-                        if (last_col - first_col >= kVanillaColumns ||
-                            last_row - first_row >= kVanillaRows) {
-                            return false;
-                        }
+            const uint32_t chunks = mem.read_or<uint32_t>(
+                mr_addr + layout::ground::kMapRenderChunkMapPtrOffset + bg * 4u);
+            const uint32_t tiles = mem.read_or<uint32_t>(
+                mr_addr + layout::ground::kMapRenderChunkTilesPtrOffset + bg * 4u);
+            const size_t chunk_map_bytes =
+                ((height_chunks - 1) * kMaxChunks + width_chunks) * sizeof(uint16_t);
+            if (!mem.in_range(chunks, chunk_map_bytes) || !mem.in_range(tiles, sizeof(uint16_t))) {
+                return GroundBackground::Unknown;
+            }
+            constexpr int kSide = layout::ground::kChunkTileSize;
+            using Chunk = std::array<uint16_t, kSide * kSide>;
+            for (int row = 0; row < height_chunks; ++row) {
+                for (int col = 0; col < width_chunks; ++col) {
+                    const uint16_t chunk_id = mem.read_or<uint16_t>(
+                        chunks + (row * kMaxChunks + col) * sizeof(uint16_t));
+                    const auto chunk = mem.read<Chunk>(tiles + chunk_id * sizeof(Chunk));
+                    if (!chunk) return GroundBackground::Unknown;
+                    for (int i = 0; i < kSide * kSide; ++i) {
+                        if ((*chunk)[i] == 0) continue;
+                        const int x = col * kSide + i % kSide;
+                        const int y = row * kSide + i / kSide;
+                        first_col = std::min(first_col, x);
+                        last_col = std::max(last_col, x);
+                        first_row = std::min(first_row, y);
+                        last_row = std::max(last_row, y);
                     }
                 }
             }
         }
 
         if (last_col < first_col || last_row < first_row) {
-            return false;
+            return GroundBackground::Unknown;
         }
+        const bool wide = last_col - first_col >= kVanillaColumns;
+        all_cameras_wide &= wide;
+        all_cameras_fit &= !wide && last_row - first_row < kVanillaRows;
     }
 
-    return true;
+    if (all_cameras_wide) return GroundBackground::WideMap;
+    return all_cameras_fit ? GroundBackground::StaticPicture : GroundBackground::Unknown;
+}
+
+GroundBackground DungeonCameraHook::ReadGroundBackground(GuestMemoryView mem) const noexcept {
+    if (mem.resolve_dungeon_ptr(region_) != 0u) {
+        return GroundBackground::Unknown;
+    }
+    const uint32_t ground_bg = mem.read_or<uint32_t>(pmdsky::Get(region_).GROUND_STATE_MAP);
+    if (!mem.in_range(ground_bg, layout::ground::kGroundBgSize) ||
+        mem.read_or<uint8_t>(ground_bg + layout::ground::kGroundBgScreenOffset, 0xFFu) != 0u) {
+        return GroundBackground::Unknown;
+    }
+    return ClassifyGroundBackground(mem, ground_bg);
 }
 
 /// Computes the widescreen margin shift for an off-screen waiting or walking cutscene `live_actor`.
