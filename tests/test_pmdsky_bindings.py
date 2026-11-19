@@ -42,9 +42,11 @@ class TestPMDSkyBindings(unittest.TestCase):
         exe_suffix = ".exe" if os.name == "nt" else ""
         bin_path = REPO_ROOT / "build" / f"test_pmdsky_bindings{exe_suffix}"
         bin_path.parent.mkdir(parents=True, exist_ok=True)
+        static_flags = ["-static"] if os.name == "nt" and Path(cxx_compiler).stem.startswith("g++") else []
         compile_cmd = [
             cxx_compiler,
             "-std=c++20",
+            *static_flags,
             f"-I{REPO_ROOT / 'include'}",
             str(CPP_TEST),
             "-o", str(bin_path),

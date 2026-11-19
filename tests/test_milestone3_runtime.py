@@ -48,10 +48,12 @@ class TestMilestone3Runtime(unittest.TestCase):
 
         exe_suffix = ".exe" if os.name == "nt" else ""
         bin_path = build_dir / f"test_milestone3_runtime{exe_suffix}"
+        static_flags = ["-static"] if os.name == "nt" and Path(cxx_compiler).stem.startswith("g++") else []
         cpp_compile_cmd = [
             cxx_compiler,
             "-std=c++20",
             "-UNDEBUG",
+            *static_flags,
             f"-I{REPO_ROOT / 'include'}",
             f"-I{REPO_ROOT / 'runtime'}",
             f"-I{recomp_ui_inc}",
