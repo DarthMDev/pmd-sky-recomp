@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7SQ032NKE1P15ACD2ZC116R",
+  "strategy": "manual-commit",
+  "branch": "feat/milestone4-core-slices",
+  "checkpoints_count": 4,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "redaction": {
+    "replacements": 46,
+    "layers": {
+      "betterleaks": 26,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 14,
+      "credentialed_uri": 0,
+      "entropy": 6,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
