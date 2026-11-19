@@ -443,6 +443,8 @@ export default {
             return errorResponse("Valid claim_token is required to complete a claimed rescue", 403);
           }
 
+          const allowLegacyNullClaimToken =
+            rescue.status === "claimed" && rescue.claim_token === null ? 1 : 0;
           const res = await env.DB.prepare(
             `UPDATE rescues
              SET status = 'completed', aok_password = ?, updated_at = ?
@@ -450,10 +452,17 @@ export default {
                AND (
                  status = 'open'
                  OR (status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?)
-                 OR (status = 'claimed' AND claim_token = ?)
+                 OR (status = 'claimed' AND ((claim_token IS NULL AND ? = 1) OR claim_token = ?))
                )`
           )
-            .bind(cleanAok, now, rescueId, now, body.claim_token ?? null)
+            .bind(
+              cleanAok,
+              now,
+              rescueId,
+              now,
+              allowLegacyNullClaimToken,
+              body.claim_token ?? null
+            )
             .run();
 
           if (res.meta.changes === 0) {

@@ -163,13 +163,15 @@ class MockD1Database {
       return 1;
     }
     if (sql.startsWith("UPDATE rescues SET status = 'completed'")) {
-      const [aokPwd, updatedAt, id, now, claimToken] = args;
+      const [aokPwd, updatedAt, id, now, allowLegacyNullClaim, claimToken] = args;
       const r = this.rows.find(
         (row) =>
           row.id === id &&
           (row.status === "open" ||
             (row.status === "claimed" && row.claim_expires_at !== null && row.claim_expires_at < now) ||
-            (row.status === "claimed" && claimToken !== null && claimToken !== undefined && row.claim_token === claimToken))
+            (row.status === "claimed" &&
+              ((row.claim_token === null && allowLegacyNullClaim === 1) ||
+                (claimToken !== null && claimToken !== undefined && row.claim_token === claimToken))))
       );
       if (!r) return 0;
       r.status = "completed";
@@ -410,6 +412,52 @@ process.stdout.write(JSON.stringify(out));
         self.assertEqual(out["badStatus"]["status"], 400)
         self.assertEqual(out["badDungeon"]["status"], 400)
         self.assertEqual(out["badJson"]["status"], 400)
+
+    def test_legacy_unexpired_claim_with_null_token_can_complete(self) -> None:
+        sos = RescueMailData("SOS", 12, 8, "Legacy", 25, 0x00000000, 3)
+        sos_pwd = encode_rescue_mail(sos)
+        aok_pwd = encode_rescue_mail(create_aok_from_sos(sos, rescuer_team="Helper"))
+
+        out = _run_node_script(f"""
+import {{ pathToFileURL }} from "node:url";
+const mod = await import(pathToFileURL({json.dumps(str(WORKER_SRC))}).href);
+const worker = mod.default;
+{MOCK_D1_JS}
+const db = new MockD1Database();
+const now = Math.floor(Date.now() / 1000);
+db.rows.push({{
+  id: "11111111-1111-1111-1111-111111111111",
+  rescue_id: 0,
+  dungeon_id: 12,
+  floor: 8,
+  team_name: "Legacy",
+  client_species: 25,
+  sos_password: {json.dumps(sos_pwd)},
+  aok_password: null,
+  thank_you_password: null,
+  status: "claimed",
+  rescuer_team_name: "Helper",
+  friend_code: null,
+  owner_token: null,
+  claim_token: null,
+  claim_expires_at: now + 3600,
+  created_at: now - 100,
+  updated_at: now - 100,
+}});
+const env = {{ DB: db, MAX_CLAIM_DURATION_HOURS: "24" }};
+const r = await worker.fetch(
+  new Request("https://rescue.example/v1/rescues/11111111-1111-1111-1111-111111111111/complete", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json" }},
+    body: JSON.stringify({{ aok_password: {json.dumps(aok_pwd)} }}),
+  }}),
+  env
+);
+process.stdout.write(JSON.stringify({{ status: r.status, json: await r.json() }}));
+""")
+        self.assertEqual(out["status"], 200)
+        self.assertEqual(out["json"]["status"], "completed")
+        self.assertEqual(out["json"]["rescue_id"], 0)
 
 
 if __name__ == "__main__":
