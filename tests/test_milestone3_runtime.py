@@ -2,6 +2,7 @@
 """Unit test runner for Milestone 3 C++20 runtime subsystems."""
 
 import os
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -29,9 +30,12 @@ class TestMilestone3Runtime(unittest.TestCase):
         recomp_ui_inc = recomp_ui_root / "src"
         recomp_ui_src = recomp_ui_inc / "common" / "recomp_runtime_ui.c"
 
+        c_compiler = os.environ.get("CC") or ("gcc" if os.name == "nt" and shutil.which("gcc") else "clang")
+        cxx_compiler = os.environ.get("CXX") or ("g++" if os.name == "nt" and shutil.which("g++") else "clang++")
+
         recomp_ui_obj = build_dir / "recomp_runtime_ui_test.o"
         c_compile_cmd = [
-            "clang",
+            c_compiler,
             "-std=c11",
             f"-I{recomp_ui_inc}",
             "-c",
@@ -42,9 +46,10 @@ class TestMilestone3Runtime(unittest.TestCase):
         res_c = subprocess.run(c_compile_cmd, capture_output=True, text=True)
         self.assertEqual(res_c.returncode, 0, f"recomp-ui C compilation failed: {res_c.stderr}")
 
-        bin_path = build_dir / "test_milestone3_runtime"
+        exe_suffix = ".exe" if os.name == "nt" else ""
+        bin_path = build_dir / f"test_milestone3_runtime{exe_suffix}"
         cpp_compile_cmd = [
-            "clang++",
+            cxx_compiler,
             "-std=c++20",
             "-UNDEBUG",
             f"-I{REPO_ROOT / 'include'}",
