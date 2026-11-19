@@ -591,9 +591,10 @@ def prepare_rom(
     out_dir: Path,
     allow_custom_rom: bool = False,
     forced_region: Optional[str] = None,
+    rom_bytes: Optional[bytes] = None,
 ) -> Tuple[str, str, List[BankSpec]]:
     """Identify the ROM and prepare the binary inputs and configs for its banks."""
-    rom = rom_path.read_bytes()
+    rom = rom_bytes if rom_bytes is not None else rom_path.read_bytes()
     if len(rom) < 0x200:
         raise ValueError("ROM size is too small for a Nintendo DS header")
     rom_sha1 = hashlib.sha1(rom).hexdigest()
@@ -1117,8 +1118,8 @@ def main() -> int:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=repo_root / "build" / "extracted_sky_us",
-        help="Directory for extracted binaries and generated TOML configs",
+        default=None,
+        help="Directory for extracted binaries and generated TOML configs (defaults to build/extracted_sky_<region> or isolated custom cache)",
     )
     parser.add_argument("--allow-custom-rom", action="store_true", help="Allow modified/SkyTemple ROMs")
     parser.add_argument("--region", choices=["NA", "EU"], help="Explicit region override for custom ROMs")
@@ -1133,8 +1134,8 @@ def main() -> int:
     parser.add_argument(
         "--gen-dir",
         type=Path,
-        default=repo_root / "build" / "generated_sky_us",
-        help="Output directory for generated C bank shards",
+        default=None,
+        help="Output directory for generated C bank shards (defaults to build/generated_sky_<region> or isolated custom cache)",
     )
     parser.add_argument("--max-function-bytes", type=int, default=8192, help="Max function chunk bytes (<=8192)")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 8, help="Parallel recompiler workers")
@@ -1144,22 +1145,22 @@ def main() -> int:
         print(f"[prepare_rom] ERROR: ROM file not found: {args.rom}", file=sys.stderr)
         return 1
 
+    is_default_out = args.out_dir is None
+    is_default_gen = args.gen_dir is None
     default_out_us = repo_root / "build" / "extracted_sky_us"
     default_gen_us = repo_root / "build" / "generated_sky_us"
-    is_default_out = (args.out_dir == default_out_us)
-    is_default_gen = (args.gen_dir == default_gen_us)
 
-    # Detect region early to adjust default dirs if Europe or custom ROM
-    rom_head = args.rom.read_bytes()
-    rom_sha1 = hashlib.sha1(rom_head).hexdigest()
+    # Read ROM once so hashing, cache directory selection, and bank extraction use the same snapshot.
+    rom_snapshot = args.rom.read_bytes()
+    rom_sha1 = hashlib.sha1(rom_snapshot).hexdigest()
     detected_region = KNOWN_ROMS.get(rom_sha1, (args.region or "NA", ""))[0]
 
     out_dir, gen_dir = resolve_output_dirs(
         repo_root,
         rom_sha1,
         detected_region,
-        args.out_dir,
-        args.gen_dir,
+        args.out_dir or default_out_us,
+        args.gen_dir or default_gen_us,
         is_default_out,
         is_default_gen,
     )
@@ -1170,6 +1171,7 @@ def main() -> int:
         out_dir,
         allow_custom_rom=args.allow_custom_rom,
         forced_region=args.region,
+        rom_bytes=rom_snapshot,
     )
 
     if not args.audit and not args.compile:

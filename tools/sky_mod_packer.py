@@ -20,6 +20,7 @@ import os
 import struct
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -285,36 +286,48 @@ class NitroFS:
         meta = ModMetadata(id=default_id)
         if not toml_path.exists():
             return meta
-        for line in toml_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k = k.strip().lower()
-            v = v.strip().strip('"').strip("'")
-            if k == "id":
-                meta.id = v
-            elif k == "name":
-                meta.name = v
-            elif k == "author":
-                meta.author = v
-            elif k == "version":
-                meta.version = v
-            elif k == "description":
-                meta.description = v
-            elif k == "priority":
+        try:
+            data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"Invalid mod.toml in {toml_path}: {exc}") from exc
+
+        if "id" in data:
+            meta.id = str(data["id"])
+        if "name" in data:
+            meta.name = str(data["name"])
+        if "author" in data:
+            meta.author = str(data["author"])
+        if "version" in data:
+            meta.version = str(data["version"])
+        if "description" in data:
+            meta.description = str(data["description"])
+        if "priority" in data:
+            raw_prio = data["priority"]
+            if isinstance(raw_prio, bool):
+                raise ValueError(f"Invalid mod priority in {toml_path}: {raw_prio!r}")
+            if isinstance(raw_prio, int):
+                meta.priority = raw_prio
+            elif isinstance(raw_prio, str):
                 try:
-                    meta.priority = int(v)
+                    meta.priority = int(raw_prio.strip())
                 except ValueError as exc:
-                    raise ValueError(f"Invalid mod priority in {toml_path}: {v!r}") from exc
-            elif k == "enabled":
-                low = v.lower()
+                    raise ValueError(f"Invalid mod priority in {toml_path}: {raw_prio!r}") from exc
+            else:
+                raise ValueError(f"Invalid mod priority in {toml_path}: {raw_prio!r}")
+        if "enabled" in data:
+            raw_enabled = data["enabled"]
+            if isinstance(raw_enabled, bool):
+                meta.enabled = raw_enabled
+            elif isinstance(raw_enabled, str):
+                low = raw_enabled.strip().lower()
                 if low == "true":
                     meta.enabled = True
                 elif low == "false":
                     meta.enabled = False
                 else:
-                    raise ValueError(f"Invalid mod enabled flag in {toml_path}: {v!r}")
+                    raise ValueError(f"Invalid mod enabled flag in {toml_path}: {raw_enabled!r}")
+            else:
+                raise ValueError(f"Invalid mod enabled flag in {toml_path}: {raw_enabled!r}")
         return meta
 
     def build_fnt_and_fat(
@@ -505,9 +518,26 @@ class NitroFS:
         fid_to_path = {fid: path for path, fid in self.file_ids.items()}
 
         raw_payload_start = min(orig_fat[fid][0] for fid in named_fids) if named_fids else len(base_rom)
-        payload_start = max(raw_payload_start, fnt_off + fnt_sz, fat_off + fat_sz)
-        out_rom = bytearray(base_rom[:payload_start])
-        while len(out_rom) < payload_start:
+        arm9_off, _, _, arm9_sz = struct.unpack_from("<IIII", base_rom, 0x20)
+        arm7_off, _, _, arm7_sz = struct.unpack_from("<IIII", base_rom, 0x30)
+        ov9_off, ov9_sz, ov7_off, ov7_sz = struct.unpack_from("<IIII", base_rom, 0x50)
+        header_section_ends = [
+            fnt_off + fnt_sz,
+            fat_off + fat_sz,
+            *(
+                off + sz
+                for off, sz in (
+                    (arm9_off, arm9_sz),
+                    (arm7_off, arm7_sz),
+                    (ov9_off, ov9_sz),
+                    (ov7_off, ov7_sz),
+                )
+                if sz > 0 and off + sz <= len(base_rom)
+            ),
+        ]
+        preserve_end = min(len(base_rom), max(raw_payload_start, *header_section_ends))
+        out_rom = bytearray(base_rom[:preserve_end])
+        while len(out_rom) < preserve_end:
             out_rom.append(0x00)
         while len(out_rom) % 4 != 0:
             out_rom.append(0x00)
@@ -515,7 +545,7 @@ class NitroFS:
         for fid in range(self.total_fat_entries):
             if fid not in named_fids:
                 start_off, end_off = orig_fat[fid]
-                if end_off > payload_start:
+                if end_off > preserve_end:
                     data = self.unmapped_fat_entries.get(fid, base_rom[start_off:end_off])
                     while len(out_rom) % 4 != 0:
                         out_rom.append(0x00)
@@ -558,11 +588,11 @@ def main():
     p_build.add_argument("--out-payload", type=Path, default=None, help="Output merged payload binary path (defaults to <out_fat_dir>/payload.bin)")
     p_build.add_argument("--strict-existing-only", action="store_true", help="Reject mods that add new NitroFS paths")
 
-    p_build_rom = sub.add_parser("build-rom", help="Build patched .nds ROM preserving executable banks and file IDs")
+    p_build_rom = sub.add_parser("build-rom", help="Build patched .nds ROM preserving executable banks and file IDs (replacement-only)")
     p_build_rom.add_argument("--rom", required=True, type=Path, help="Path to clean base .nds ROM")
     p_build_rom.add_argument("--mods-dir", required=True, type=Path, help="Directory containing mod folders")
     p_build_rom.add_argument("--out-rom", required=True, type=Path, help="Output patched .nds ROM path")
-    p_build_rom.add_argument("--strict-existing-only", action="store_true", help="Reject mods that add new NitroFS paths")
+    p_build_rom.add_argument("--strict-existing-only", action="store_true", help="Reject mods that add new NitroFS paths (always enforced for build-rom)")
 
     args = parser.parse_args()
     if not args.command:
@@ -606,7 +636,7 @@ def main():
         fs = NitroFS.from_rom(rom)
         applied = fs.apply_layered_mods(
             args.mods_dir,
-            strict_existing_only=args.strict_existing_only,
+            strict_existing_only=True,
         )
         for mod_id, count in applied:
             print(f"[sky_mod_packer] Applied mod '{mod_id}': {count} files overridden")

@@ -259,6 +259,43 @@ class TestNitroFSSynthetic(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"second_payload")
             self.assertEqual(list(target.parent.iterdir()), [target])
 
+    def test_toml_trailing_comments_in_mod_metadata(self):
+        fs = NitroFS()
+        fs.files["data/a.bin"] = b"base"
+        with tempfile.TemporaryDirectory() as td:
+            mods = Path(td)
+            mod_a = mods / "mod_a"
+            (mod_a / "romfs" / "data").mkdir(parents=True)
+            (mod_a / "mod.toml").write_text(
+                'id = "mod_a" # identifier\npriority = 25 # higher wins\nenabled = true # active\n'
+            )
+            (mod_a / "romfs" / "data" / "a.bin").write_bytes(b"active")
+
+            mod_b = mods / "mod_b"
+            (mod_b / "romfs" / "data").mkdir(parents=True)
+            (mod_b / "mod.toml").write_text(
+                'id = "mod_b"\npriority = 99 # would win if enabled\nenabled = false # disabled\n'
+            )
+            (mod_b / "romfs" / "data" / "a.bin").write_bytes(b"inactive")
+
+            applied = fs.apply_layered_mods(mods)
+        self.assertEqual(applied, [("mod_a", 1)])
+        self.assertEqual(fs.files["data/a.bin"], b"active")
+
+    def test_build_patched_rom_preserves_arm7_after_first_named_payload(self):
+        base = bytearray(synthetic_rom({"data/a.bin": b"OLD_DATA"}))
+        # Append an ARM7 section after the named payload and point header 0x30 to it
+        arm7_bytes = b"ARM7_EXEC_CODE_SECTION"
+        arm7_off = len(base)
+        base.extend(arm7_bytes)
+        struct.pack_into("<IIII", base, 0x30, arm7_off, 0x02380000, 0x02380000, len(arm7_bytes))
+
+        fs = NitroFS.from_rom(bytes(base))
+        fs.files["data/a.bin"] = b"NEW_REPLACEMENT_DATA"
+        patched = fs.build_patched_rom(bytes(base))
+        self.assertEqual(patched[arm7_off : arm7_off + len(arm7_bytes)], arm7_bytes)
+        self.assertEqual(NitroFS.from_rom(patched).files["data/a.bin"], b"NEW_REPLACEMENT_DATA")
+
 
 class TestNitroFSWithLocalROM(unittest.TestCase):
     @unittest.skipUnless(ROM_PATH.is_file(), f"ROM not found at {ROM_PATH}")

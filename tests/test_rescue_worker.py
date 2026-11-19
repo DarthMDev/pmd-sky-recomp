@@ -103,6 +103,14 @@ class MockD1Database {
         created_at,
         updated_at,
       ] = args;
+      const conflict = this.rows.find(
+        (r) =>
+          (r.status === "open" || r.status === "claimed") &&
+          (r.rescue_id === rescue_id || r.sos_password === sos_password)
+      );
+      if (conflict) {
+        throw new Error("UNIQUE constraint failed: rescues.rescue_id");
+      }
       this.rows.push({
         id,
         rescue_id,
@@ -155,9 +163,13 @@ class MockD1Database {
       return 1;
     }
     if (sql.startsWith("UPDATE rescues SET status = 'completed'")) {
-      const [aokPwd, updatedAt, id] = args;
+      const [aokPwd, updatedAt, id, now, claimToken] = args;
       const r = this.rows.find(
-        (row) => row.id === id && (row.status === "open" || row.status === "claimed")
+        (row) =>
+          row.id === id &&
+          (row.status === "open" ||
+            (row.status === "claimed" && row.claim_expires_at !== null && row.claim_expires_at < now) ||
+            (row.status === "claimed" && claimToken !== null && claimToken !== undefined && row.claim_token === claimToken))
       );
       if (!r) return 0;
       r.status = "completed";
@@ -181,28 +193,38 @@ class MockD1Database {
 """
 
 
-def _node_supports_ts() -> bool:
+def _node_ts_args() -> list[str] | None:
     node = shutil.which("node")
     if not node:
-        return False
+        return None
     res = subprocess.run([node, "--version"], capture_output=True, text=True, check=False)
     if res.returncode != 0:
-        return False
+        return None
     ver = res.stdout.strip().lstrip("v").split(".")
     try:
         major, minor = int(ver[0]), int(ver[1])
     except (ValueError, IndexError):
-        return False
-    return (major, minor) >= (22, 6)
+        return None
+    if (major, minor) < (22, 6):
+        return None
+    if (major, minor) < (23, 6):
+        return ["--experimental-strip-types"]
+    return []
 
 
 def _run_node_script(script_body: str) -> dict:
     node = shutil.which("node")
-    assert node is not None
+    ts_args = _node_ts_args()
+    assert node is not None and ts_args is not None
     with tempfile.TemporaryDirectory() as td:
         script_path = Path(td) / "driver.mjs"
         script_path.write_text(script_body, encoding="utf-8")
-        res = subprocess.run([node, str(script_path)], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            [node, *ts_args, str(script_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         if res.returncode != 0:
             raise AssertionError(
                 f"Node worker harness failed ({res.returncode}):\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
@@ -210,7 +232,7 @@ def _run_node_script(script_body: str) -> dict:
         return json.loads(res.stdout)
 
 
-@unittest.skipUnless(_node_supports_ts(), "Node.js >= 22.6 required to execute rescue-worker TypeScript tests")
+@unittest.skipUnless(_node_ts_args() is not None, "Node.js >= 22.6 required to execute rescue-worker TypeScript tests")
 class TestRescueWorker(unittest.TestCase):
     def test_parse_rescue_mail_parity_with_32bit_msb_ids(self) -> None:
         cases = []
@@ -252,9 +274,15 @@ process.stdout.write(JSON.stringify({{ results }}));
         unrelated_aok_pwd = encode_rescue_mail(
             RescueMailData("A-OK", 24, 15, "Saviors", 393, 0x11112222, 2)
         )
+        wrong_species_aok_pwd = encode_rescue_mail(
+            RescueMailData("A-OK", 24, 15, "Saviors", 25, 0x9ABCDEF0, 2)
+        )
         ty_pwd = encode_rescue_mail(create_thank_you_from_aok(aok, team_name="Pokepals"))
         wrong_ty_pwd = encode_rescue_mail(
             RescueMailData("THANK-YOU", 24, 15, "Pokepals", 393, 0x22223333, 2)
+        )
+        wrong_species_ty_pwd = encode_rescue_mail(
+            RescueMailData("THANK-YOU", 24, 15, "Pokepals", 25, 0x9ABCDEF0, 2)
         )
 
         out = _run_node_script(f"""
@@ -305,6 +333,9 @@ out.completeWrongToken = await call("POST", "/v1/rescues/" + id + "/complete", {
 out.completeWrongId = await call("POST", "/v1/rescues/" + id + "/complete", {{
   aok_password: {json.dumps(unrelated_aok_pwd)}, claim_token: claimToken2
 }});
+out.completeWrongSpecies = await call("POST", "/v1/rescues/" + id + "/complete", {{
+  aok_password: {json.dumps(wrong_species_aok_pwd)}, claim_token: claimToken2
+}});
 out.thankYouEarly = await call("POST", "/v1/rescues/" + id + "/thank-you", {{
   thank_you_password: {json.dumps(ty_pwd)}, owner_token: ownerToken
 }});
@@ -319,6 +350,9 @@ out.tyWrongOwner = await call("POST", "/v1/rescues/" + id + "/thank-you", {{
 }});
 out.tyWrongId = await call("POST", "/v1/rescues/" + id + "/thank-you", {{
   thank_you_password: {json.dumps(wrong_ty_pwd)}, owner_token: ownerToken
+}});
+out.tyWrongSpecies = await call("POST", "/v1/rescues/" + id + "/thank-you", {{
+  thank_you_password: {json.dumps(wrong_species_ty_pwd)}, owner_token: ownerToken
 }});
 out.tyOk = await call("POST", "/v1/rescues/" + id + "/thank-you", {{
   thank_you_password: {json.dumps(ty_pwd)}, owner_token: ownerToken
@@ -355,11 +389,13 @@ process.stdout.write(JSON.stringify(out));
         self.assertEqual(out["claimReclaimed"]["status"], 200)
         self.assertEqual(out["completeWrongToken"]["status"], 403)
         self.assertEqual(out["completeWrongId"]["status"], 400)
+        self.assertEqual(out["completeWrongSpecies"]["status"], 400)
         self.assertEqual(out["thankYouEarly"]["status"], 409)
         self.assertEqual(out["completeOk"]["status"], 200)
         self.assertEqual(out["completeDup"]["status"], 409)
         self.assertEqual(out["tyWrongOwner"]["status"], 403)
         self.assertEqual(out["tyWrongId"]["status"], 400)
+        self.assertEqual(out["tyWrongSpecies"]["status"], 400)
         self.assertEqual(out["tyOk"]["status"], 200)
         self.assertTrue(out["tyOk"]["json"]["thank_you_recorded"])
         self.assertEqual(out["tyDup"]["status"], 409)

@@ -6,10 +6,12 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run d1:migrate-remote && wrangler deploy",
     "test": "python3 ../../tests/test_rescue_worker.py",
     "d1:init-local": "wrangler d1 execute DB --local --file=./schema.sql",
-    "d1:init-remote": "wrangler d1 execute DB --remote --file=./schema.sql"
+    "d1:init-remote": "wrangler d1 execute DB --remote --file=./schema.sql",
+    "d1:migrate-local": "node ./scripts/apply_migrations.mjs --local",
+    "d1:migrate-remote": "node ./scripts/apply_migrations.mjs --remote"
   },
   "keywords": [
     "pokemon-mystery-dungeon",

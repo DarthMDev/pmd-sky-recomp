@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -278,6 +279,35 @@ class TestPrepareRom(unittest.TestCase):
                 prepare_rom_mod.prepare_rom(
                     bad_ov_path, symbols_dir, root / "out3", allow_custom_rom=True, forced_region="NA"
                 )
+
+    def test_main_preserves_explicit_us_default_dirs_and_uses_single_rom_read(self) -> None:
+        rom_bytes, _ = build_synthetic_nds_rom(num_overlays=2, include_ov35_blz=False, include_ov36=False)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            rom_path = root / "custom.nds"
+            rom_path.write_bytes(rom_bytes)
+            explicit_out = prepare_rom_mod.Path(prepare_rom_mod.__file__).resolve().parent.parent / "build" / "extracted_sky_us"
+
+            with mock.patch.object(prepare_rom_mod, "prepare_rom", return_value=("sha", "NA", [])) as mock_prep, \
+                 mock.patch.object(
+                     sys,
+                     "argv",
+                     [
+                         "prepare_rom.py",
+                         "--rom",
+                         str(rom_path),
+                         "--allow-custom-rom",
+                         "--region",
+                         "NA",
+                         "--out-dir",
+                         str(explicit_out),
+                     ],
+                 ):
+                rc = prepare_rom_mod.main()
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(mock_prep.call_args.args[2], explicit_out)
+            self.assertEqual(mock_prep.call_args.kwargs["rom_bytes"], rom_bytes)
 
 
 if __name__ == "__main__":

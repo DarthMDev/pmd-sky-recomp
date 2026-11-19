@@ -222,39 +222,38 @@ export default {
           return errorResponse("SOS password metadata does not match submission fields");
         }
 
-        const existing = await env.DB.prepare(
-          "SELECT id FROM rescues WHERE status IN ('open', 'claimed') AND (rescue_id = ? OR sos_password = ?)"
-        )
-          .bind(sosInfo.rescueId, cleanSos)
-          .first();
-        if (existing) {
-          return errorResponse("An active rescue with this SOS identity already exists", 409);
-        }
-
         const id = crypto.randomUUID();
         const ownerToken = crypto.randomUUID();
         const friendCode = typeof body.friend_code === "string" ? body.friend_code.slice(0, 20) : null;
 
-        await env.DB.prepare(
-          `INSERT INTO rescues (
-            id, rescue_id, dungeon_id, floor, team_name, client_species, sos_password,
-            status, friend_code, owner_token, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`
-        )
-          .bind(
-            id,
-            sosInfo.rescueId,
-            body.dungeon_id,
-            body.floor,
-            teamName,
-            body.client_species,
-            cleanSos,
-            friendCode,
-            ownerToken,
-            now,
-            now
+        try {
+          await env.DB.prepare(
+            `INSERT INTO rescues (
+              id, rescue_id, dungeon_id, floor, team_name, client_species, sos_password,
+              status, friend_code, owner_token, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`
           )
-          .run();
+            .bind(
+              id,
+              sosInfo.rescueId,
+              body.dungeon_id,
+              body.floor,
+              teamName,
+              body.client_species,
+              cleanSos,
+              friendCode,
+              ownerToken,
+              now,
+              now
+            )
+            .run();
+        } catch (insertErr: unknown) {
+          const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+          if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(msg)) {
+            return errorResponse("An active rescue with this SOS identity already exists", 409);
+          }
+          throw insertErr;
+        }
 
         return jsonResponse({
           success: true,
@@ -399,7 +398,7 @@ export default {
           }
 
           const rescue = await env.DB.prepare(
-            "SELECT id, rescue_id, dungeon_id, floor, sos_password, status, claim_token, claim_expires_at FROM rescues WHERE id = ?"
+            "SELECT id, rescue_id, dungeon_id, floor, client_species, sos_password, status, claim_token, claim_expires_at FROM rescues WHERE id = ?"
           )
             .bind(rescueId)
             .first<{
@@ -407,6 +406,7 @@ export default {
               rescue_id: number | null;
               dungeon_id: number;
               floor: number;
+              client_species: number;
               sos_password: string;
               status: string;
               claim_token: string | null;
@@ -427,10 +427,11 @@ export default {
           if (
             aokInfo.dungeonId !== rescue.dungeon_id ||
             aokInfo.floor !== rescue.floor ||
+            aokInfo.clientSpecies !== rescue.client_species ||
             expectedRescueId === null ||
             aokInfo.rescueId !== expectedRescueId
           ) {
-            return errorResponse("A-OK password does not match this rescue mission's identity, dungeon, or floor");
+            return errorResponse("A-OK password does not match this rescue mission's identity, dungeon, floor, or client species");
           }
 
           if (
@@ -445,9 +446,14 @@ export default {
           const res = await env.DB.prepare(
             `UPDATE rescues
              SET status = 'completed', aok_password = ?, updated_at = ?
-             WHERE id = ? AND status IN ('open', 'claimed')`
+             WHERE id = ?
+               AND (
+                 status = 'open'
+                 OR (status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?)
+                 OR (status = 'claimed' AND claim_token = ?)
+               )`
           )
-            .bind(cleanAok, now, rescueId)
+            .bind(cleanAok, now, rescueId, now, body.claim_token ?? null)
             .run();
 
           if (res.meta.changes === 0) {
@@ -481,7 +487,7 @@ export default {
           }
 
           const rescue = await env.DB.prepare(
-            "SELECT id, rescue_id, dungeon_id, floor, sos_password, status, owner_token, thank_you_password FROM rescues WHERE id = ?"
+            "SELECT id, rescue_id, dungeon_id, floor, client_species, sos_password, status, owner_token, thank_you_password FROM rescues WHERE id = ?"
           )
             .bind(rescueId)
             .first<{
@@ -489,6 +495,7 @@ export default {
               rescue_id: number | null;
               dungeon_id: number;
               floor: number;
+              client_species: number;
               sos_password: string;
               status: string;
               owner_token: string | null;
@@ -512,10 +519,11 @@ export default {
           if (
             tyInfo.dungeonId !== rescue.dungeon_id ||
             tyInfo.floor !== rescue.floor ||
+            tyInfo.clientSpecies !== rescue.client_species ||
             expectedRescueId === null ||
             tyInfo.rescueId !== expectedRescueId
           ) {
-            return errorResponse("Thank-You password does not match this rescue mission's identity, dungeon, or floor");
+            return errorResponse("Thank-You password does not match this rescue mission's identity, dungeon, floor, or client species");
           }
 
           const res = await env.DB.prepare(
