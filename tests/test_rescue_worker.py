@@ -591,14 +591,58 @@ process.stdout.write(JSON.stringify({{
 import {{ execFileSync }} from "node:child_process";
 import {{ pathToFileURL }} from "node:url";
 const mig = await import(pathToFileURL({json.dumps(str(MIGRATE_SCRIPT))}).href);
+const workerMod = await import(pathToFileURL({json.dumps(str(WORKER_SRC))}).href);
 const execSql = (sql) => {{
   const res = execFileSync({json.dumps(sys.executable)}, ["-c", {json.dumps(sqlite_bridge_py)}, {json.dumps(str(db_path))}, sql], {{ encoding: "utf8" }});
   return JSON.parse(res);
 }};
 const result = mig.migrateDatabase(execSql, {{ batchSize: 1 }});
-process.stdout.write(JSON.stringify(result));
+
+// Capture the exact completion SQL passed by worker.fetch to DB.prepare(sql).
+{MOCK_D1_JS}
+const mockDb = new MockD1Database();
+const now = Math.floor(Date.now() / 1000);
+mockDb.rows.push({{
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  rescue_id: 0x11111111,
+  dungeon_id: 10,
+  floor: 4,
+  team_name: "TeamA",
+  client_species: 25,
+  sos_password: {json.dumps(pwd_a)},
+  aok_password: null,
+  thank_you_password: null,
+  status: "claimed",
+  rescuer_team_name: "Rescuer",
+  friend_code: null,
+  owner_token: null,
+  claim_token: null,
+  claim_expires_at: now + 3600,
+  created_at: now - 100,
+  updated_at: now - 100,
+}});
+let capturedCompletionSql = null;
+const origPrepare = mockDb.prepare.bind(mockDb);
+mockDb.prepare = (sql) => {{
+  if (sql.includes("SET status = 'completed'")) {{
+    capturedCompletionSql = sql;
+  }}
+  return origPrepare(sql);
+}};
+await workerMod.default.fetch(
+  new Request("https://rescue.example/v1/rescues/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/complete", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json" }},
+    body: JSON.stringify({{ aok_password: {json.dumps(aok_a)} }}),
+  }}),
+  {{ DB: mockDb, MAX_CLAIM_DURATION_HOURS: "24" }}
+);
+
+process.stdout.write(JSON.stringify({{ ...result, capturedCompletionSql }}));
 """)
             self.assertEqual(out["backfilled"], 2)
+            completion_sql = out["capturedCompletionSql"]
+            self.assertIsNotNone(completion_sql)
 
             conn = sqlite3.connect(db_path)
             rows = dict(conn.execute("SELECT id, rescue_id FROM rescues").fetchall())
@@ -606,18 +650,8 @@ process.stdout.write(JSON.stringify(result));
             self.assertEqual(rows["row-b"], 0x22222222)
             self.assertEqual(rows["row-zero"], 0)
 
-            # Verify actual SQL completion predicate against real SQLite:
+            # Verify the captured worker completion SQL against real SQLite:
             # 1) Tokenless legacy claim (row-a: status='claimed', claim_token IS NULL) succeeds.
-            completion_sql = """
-            UPDATE rescues
-            SET status = 'completed', aok_password = ?, updated_at = ?
-            WHERE id = ?
-              AND (
-                status = 'open'
-                OR (status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?)
-                OR (status = 'claimed' AND ((claim_token IS NULL AND ? = 1) OR claim_token = ?))
-              )
-            """
             cur = conn.execute(completion_sql, (aok_a, 200, "row-a", 200, 1, None))
             self.assertEqual(cur.rowcount, 1)
 
