@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS rescues (
 CREATE INDEX IF NOT EXISTS idx_rescues_status ON rescues(status);
 CREATE INDEX IF NOT EXISTS idx_rescues_dungeon ON rescues(dungeon_id, floor);
 CREATE INDEX IF NOT EXISTS idx_rescues_rescue_id ON rescues(rescue_id);
+DROP INDEX IF EXISTS idx_rescues_active_rescue_id;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rescues_active_rescue_id
-    ON rescues(rescue_id) WHERE status IN ('open', 'claimed');
+    ON rescues(dungeon_id, floor, client_species, rescue_id) WHERE status IN ('open', 'claimed');
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rescues_active_sos_password
     ON rescues(sos_password) WHERE status IN ('open', 'claimed');
 CREATE INDEX IF NOT EXISTS idx_rescues_created_at ON rescues(created_at DESC);

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,7 @@ from tools.wondermail import (
 )
 
 WORKER_SRC = REPO_ROOT / "services" / "rescue-worker" / "src" / "index.ts"
+MIGRATE_SCRIPT = REPO_ROOT / "services" / "rescue-worker" / "scripts" / "apply_migrations.mjs"
 
 MOCK_D1_JS = r"""
 class MockPreparedStatement {
@@ -106,7 +108,11 @@ class MockD1Database {
       const conflict = this.rows.find(
         (r) =>
           (r.status === "open" || r.status === "claimed") &&
-          (r.rescue_id === rescue_id || r.sos_password === sos_password)
+          ((r.dungeon_id === dungeon_id &&
+            r.floor === floor &&
+            r.client_species === client_species &&
+            r.rescue_id === rescue_id) ||
+            r.sos_password === sos_password)
       );
       if (conflict) {
         throw new Error("UNIQUE constraint failed: rescues.rescue_id");
@@ -458,6 +464,172 @@ process.stdout.write(JSON.stringify({{ status: r.status, json: await r.json() }}
         self.assertEqual(out["status"], 200)
         self.assertEqual(out["json"]["status"], "completed")
         self.assertEqual(out["json"]["rescue_id"], 0)
+
+    def test_claim_token_type_validation_and_null_owner_token_rejection(self) -> None:
+        sos = RescueMailData("SOS", 12, 8, "Legacy", 25, 0x12345678, 3)
+        sos_pwd = encode_rescue_mail(sos)
+        aok = create_aok_from_sos(sos, rescuer_team="Helper")
+        aok_pwd = encode_rescue_mail(aok)
+        ty_pwd = encode_rescue_mail(create_thank_you_from_aok(aok, team_name="Legacy"))
+
+        out = _run_node_script(f"""
+import {{ pathToFileURL }} from "node:url";
+const mod = await import(pathToFileURL({json.dumps(str(WORKER_SRC))}).href);
+const worker = mod.default;
+{MOCK_D1_JS}
+const db = new MockD1Database();
+const now = Math.floor(Date.now() / 1000);
+db.rows.push({{
+  id: "22222222-2222-2222-2222-222222222222",
+  rescue_id: 0x12345678,
+  dungeon_id: 12,
+  floor: 8,
+  team_name: "Legacy",
+  client_species: 25,
+  sos_password: {json.dumps(sos_pwd)},
+  aok_password: {json.dumps(aok_pwd)},
+  thank_you_password: null,
+  status: "completed",
+  rescuer_team_name: "Helper",
+  friend_code: null,
+  owner_token: null,
+  claim_token: null,
+  claim_expires_at: null,
+  created_at: now - 100,
+  updated_at: now - 50,
+}});
+const env = {{ DB: db, MAX_CLAIM_DURATION_HOURS: "24" }};
+const badClaimToken = await worker.fetch(
+  new Request("https://rescue.example/v1/rescues/22222222-2222-2222-2222-222222222222/complete", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json" }},
+    body: JSON.stringify({{ aok_password: {json.dumps(aok_pwd)}, claim_token: 12345 }}),
+  }}),
+  env
+);
+const nullOwnerThankYou = await worker.fetch(
+  new Request("https://rescue.example/v1/rescues/22222222-2222-2222-2222-222222222222/thank-you", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json" }},
+    body: JSON.stringify({{ thank_you_password: {json.dumps(ty_pwd)} }}),
+  }}),
+  env
+);
+process.stdout.write(JSON.stringify({{
+  badClaimStatus: badClaimToken.status,
+  nullOwnerStatus: nullOwnerThankYou.status,
+}}));
+""")
+        self.assertEqual(out["badClaimStatus"], 400)
+        self.assertEqual(out["nullOwnerStatus"], 403)
+
+    def test_sqlite_migration_backfill_at_zero_and_actual_completion_sql(self) -> None:
+        sos_a = RescueMailData("SOS", 10, 4, "TeamA", 25, 0x11111111, 3)
+        sos_b = RescueMailData("SOS", 10, 4, "TeamB", 25, 0x22222222, 3)
+        sos_zero = RescueMailData("SOS", 11, 5, "TeamZ", 25, 0, 3)
+        pwd_a = encode_rescue_mail(sos_a)
+        pwd_b = encode_rescue_mail(sos_b)
+        pwd_zero = encode_rescue_mail(sos_zero)
+        aok_a = encode_rescue_mail(create_aok_from_sos(sos_a, rescuer_team="Rescuer"))
+        aok_b = encode_rescue_mail(create_aok_from_sos(sos_b, rescuer_team="Rescuer"))
+
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "test_d1.sqlite"
+            conn = sqlite3.connect(db_path)
+            # Simulate an already-upgraded-to-DEFAULT-0 legacy DB with two active rows stuck at 0
+            # plus a legitimate rescue_id=0 row and a legacy index on (rescue_id).
+            conn.executescript(
+                """
+                CREATE TABLE rescues (
+                    id TEXT PRIMARY KEY,
+                    rescue_id INTEGER NOT NULL DEFAULT 0,
+                    dungeon_id INTEGER NOT NULL,
+                    floor INTEGER NOT NULL,
+                    team_name TEXT NOT NULL,
+                    client_species INTEGER NOT NULL,
+                    sos_password TEXT NOT NULL,
+                    aok_password TEXT,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    rescuer_team_name TEXT,
+                    friend_code TEXT,
+                    claim_expires_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX idx_rescues_active_rescue_id ON rescues(rescue_id);
+                """
+            )
+            conn.execute(
+                "INSERT INTO rescues (id, rescue_id, dungeon_id, floor, team_name, client_species, sos_password, status, claim_expires_at, created_at, updated_at) VALUES (?, 0, ?, ?, ?, ?, ?, 'claimed', 9999999999, 100, 100)",
+                ("row-a", 10, 4, "TeamA", 25, pwd_a),
+            )
+            conn.execute(
+                "INSERT INTO rescues (id, rescue_id, dungeon_id, floor, team_name, client_species, sos_password, status, created_at, updated_at) VALUES (?, 0, ?, ?, ?, ?, ?, 'open', 101, 101)",
+                ("row-b", 10, 4, "TeamB", 25, pwd_b),
+            )
+            conn.execute(
+                "INSERT INTO rescues (id, rescue_id, dungeon_id, floor, team_name, client_species, sos_password, status, created_at, updated_at) VALUES (?, 0, ?, ?, ?, ?, ?, 'open', 102, 102)",
+                ("row-zero", 11, 5, "TeamZ", 25, pwd_zero),
+            )
+            conn.commit()
+            conn.close()
+
+            sqlite_bridge_py = (
+                "import json, sqlite3, sys; "
+                "c = sqlite3.connect(sys.argv[1]); "
+                "c.row_factory = sqlite3.Row; "
+                "sql = sys.argv[2]; "
+                "st = [s.strip() for s in sql.split(';') if s.strip()]; "
+                "cur = c.cursor(); "
+                "rows = []; "
+                "[rows.extend([dict(r) for r in cur.execute(s).fetchall()]) if s.upper().startswith('SELECT') or s.upper().startswith('PRAGMA') else cur.execute(s) for s in st]; "
+                "c.commit(); c.close(); "
+                "print(json.dumps([{'results': rows}]))"
+            )
+
+            out = _run_node_script(f"""
+import {{ execFileSync }} from "node:child_process";
+import {{ pathToFileURL }} from "node:url";
+const mig = await import(pathToFileURL({json.dumps(str(MIGRATE_SCRIPT))}).href);
+const execSql = (sql) => {{
+  const res = execFileSync({json.dumps(sys.executable)}, ["-c", {json.dumps(sqlite_bridge_py)}, {json.dumps(str(db_path))}, sql], {{ encoding: "utf8" }});
+  return JSON.parse(res);
+}};
+const result = mig.migrateDatabase(execSql, {{ batchSize: 1 }});
+process.stdout.write(JSON.stringify(result));
+""")
+            self.assertEqual(out["backfilled"], 2)
+
+            conn = sqlite3.connect(db_path)
+            rows = dict(conn.execute("SELECT id, rescue_id FROM rescues").fetchall())
+            self.assertEqual(rows["row-a"], 0x11111111)
+            self.assertEqual(rows["row-b"], 0x22222222)
+            self.assertEqual(rows["row-zero"], 0)
+
+            # Verify actual SQL completion predicate against real SQLite:
+            # 1) Tokenless legacy claim (row-a: status='claimed', claim_token IS NULL) succeeds.
+            completion_sql = """
+            UPDATE rescues
+            SET status = 'completed', aok_password = ?, updated_at = ?
+            WHERE id = ?
+              AND (
+                status = 'open'
+                OR (status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?)
+                OR (status = 'claimed' AND ((claim_token IS NULL AND ? = 1) OR claim_token = ?))
+              )
+            """
+            cur = conn.execute(completion_sql, (aok_a, 200, "row-a", 200, 1, None))
+            self.assertEqual(cur.rowcount, 1)
+
+            # 2) Token-bearing claim (row-b) rejects wrong token and succeeds only with matching token.
+            conn.execute(
+                "UPDATE rescues SET status = 'claimed', claim_token = 'tok-1', claim_expires_at = 9999999999 WHERE id = 'row-b'"
+            )
+            cur = conn.execute(completion_sql, (aok_b, 200, "row-b", 200, 0, "wrong-tok"))
+            self.assertEqual(cur.rowcount, 0)
+            cur = conn.execute(completion_sql, (aok_b, 200, "row-b", 200, 0, "tok-1"))
+            self.assertEqual(cur.rowcount, 1)
+            conn.close()
 
 
 if __name__ == "__main__":

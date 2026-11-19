@@ -4,8 +4,12 @@
  * Ordering for fresh and existing databases:
  *   1. Ensure base rescues table exists (without indexes referencing new columns).
  *   2. Add any missing columns (rescue_id defaults to -1 to distinguish legacy rows from ID 0).
- *   3. Backfill rescue_id for legacy rows by decoding sos_password.
- *   4. Create all indexes, including idx_rescues_active_rescue_id.
+ *   3. Backfill rescue_id in bounded batches for both rescue_id < 0 and active legacy rows
+ *      with rescue_id = 0 (without altering rows whose decoded ID is legitimately 0).
+ *      Deployment note: pause/drain writes from any previous Worker version before cutover
+ *      so new legacy writes cannot arrive after backfill; verify zero negative rows remain
+ *      before creating unique indexes.
+ *   4. Drop/recreate indexes only after columns and backfills are complete.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -14,7 +18,6 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerRoot = path.resolve(__dirname, "..");
-const mode = process.argv.includes("--remote") ? "--remote" : "--local";
 
 const WONDER_MAIL_CHARSET = "&67NPR89F0+#STXY45MCHJ-K12=%3Q@W";
 const CHAR_MAP = new Map([...WONDER_MAIL_CHARSET].map((ch, idx) => [ch, idx]));
@@ -50,72 +53,131 @@ export function decodeSosRescueId(rawPassword) {
   return rescueId;
 }
 
-function runWranglerSql(args) {
-  const out = execFileSync(
-    "npx",
-    ["wrangler", "d1", "execute", "DB", mode, "--json", ...args],
-    { cwd: workerRoot, encoding: "utf8" }
+function escapeSqlString(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+export function backfillLegacyRescueIds(execSql, { batchSize = 100 } = {}) {
+  let updatedCount = 0;
+
+  // Pass 1: Backfill rows marked with rescue_id < 0 in bounded batches ordered by id.
+  while (true) {
+    const res = execSql(
+      `SELECT id, sos_password FROM rescues WHERE rescue_id < 0 ORDER BY id LIMIT ${batchSize};`
+    );
+    const batch = res?.[0]?.results ?? [];
+    if (batch.length === 0) break;
+
+    for (const row of batch) {
+      const decodedId = decodeSosRescueId(row.sos_password);
+      if (decodedId === null) {
+        throw new Error(`Cannot backfill rescue_id for row ${row.id}: invalid SOS password`);
+      }
+      const safeRowId = escapeSqlString(row.id);
+      execSql(
+        `UPDATE rescues SET rescue_id = ${decodedId} WHERE id = '${safeRowId}' AND rescue_id < 0;`
+      );
+      updatedCount++;
+    }
+  }
+
+  // Pass 2: Backfill active legacy rows stuck at DEFAULT 0 without touching rows whose
+  // decoded rescue_id is legitimately 0.
+  let lastId = null;
+  while (true) {
+    const cursorFilter = lastId === null ? "" : ` AND id > '${escapeSqlString(lastId)}'`;
+    const res = execSql(
+      `SELECT id, sos_password FROM rescues WHERE rescue_id = 0 AND status IN ('open', 'claimed')${cursorFilter} ORDER BY id LIMIT ${batchSize};`
+    );
+    const batch = res?.[0]?.results ?? [];
+    if (batch.length === 0) break;
+
+    for (const row of batch) {
+      lastId = String(row.id);
+      const decodedId = decodeSosRescueId(row.sos_password);
+      if (decodedId === null) {
+        throw new Error(`Cannot backfill rescue_id for row ${row.id}: invalid SOS password`);
+      }
+      if (decodedId !== 0) {
+        const safeRowId = escapeSqlString(row.id);
+        execSql(
+          `UPDATE rescues SET rescue_id = ${decodedId} WHERE id = '${safeRowId}' AND rescue_id = 0;`
+        );
+        updatedCount++;
+      }
+    }
+  }
+
+  return updatedCount;
+}
+
+export function migrateDatabase(execSql, { batchSize = 100 } = {}) {
+  // 1. Ensure base rescues table exists before any index or column migration.
+  const schemaSql = fs.readFileSync(path.join(workerRoot, "schema.sql"), "utf8");
+  const createTableMatch = schemaSql.match(/CREATE TABLE IF NOT EXISTS rescues\s*\([\s\S]*?\);/i);
+  if (!createTableMatch) {
+    throw new Error("Could not locate CREATE TABLE rescues statement in schema.sql");
+  }
+  execSql(createTableMatch[0]);
+
+  // 2. Inspect existing columns and add any missing migration columns safely.
+  const colRes = execSql("SELECT name FROM pragma_table_info('rescues');");
+  const existingCols = new Set(
+    (colRes?.[0]?.results ?? []).map((row) => row.name)
   );
-  return JSON.parse(out);
-}
 
-// 1. Ensure base rescues table exists before any index or column migration.
-const schemaSql = fs.readFileSync(path.join(workerRoot, "schema.sql"), "utf8");
-const createTableMatch = schemaSql.match(/CREATE TABLE IF NOT EXISTS rescues\s*\([\s\S]*?\);/i);
-if (!createTableMatch) {
-  throw new Error("Could not locate CREATE TABLE rescues statement in schema.sql");
-}
-runWranglerSql(["--command", createTableMatch[0]]);
+  const missingAlterStatements = [
+    ["rescue_id", "ALTER TABLE rescues ADD COLUMN rescue_id INTEGER NOT NULL DEFAULT -1;"],
+    ["thank_you_password", "ALTER TABLE rescues ADD COLUMN thank_you_password TEXT;"],
+    ["owner_token", "ALTER TABLE rescues ADD COLUMN owner_token TEXT;"],
+    ["claim_token", "ALTER TABLE rescues ADD COLUMN claim_token TEXT;"],
+  ];
 
-// 2. Inspect existing columns and add any missing migration columns safely.
-const colRes = runWranglerSql([
-  "--command",
-  "SELECT name FROM pragma_table_info('rescues');",
-]);
-const existingCols = new Set(
-  (colRes?.[0]?.results ?? []).map((row) => row.name)
-);
-
-const missingAlterStatements = [
-  ["rescue_id", "ALTER TABLE rescues ADD COLUMN rescue_id INTEGER NOT NULL DEFAULT -1;"],
-  ["thank_you_password", "ALTER TABLE rescues ADD COLUMN thank_you_password TEXT;"],
-  ["owner_token", "ALTER TABLE rescues ADD COLUMN owner_token TEXT;"],
-  ["claim_token", "ALTER TABLE rescues ADD COLUMN claim_token TEXT;"],
-];
-
-for (const [col, sql] of missingAlterStatements) {
-  if (!existingCols.has(col)) {
-    runWranglerSql(["--command", sql]);
+  for (const [col, sql] of missingAlterStatements) {
+    if (!existingCols.has(col)) {
+      execSql(sql);
+    }
   }
-}
 
-// 3. Backfill legacy rows (marked with rescue_id < 0) before creating unique indexes.
-const legacyRes = runWranglerSql([
-  "--command",
-  "SELECT id, sos_password FROM rescues WHERE rescue_id < 0;",
-]);
-const legacyRows = legacyRes?.[0]?.results ?? [];
-for (const row of legacyRows) {
-  const decodedId = decodeSosRescueId(row.sos_password);
-  if (decodedId === null) {
-    throw new Error(`Cannot backfill rescue_id for row ${row.id}: invalid SOS password`);
+  // 3. Backfill legacy rows in bounded batches, then re-verify none remain before indexing.
+  let backfilled = backfillLegacyRescueIds(execSql, { batchSize });
+  const verifyRes = execSql("SELECT COUNT(*) AS remaining FROM rescues WHERE rescue_id < 0;");
+  const remaining = Number(verifyRes?.[0]?.results?.[0]?.remaining ?? 0);
+  if (remaining > 0) {
+    backfilled += backfillLegacyRescueIds(execSql, { batchSize });
+    const finalRes = execSql("SELECT COUNT(*) AS remaining FROM rescues WHERE rescue_id < 0;");
+    const stillRemaining = Number(finalRes?.[0]?.results?.[0]?.remaining ?? 0);
+    if (stillRemaining > 0) {
+      throw new Error(
+        `Aborting index creation: ${stillRemaining} row(s) still have rescue_id < 0 (ensure previous Worker writes are paused)`
+      );
+    }
   }
-  const safeRowId = String(row.id).replace(/'/g, "''");
-  runWranglerSql([
-    "--command",
-    `UPDATE rescues SET rescue_id = ${decodedId} WHERE id = '${safeRowId}';`,
-  ]);
+
+  // 4. Drop and recreate indexes only after columns and backfills are complete.
+  const indexStatements = schemaSql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => /^(CREATE\s+(UNIQUE\s+)?INDEX|DROP\s+INDEX)\b/i.test(s))
+    .map((s) => `${s};`);
+
+  if (indexStatements.length > 0) {
+    execSql(indexStatements.join(" "));
+  }
+
+  return { backfilled };
 }
 
-// 4. Create all indexes only after columns and backfills are complete.
-const indexStatements = schemaSql
-  .split(";")
-  .map((s) => s.trim())
-  .filter((s) => /^CREATE\s+(UNIQUE\s+)?INDEX\b/i.test(s))
-  .map((s) => `${s};`);
-
-if (indexStatements.length > 0) {
-  runWranglerSql(["--command", indexStatements.join(" ")]);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const mode = process.argv.includes("--remote") ? "--remote" : "--local";
+  const runWranglerSql = (command) => {
+    const out = execFileSync(
+      "npx",
+      ["wrangler", "d1", "execute", "DB", mode, "--json", "--command", command],
+      { cwd: workerRoot, encoding: "utf8" }
+    );
+    return JSON.parse(out);
+  };
+  const { backfilled } = migrateDatabase(runWranglerSql);
+  console.log(`[d1:migrate] Database (${mode}) is up to date (backfilled ${backfilled} legacy row(s)).`);
 }
-
-console.log(`[d1:migrate] Database (${mode}) is up to date (backfilled ${legacyRows.length} legacy row(s)).`);

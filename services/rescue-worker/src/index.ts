@@ -382,9 +382,16 @@ export default {
 
         // POST /v1/rescues/:id/complete
         if (subAction === "complete" && request.method === "POST") {
-          const body = await readJsonBody<{ aok_password?: string; claim_token?: string }>(request);
+          const body = await readJsonBody<{ aok_password?: string; claim_token?: string | null }>(request);
           if (!body || typeof body.aok_password !== "string" || body.aok_password.length === 0) {
             return errorResponse("Missing required field: aok_password");
+          }
+          if (
+            body.claim_token !== undefined &&
+            body.claim_token !== null &&
+            typeof body.claim_token !== "string"
+          ) {
+            return errorResponse("Invalid claim_token: expected string or null", 400);
           }
 
           const cleanAok = normalizePassword(body.aok_password);
@@ -520,7 +527,7 @@ export default {
           if (rescue.thank_you_password) {
             return errorResponse("Thank-You mail has already been submitted for this rescue", 409);
           }
-          if (rescue.owner_token && body.owner_token !== rescue.owner_token) {
+          if (!rescue.owner_token || typeof body.owner_token !== "string" || body.owner_token !== rescue.owner_token) {
             return errorResponse("Valid owner_token is required to submit Thank-You mail", 403);
           }
 

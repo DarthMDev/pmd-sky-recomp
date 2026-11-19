@@ -521,6 +521,7 @@ class NitroFS:
         arm9_off, _, _, arm9_sz = struct.unpack_from("<IIII", base_rom, 0x20)
         arm7_off, _, _, arm7_sz = struct.unpack_from("<IIII", base_rom, 0x30)
         ov9_off, ov9_sz, ov7_off, ov7_sz = struct.unpack_from("<IIII", base_rom, 0x50)
+        icon_off = struct.unpack_from("<I", base_rom, 0x68)[0]
         header_section_ends = [
             fnt_off + fnt_sz,
             fat_off + fat_sz,
@@ -535,6 +536,12 @@ class NitroFS:
                 if sz > 0 and off + sz <= len(base_rom)
             ),
         ]
+        if 0 < icon_off and icon_off + 2 <= len(base_rom):
+            banner_ver = struct.unpack_from("<H", base_rom, icon_off)[0]
+            banner_sizes = {0x0001: 0x840, 0x0002: 0x940, 0x0003: 0xA40, 0x0103: 0x23C0}
+            banner_sz = banner_sizes.get(banner_ver, 0x840)
+            if icon_off + banner_sz <= len(base_rom):
+                header_section_ends.append(icon_off + banner_sz)
         preserve_end = min(len(base_rom), max(raw_payload_start, *header_section_ends))
         out_rom = bytearray(base_rom[:preserve_end])
         while len(out_rom) < preserve_end:

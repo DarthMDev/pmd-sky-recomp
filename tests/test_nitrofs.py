@@ -296,6 +296,21 @@ class TestNitroFSSynthetic(unittest.TestCase):
         self.assertEqual(patched[arm7_off : arm7_off + len(arm7_bytes)], arm7_bytes)
         self.assertEqual(NitroFS.from_rom(patched).files["data/a.bin"], b"NEW_REPLACEMENT_DATA")
 
+    def test_build_patched_rom_preserves_banner_after_named_payload_no_mod(self):
+        base = bytearray(synthetic_rom({"data/a.bin": b"PAYLOAD_BEFORE_BANNER"}))
+        icon_off = len(base)
+        banner = bytearray(0x840)
+        struct.pack_into("<H", banner, 0x00, 0x0001)  # v1 banner
+        banner[0x20:0x28] = b"ICONDATA"
+        banner[0x240:0x250] = "SkyTitle".encode("utf-16-le")
+        base.extend(banner)
+        struct.pack_into("<I", base, 0x68, icon_off)
+
+        fs = NitroFS.from_rom(bytes(base))
+        patched = fs.build_patched_rom(bytes(base))
+        self.assertEqual(patched[icon_off : icon_off + len(banner)], banner)
+        self.assertEqual(NitroFS.from_rom(patched).files["data/a.bin"], b"PAYLOAD_BEFORE_BANNER")
+
 
 class TestNitroFSWithLocalROM(unittest.TestCase):
     @unittest.skipUnless(ROM_PATH.is_file(), f"ROM not found at {ROM_PATH}")
