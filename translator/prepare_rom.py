@@ -594,6 +594,8 @@ def prepare_rom(
 ) -> Tuple[str, str, List[BankSpec]]:
     """Identify the ROM and prepare the binary inputs and configs for its banks."""
     rom = rom_path.read_bytes()
+    if len(rom) < 0x200:
+        raise ValueError("ROM size is too small for a Nintendo DS header")
     rom_sha1 = hashlib.sha1(rom).hexdigest()
 
     if rom_sha1 in KNOWN_ROMS:
@@ -616,6 +618,22 @@ def prepare_rom(
     arm7_off, arm7_entry, arm7_ram, arm7_size = struct.unpack_from("<IIII", rom, 0x30)
     fnt_off, fnt_size, fat_off, fat_size = struct.unpack_from("<IIII", rom, 0x40)
     ov9_off, ov9_size, ov7_off, ov7_size = struct.unpack_from("<IIII", rom, 0x50)
+
+    def _check_region(offset: int, size: int, label: str) -> None:
+        if offset < 0 or size < 0 or offset > len(rom) or size > len(rom) - offset:
+            raise ValueError(f"{label} lies outside the ROM")
+
+    _check_region(arm9_off, arm9_size, "ARM9")
+    _check_region(arm7_off, arm7_size, "ARM7")
+    _check_region(fnt_off, fnt_size, "FNT")
+    _check_region(fat_off, fat_size, "FAT")
+    _check_region(ov9_off, ov9_size, "ARM9 overlay table")
+    if fat_size % 8 != 0:
+        raise ValueError(f"Invalid FAT size: 0x{fat_size:X}")
+    if ov9_size % 32 != 0:
+        raise ValueError(f"Invalid ARM9 overlay table size: 0x{ov9_size:X}")
+    if arm7_size < 0x1E8:
+        raise ValueError("ARM7 binary is too small for autoload parameters")
 
     print(f"[prepare_rom] Verified {rom_title_desc}")
     print(f"[prepare_rom]   SHA-1: {rom_sha1} (Region: {region})")
@@ -645,6 +663,8 @@ def prepare_rom(
 
     if comp_static_end != 0:
         comp_len = comp_static_end - arm9_ram
+        if comp_len < 8 or comp_len > len(arm9_raw):
+            raise ValueError(f"Invalid ARM9 compressed_static_end length: 0x{comp_len:X}")
         print(f"[prepare_rom] Decompressing BLZ arm9.bin (0x{comp_len:X} B)...")
         arm9_img = bytearray(blz_decompress_backward(bytes(arm9_raw[:comp_len])))
         # NitroSDK crt0 clears compressed_static_end to 0 after decompression
@@ -691,7 +711,11 @@ def prepare_rom(
             fid,
             comp_flag,
         ) = struct.unpack_from("<IIIIIIII", rom, ov9_off + idx * 32)
+        if fid * 8 + 8 > fat_size:
+            raise ValueError(f"Overlay {oid:02d} references out-of-bounds FAT index {fid}")
         f_start, f_end = struct.unpack_from("<II", rom, fat_off + fid * 8)
+        if f_start > f_end or f_end > len(rom):
+            raise ValueError(f"Overlay {oid:02d} has invalid FAT range [{f_start:#x}, {f_end:#x})")
         raw_ov = rom[f_start:f_end]
         ov_bytes = (
             blz_decompress_backward(raw_ov)
@@ -982,6 +1006,7 @@ def prepare_rom(
         "rom_sha1": rom_sha1,
         "region": region,
         "title": rom_title_desc,
+        "is_custom_rom": rom_sha1 not in KNOWN_ROMS,
         "bank_count": len(banks),
         "banks": [
             {
@@ -1049,6 +1074,35 @@ def run_recompiler_for_bank(
     return bank.bank_name, proc.returncode, out
 
 
+def resolve_output_dirs(
+    repo_root: Path,
+    rom_sha1: str,
+    region: str,
+    out_dir: Path,
+    gen_dir: Path,
+    is_default_out: bool,
+    is_default_gen: bool,
+) -> Tuple[Path, Path]:
+    """Resolve extraction and generated-bank cache directories, isolating custom ROMs."""
+    reg_code = "us" if region in ("NA", "US") else region.lower()
+    if rom_sha1 in KNOWN_ROMS:
+        resolved_out = (repo_root / "build" / f"extracted_sky_{reg_code}") if is_default_out else out_dir
+        resolved_gen = (repo_root / "build" / f"generated_sky_{reg_code}") if is_default_gen else gen_dir
+    else:
+        tag = rom_sha1[:12]
+        resolved_out = (
+            (repo_root / "build" / f"extracted_sky_custom_{reg_code}_{tag}")
+            if is_default_out
+            else out_dir
+        )
+        resolved_gen = (
+            (repo_root / "build" / f"generated_sky_custom_{reg_code}_{tag}")
+            if is_default_gen
+            else gen_dir
+        )
+    return resolved_out, resolved_gen
+
+
 def main() -> int:
     """Parse CLI arguments and prepare, audit, or compile the ROM banks."""
     repo_root = Path(__file__).resolve().parent.parent
@@ -1095,14 +1149,20 @@ def main() -> int:
     is_default_out = (args.out_dir == default_out_us)
     is_default_gen = (args.gen_dir == default_gen_us)
 
-    # Detect region early to adjust default dirs if Europe
+    # Detect region early to adjust default dirs if Europe or custom ROM
     rom_head = args.rom.read_bytes()
     rom_sha1 = hashlib.sha1(rom_head).hexdigest()
     detected_region = KNOWN_ROMS.get(rom_sha1, (args.region or "NA", ""))[0]
 
-    reg_code = "us" if detected_region in ("NA", "US") else detected_region.lower()
-    out_dir = (repo_root / "build" / f"extracted_sky_{reg_code}") if is_default_out else args.out_dir
-    gen_dir = (repo_root / "build" / f"generated_sky_{reg_code}") if is_default_gen else args.gen_dir
+    out_dir, gen_dir = resolve_output_dirs(
+        repo_root,
+        rom_sha1,
+        detected_region,
+        args.out_dir,
+        args.gen_dir,
+        is_default_out,
+        is_default_gen,
+    )
 
     _sha1, _region, banks = prepare_rom(
         args.rom,

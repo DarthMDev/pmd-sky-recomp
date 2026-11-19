@@ -27,7 +27,7 @@ import platform
 import shutil
 import subprocess
 import sys
-import time
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -408,13 +408,46 @@ def load_settings(settings_file: Path) -> dict[str, str]:
     return settings
 
 
-def save_settings(settings_file: Path, settings: dict[str, str]) -> None:
+def save_settings(
+    settings_file: Path,
+    settings: dict[str, str],
+    *,
+    merge: bool = True,
+) -> None:
     settings_file.parent.mkdir(parents=True, exist_ok=True)
+    merged = load_settings(settings_file) if merge else {}
+    merged.update(settings)
     lines = [
         "# SkyRecompiled User Configuration",
-        *[f'{k} = "{v}"' for k, v in sorted(settings.items())],
+        *[f'{k} = "{v}"' for k, v in sorted(merged.items())],
     ]
-    settings_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    payload = "\n".join(lines) + "\n"
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=settings_file.parent,
+            prefix=f".{settings_file.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tf:
+            tmp_path = Path(tf.name)
+            tf.write(payload)
+            tf.flush()
+            os.fsync(tf.fileno())
+        os.replace(tmp_path, settings_file)
+    except Exception:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def clear_saved_rom_path(settings_file: Path) -> None:
+    settings = load_settings(settings_file)
+    if "rom_path" in settings:
+        settings.pop("rom_path", None)
+        save_settings(settings_file, settings, merge=False)
 
 
 def main() -> None:
@@ -446,6 +479,8 @@ def main() -> None:
     rom_path = args.rom or settings.get("rom_path")
 
     if args.reset_rom:
+        clear_saved_rom_path(settings_file)
+        settings.pop("rom_path", None)
         rom_path = None
 
     progress = None
@@ -467,7 +502,6 @@ def main() -> None:
             settings["rom_path"] = rom_path
             save_settings(settings_file, settings)
             progress.update(75, "Configuring game environment & saves...")
-            time.sleep(0.3)
         else:
             progress.close()
             progress = None
@@ -476,7 +510,6 @@ def main() -> None:
     if not progress:
         progress = ProgressDialog("SkyRecompiled", "Starting SkyRecompiled...")
         progress.update(40, "Loading static recompilation banks...")
-        time.sleep(0.3)
 
     progress.update(90, "Launching game engine...")
 
@@ -497,12 +530,17 @@ def main() -> None:
         "--rtc-host",
     ]
 
+    log_path = user_dir / "nds_runner.log"
+    try:
+        log_path.write_text("$ " + " ".join(cmd) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
     print(f"\033[1;32m[SkyRecompiled]\033[0m Launching: {runner_bin}")
     print(f"  ROM:       {rom_path}")
     print(f"  Save file: {save_path}")
 
     proc = subprocess.Popen(cmd)
-    time.sleep(0.8)
     progress.close()
     proc.wait()
     sys.exit(proc.returncode)
