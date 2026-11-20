@@ -1,0 +1,5 @@
+summarize the roadmap for the project
+
+---
+
+do it in simple terms for non techies and only what needs to be implemented and no doc reference

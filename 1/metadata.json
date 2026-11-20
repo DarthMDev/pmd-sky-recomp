@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7WHSKA2AZVPA0778WKR114F",
+  "session_id": "d5bc0cec-2786-4d1b-8893-51fc8ccf20d2",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-20T13:19:37.1466Z",
+  "branch": "feat/milestone4-avalonia-launcher",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "src/SkyRecompiled.Launcher/Services/ModManagerService.cs",
+    "src/SkyRecompiled.Launcher/Services/RomPreparationService.cs",
+    "src/SkyRecompiled.Launcher/Services/SkySettingsService.cs",
+    "src/SkyRecompiled.Launcher/ViewModels/LogsSavesViewModel.cs",
+    "src/SkyRecompiled.Launcher/ViewModels/MainViewModel.cs",
+    "src/SkyRecompiled.Launcher/ViewModels/SettingsViewModel.cs",
+    "src/SkyRecompiled.Launcher/Views/MainWindow.axaml.cs",
+    "src/SkyRecompiled.Launcher/Views/PlayView.axaml",
+    "tests/SkyRecompiled.Launcher.Tests/Program.cs"
+  ],
+  "agent": "Antigravity",
+  "model": "gemini-4-hydrogen-medium",
+  "turn_id": "8f5ec0ffa90a",
+  "redaction": {
+    "replacements": 0,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
