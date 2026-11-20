@@ -1,0 +1,134 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SkyRecompiled.Launcher.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="SkyRecompiled.Launcher.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <Grid RowDefinitions="*,Auto" Margin="4">
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="14" Margin="0,0,4,12">
+
+                <!-- In-Game Runtime Settings (sky_settings.toml) -->
+                <Border Classes="card">
+                    <StackPanel Spacing="12">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="In-Game Runtime Settings" Classes="h2"/>
+                            <TextBlock Text="{Binding SkySettingsFileDisplay, StringFormat='Synchronized with {0}'}"
+                                       FontSize="11" Foreground="#7F849C"/>
+                        </StackPanel>
+
+                        <Grid ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto,Auto">
+                            <!-- Aspect Ratio -->
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4" Margin="0,0,0,10">
+                                <TextBlock Text="Aspect Ratio" Classes="label"/>
+                                <ComboBox ItemsSource="{Binding AspectRatioChoices}"
+                                          SelectedIndex="{Binding AspectRatioIndex}"
+                                          AutomationProperties.Name="Aspect Ratio"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+
+                            <!-- HUD Layout -->
+                            <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4" Margin="0,0,0,10">
+                                <TextBlock Text="HUD Layout" Classes="label"/>
+                                <ComboBox ItemsSource="{Binding HudLayoutChoices}"
+                                          SelectedIndex="{Binding HudLayoutIndex}"
+                                          AutomationProperties.Name="HUD Layout"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+
+                            <!-- Refresh Interpolation -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4" Margin="0,0,0,10">
+                                <TextBlock Text="Refresh Rate Interpolation" Classes="label"/>
+                                <ComboBox ItemsSource="{Binding RefreshRateChoices}"
+                                          SelectedIndex="{Binding RefreshRateIndex}"
+                                          AutomationProperties.Name="Refresh Rate Interpolation"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+
+                            <!-- Shader Filter -->
+                            <StackPanel Grid.Row="1" Grid.Column="2" Spacing="4" Margin="0,0,0,10">
+                                <TextBlock Text="HD Shader Filter" Classes="label"/>
+                                <ComboBox ItemsSource="{Binding ShaderFilterChoices}"
+                                          SelectedIndex="{Binding ShaderFilterIndex}"
+                                          AutomationProperties.Name="HD Shader Filter"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+
+                            <!-- Controller Preset -->
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                                <TextBlock Text="Controller Layout Preset" Classes="label"/>
+                                <ComboBox ItemsSource="{Binding ControllerPresetChoices}"
+                                          SelectedIndex="{Binding ControllerPresetIndex}"
+                                          AutomationProperties.Name="Controller Layout Preset"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+
+                            <!-- Audio Volume -->
+                            <StackPanel Grid.Row="2" Grid.Column="2" Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Master Audio Volume" Classes="label"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding AudioVolumePercent, StringFormat='{}{0}%'}"
+                                               FontSize="12" Foreground="#89B4FA"/>
+                                </Grid>
+                                <Slider Minimum="0" Maximum="100" TickFrequency="10" IsSnapToTickEnabled="True"
+                                        AutomationProperties.Name="Master Audio Volume"
+                                        Value="{Binding AudioVolumePercent}"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <WrapPanel Orientation="Horizontal">
+                            <CheckBox Content="Weather Ambient Bloom" IsChecked="{Binding WeatherAmbientBloom}" Margin="0,0,24,4"/>
+                            <CheckBox Content="Show FPS Meter" IsChecked="{Binding ShowFpsMeter}" Margin="0,0,24,4"/>
+                            <CheckBox Content="Mute Audio Output" IsChecked="{Binding AudioMuted}" Margin="0,0,24,4"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Launcher & In-Game Rescue Service Settings (settings.toml) -->
+                <Border Classes="card">
+                    <StackPanel Spacing="12">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Launcher &amp; In-Game Rescue Service" Classes="h2"/>
+                            <TextBlock Text="{Binding LauncherSettingsFileDisplay, StringFormat='Stored in {0} for the native in-game Pelipper Rescue service (preserves rom_path and custom keys)'}"
+                                       FontSize="11" Foreground="#7F849C" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Pelipper Online Rescue Endpoint" Classes="label"/>
+                            <TextBox Text="{Binding RescueEndpoint}"
+                                     AutomationProperties.Name="Pelipper Online Rescue Endpoint"
+                                     Watermark="https://sky-rescue-worker.darthanonymous1.workers.dev"/>
+                        </StackPanel>
+
+                        <CheckBox Content="Offline-Only Rescue Mode (disable online rescue network requests; use classic in-game passwords)"
+                                  IsChecked="{Binding RescueOfflineMode}"/>
+
+                        <Border Classes="subcard">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Data Root Directory" Classes="label"/>
+                                <TextBlock Text="{Binding UserDataDir}" FontSize="11" Foreground="#A6ADC8" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Action Bar -->
+        <Border Grid.Row="1" Classes="card" Padding="14,10">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" FontSize="12" Foreground="#A6ADC8"
+                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button Classes="secondary" Content="Reload" Command="{Binding ReloadCommand}"/>
+                    <Button Classes="secondary" Content="Restore Defaults" Command="{Binding RestoreDefaultsCommand}"/>
+                    <Button Classes="primary" Content="Save Settings" Command="{Binding SaveSettingsCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

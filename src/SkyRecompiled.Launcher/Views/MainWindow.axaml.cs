@@ -1,7 +1,6 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using SkyRecompiled.Launcher.ViewModels;
 
 namespace SkyRecompiled.Launcher.Views;
@@ -11,17 +10,31 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
     }
 
-    private async void OnBrowseRomClicked(object? sender, RoutedEventArgs e)
+    private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (DataContext is MainViewModel vm)
         {
-            var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel != null)
-            {
-                await vm.PickRomAsync(topLevel.StorageProvider);
-            }
+            vm.WireClipboard(CopyTextToClipboardAsync);
+        }
+    }
+
+    private async Task<bool> CopyTextToClipboardAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null)
+            return false;
+
+        try
+        {
+            await clipboard.SetTextAsync(text);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

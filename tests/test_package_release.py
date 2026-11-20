@@ -111,7 +111,7 @@ class TestPackageRelease(unittest.TestCase):
 
             with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
                  mock.patch.object(package_release, "DIST_DIR", fake_dist):
-                tar_path = package_release.package_linux(without_game_banks=True)
+                tar_path = package_release.package_linux(without_game_banks=True, include_avalonia=False)
                 self.assertTrue(tar_path.is_file())
                 with tarfile.open(tar_path, "r:gz") as tar:
                     names = set(tar.getnames())
@@ -121,6 +121,76 @@ class TestPackageRelease(unittest.TestCase):
                 self.assertIn(f"{prefix}/bin/SDL3-LICENSE.txt", names)
                 self.assertIn(f"{prefix}/SkyRecompiled", names)
                 self.assertIn(f"{prefix}/scripts/launcher.py", names)
+
+    def test_package_linux_includes_avalonia_launcher_when_enabled(self) -> None:
+        """Package a verified Linux x86_64 Avalonia launcher and verify the wrapper launches it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_build = Path(tmp) / "build"
+            fake_dist = fake_build / "dist"
+            runner_dir = fake_build / "runner-fallback"
+            runner_dir.mkdir(parents=True)
+            (runner_dir / "nds_runner").write_bytes(make_elf64_x86_64_header())
+
+            def fake_publish(rid: str, dest_dir: Path, *, executable_name: str, required: bool = False) -> bool:
+                self.assertEqual(rid, "linux-x64")
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / executable_name).write_bytes(make_elf64_x86_64_header())
+                return True
+
+            with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
+                 mock.patch.object(package_release, "DIST_DIR", fake_dist), \
+                 mock.patch.object(package_release, "publish_avalonia_launcher", side_effect=fake_publish):
+                tar_path = package_release.package_linux(without_game_banks=True, include_avalonia=True)
+                prefix = f"SkyRecompiled-v{package_release.VERSION}-linux-x86_64"
+                with tarfile.open(tar_path, "r:gz") as tar:
+                    names = set(tar.getnames())
+                    wrapper = tar.extractfile(f"{prefix}/SkyRecompiled").read().decode("utf-8")
+                self.assertIn(f"{prefix}/bin/SkyRecompiled.Launcher", names)
+                self.assertIn("bin/SkyRecompiled.Launcher", wrapper)
+
+    def test_package_windows_includes_avalonia_and_preserves_settings(self) -> None:
+        """Package Windows ZIP with SkyRecompiled.exe and atomic settings-preserving PowerShell script."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_build = Path(tmp) / "build"
+            fake_dist = fake_build / "dist"
+            runner_dir = fake_build / "runner-fallback"
+            runner_dir.mkdir(parents=True)
+            (runner_dir / "nds_runner.exe").write_bytes(b"MZ_FAKE_RUNNER")
+            (runner_dir / "SDL3.dll").write_bytes(b"MZ_FAKE_SDL3")
+            (runner_dir / "SDL3-LICENSE.txt").write_text("Zlib\n", encoding="utf-8")
+
+            def fake_publish(rid: str, dest_dir: Path, *, executable_name: str, required: bool = False) -> bool:
+                self.assertEqual(rid, "win-x64")
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / executable_name).write_bytes(b"MZ_FAKE_AVALONIA")
+                return True
+
+            with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
+                 mock.patch.object(package_release, "DIST_DIR", fake_dist), \
+                 mock.patch.object(package_release, "publish_avalonia_launcher", side_effect=fake_publish):
+                zip_path = package_release.package_windows(without_game_banks=True, include_avalonia=True)
+                prefix = f"SkyRecompiled-v{package_release.VERSION}-windows-x64"
+                with zipfile.ZipFile(zip_path) as zf:
+                    names = set(zf.namelist())
+                    bat = zf.read(f"{prefix}/SkyRecompiled.bat").decode("utf-8")
+                    ps1 = zf.read(f"{prefix}/SkyRecompiled.ps1").decode("utf-8-sig")
+                self.assertIn(f"{prefix}/SkyRecompiled.exe", names)
+                self.assertIn("SkyRecompiled.exe", bat)
+                self.assertIn("Save-RomPathSetting", ps1)
+                self.assertNotIn('Set-Content -Path $SettingsFile -Value ("rom_path =', ps1)
+
+    def test_require_avalonia_fails_loudly_without_dotnet(self) -> None:
+        """Fail when --require-avalonia is active and dotnet SDK is unavailable."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(package_release, "_locate_dotnet", return_value=None):
+                with self.assertRaises(SystemExit) as ctx:
+                    package_release.publish_avalonia_launcher(
+                        "linux-x64",
+                        Path(tmp),
+                        executable_name="SkyRecompiled.Launcher",
+                        required=True,
+                    )
+                self.assertIn("--require-avalonia", str(ctx.exception))
 
     def test_package_macos_requires_runner_in_bundle(self) -> None:
         """Fail instead of creating a macOS ZIP whose app has no nds_runner."""
@@ -152,6 +222,22 @@ class TestPackageRelease(unittest.TestCase):
             self.assertIn("--without-game-banks", run.call_args.args[0])
             with zipfile.ZipFile(zip_path) as zf:
                 self.assertIn("SkyRecompiled.app/Contents/MacOS/nds_runner", zf.namelist())
+
+    def test_package_macos_forwards_require_avalonia_flag(self) -> None:
+        """Forward --require-avalonia to package_macos_app.py when enabled."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_build = Path(tmp) / "build"
+            fake_dist = fake_build / "dist"
+            runner = fake_build / "SkyRecompiled.app" / "Contents" / "MacOS" / "nds_runner"
+            runner.parent.mkdir(parents=True)
+            runner.write_bytes(make_macho_arm64_header())
+
+            with mock.patch.object(package_release, "BUILD_DIR", fake_build), \
+                 mock.patch.object(package_release, "DIST_DIR", fake_dist), \
+                 mock.patch.object(package_release.subprocess, "run") as run:
+                package_release.package_macos(without_game_banks=True, require_avalonia=True)
+
+            self.assertIn("--require-avalonia", run.call_args.args[0])
 
 
 if __name__ == "__main__":

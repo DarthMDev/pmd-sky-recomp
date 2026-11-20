@@ -52,7 +52,7 @@ INFO_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.2.3</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSApplicationCategoryType</key>
@@ -330,7 +330,11 @@ if __name__ == "__main__":
 
 
 def package_app(
-    out_app: Path, *, without_game_banks: bool = False, allow_missing_runner: bool = False
+    out_app: Path,
+    *,
+    without_game_banks: bool = False,
+    allow_missing_runner: bool = False,
+    require_avalonia: bool = False,
 ) -> None:
     print(f"\033[1;36m[SkyRecompiled:package]\033[0m Packaging {out_app}...")
     runner_bin = RUNNER_FALLBACK_BIN if without_game_banks else RUNNER_BIN
@@ -352,8 +356,11 @@ def package_app(
     (contents_dir / "Info.plist").write_text(INFO_PLIST_TEMPLATE, encoding="utf-8")
     (contents_dir / "PkgInfo").write_bytes(b"APPL????")
 
-    # 2. Config TOML
+    # 2. Config TOMLs
     shutil.copy2(CONFIG_TOML, resources_dir / "game.toml")
+    controls_preset_toml = REPO_ROOT / "config" / "controls_preset.toml"
+    if controls_preset_toml.is_file():
+        shutil.copy2(controls_preset_toml, resources_dir / "controls_preset.toml")
 
     # 3. Executables
     if runner_bin.exists():
@@ -383,7 +390,8 @@ def package_app(
             "-c", "Release",
             "-r", "osx-arm64",
             "--self-contained", "true",
-            "-p:PublishSingleFile=true"
+            "-p:PublishSingleFile=true",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
         ], check=True, env=env)
 
         for item in publish_dir.iterdir():
@@ -402,6 +410,10 @@ def package_app(
                 shutil.copy2(src_dylib, dest_dylib)
                 dest_dylib.chmod(dest_dylib.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         print("\033[1;32m[SkyRecompiled:package]\033[0m Integrated Avalonia C# native launcher and graphics dylibs into bundle.")
+    elif require_avalonia:
+        raise SystemExit(
+            f"Cannot package macOS with --require-avalonia: missing dotnet ({dotnet_bin}) or {launcher_proj}."
+        )
     else:
         print("[SkyRecompiled:package] Fallback: using Python wrapper launcher.")
         script_launcher = macos_dir / "SkyRecompiledLauncher.py"
@@ -444,6 +456,11 @@ def main():
         action="store_true",
         help="Package without nds_runner instead of failing (creates a non-launchable skeleton)",
     )
+    parser.add_argument(
+        "--require-avalonia",
+        action="store_true",
+        help="Fail instead of falling back to the Python/C launcher if dotnet or Avalonia is unavailable",
+    )
     args = parser.parse_args()
 
     if platform.system() != "Darwin":
@@ -453,6 +470,7 @@ def main():
         Path(args.out).resolve(),
         without_game_banks=args.without_game_banks,
         allow_missing_runner=args.allow_missing_runner,
+        require_avalonia=args.require_avalonia,
     )
 
 
