@@ -76,7 +76,7 @@
                                     IsVisible="{Binding IsGameRunning}"/>
                             <Button Classes="secondary" Content="Change ROM..." Margin="0,0,10,8"
                                     Click="OnBrowseRomClicked"
-                                    IsEnabled="{Binding !IsProcessing}"/>
+                                    IsEnabled="{Binding CanChangeRom}"/>
                             <Button Classes="secondary" Content="Reset ROM" Margin="0,0,10,8"
                                     Command="{Binding ResetRomCommand}"
                                     IsEnabled="{Binding !IsGameRunning}"/>

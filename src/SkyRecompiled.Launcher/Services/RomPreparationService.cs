@@ -132,6 +132,25 @@ public class RomPreparationService
         return prefs;
     }
 
+    public static bool TryLoadPreferences(
+        out LauncherPreferences prefs,
+        out string? error,
+        string? settingsFile = null)
+    {
+        try
+        {
+            prefs = LoadPreferences(settingsFile);
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            prefs = new LauncherPreferences();
+            error = ex.Message;
+            return false;
+        }
+    }
+
     public static void SavePreferences(LauncherPreferences prefs, string? settingsFile = null)
     {
         UpdateSettings(new Dictionary<string, string>(StringComparer.Ordinal)

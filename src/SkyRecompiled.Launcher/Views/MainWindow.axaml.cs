@@ -21,12 +21,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task CopyTextToClipboardAsync(string text)
+    private async Task<bool> CopyTextToClipboardAsync(string text)
     {
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard != null)
+        if (clipboard == null)
+            return false;
+
+        try
         {
             await clipboard.SetTextAsync(text);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

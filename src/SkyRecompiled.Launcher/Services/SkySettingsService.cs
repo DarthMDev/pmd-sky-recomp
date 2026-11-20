@@ -54,21 +54,36 @@ public static class SkySettingsService
 
     public static SkyRuntimeSettings Load(string? path = null)
     {
+        _ = TryLoad(out var settings, out _, path);
+        return settings;
+    }
+
+    public static bool TryLoad(
+        out SkyRuntimeSettings settings,
+        out string? error,
+        string? path = null)
+    {
         var targetPath = path ?? RomPreparationService.GetSkySettingsPath();
-        var settings = new SkyRuntimeSettings();
+        settings = new SkyRuntimeSettings();
         if (!File.Exists(targetPath))
-            return settings;
+        {
+            error = null;
+            return true;
+        }
 
         try
         {
             var text = File.ReadAllText(targetPath, Encoding.UTF8);
             ParseInto(text, settings);
+            error = null;
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            return new SkyRuntimeSettings();
+            settings = new SkyRuntimeSettings();
+            error = ex.Message;
+            return false;
         }
-        return settings;
     }
 
     public static SkyRuntimeSettings Parse(string tomlText)
@@ -184,6 +199,19 @@ public static class SkySettingsService
         return true;
     }
 
+    public static string GetEffectiveControllerBindings(int preset, string currentBindings)
+    {
+        return preset switch
+        {
+            0 => "12,13,14,15,1,2,3,4,10,11,7,5",  // StandardNintendoDs
+            1 => "12,13,14,15,1,2,3,10,4,11,7,5",  // ModernDungeon
+            2 => "12,13,14,15,2,1,3,4,10,11,7,5",  // SwappedConfirmCancel
+            _ => IsValidBindingsCsv(currentBindings)
+                ? currentBindings
+                : new SkyRuntimeSettings().ControllerBindings,
+        };
+    }
+
     public static string Serialize(SkyRuntimeSettings settings)
     {
         var aspect = Math.Clamp(settings.AspectRatio, 0, 3);
@@ -192,9 +220,7 @@ public static class SkySettingsService
         var shader = Math.Clamp(settings.ShaderFilter, 0, 4);
         var volume = Math.Clamp(settings.AudioVolumePercent, 0, 100);
         var preset = Math.Clamp(settings.ControllerPreset, 0, 3);
-        var ctrlBindings = IsValidBindingsCsv(settings.ControllerBindings)
-            ? settings.ControllerBindings
-            : new SkyRuntimeSettings().ControllerBindings;
+        var ctrlBindings = GetEffectiveControllerBindings(preset, settings.ControllerBindings);
         var keyBindings = IsValidBindingsCsv(settings.KeyboardBindings)
             ? settings.KeyboardBindings
             : new SkyRuntimeSettings().KeyboardBindings;

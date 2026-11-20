@@ -72,6 +72,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     private string _controllerBindings = new SkyRuntimeSettings().ControllerBindings;
     private string _keyboardBindings = new SkyRuntimeSettings().KeyboardBindings;
+    private bool _skyLoadFailed;
+    private bool _prefsLoadFailed;
 
     public string UserDataDir => RomPreparationService.GetUserStorageDir();
     public string SkySettingsFileDisplay => _skySettingsPath;
@@ -88,7 +90,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         AudioVolumePercent = AudioVolumePercent,
         AudioMuted = AudioMuted,
         ControllerPreset = ControllerPresetIndex,
-        ControllerBindings = _controllerBindings,
+        ControllerBindings = SkySettingsService.GetEffectiveControllerBindings(ControllerPresetIndex, _controllerBindings),
         KeyboardBindings = _keyboardBindings,
     };
 
@@ -101,7 +103,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [RelayCommand]
     public void Reload()
     {
-        var rt = SkySettingsService.Load(_skySettingsPath);
+        bool skyOk = SkySettingsService.TryLoad(out var rt, out var skyErr, _skySettingsPath);
+        _skyLoadFailed = !skyOk;
         AspectRatioIndex = rt.AspectRatio;
         HudLayoutIndex = rt.HudLayout;
         RefreshRateIndex = rt.RefreshRate;
@@ -114,23 +117,43 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _controllerBindings = rt.ControllerBindings;
         _keyboardBindings = rt.KeyboardBindings;
 
-        var prefs = RomPreparationService.LoadPreferences(_launcherSettingsPath);
+        bool prefsOk = RomPreparationService.TryLoadPreferences(out var prefs, out var prefsErr, _launcherSettingsPath);
+        _prefsLoadFailed = !prefsOk;
         RescueEndpoint = prefs.RescueEndpoint;
         RescueOfflineMode = prefs.RescueOfflineMode;
-        StatusMessage = "Loaded current configuration from disk.";
+
+        SaveSettingsCommand.NotifyCanExecuteChanged();
+
+        if (!skyOk || !prefsOk)
+        {
+            var errDetail = skyErr ?? prefsErr ?? "Read error";
+            StatusMessage = $"Unable to read settings ({errDetail}). Using session defaults; click Reload after fixing permissions or Restore Defaults to reset.";
+        }
+        else
+        {
+            StatusMessage = "Loaded current configuration from disk.";
+        }
     }
 
-    [RelayCommand]
+    private bool CanSaveSettings() => !_skyLoadFailed && !_prefsLoadFailed;
+
+    [RelayCommand(CanExecute = nameof(CanSaveSettings))]
     public void SaveSettings() => _ = SaveSettingsCore();
 
     private bool SaveSettingsCore()
     {
+        if (_skyLoadFailed || _prefsLoadFailed)
+        {
+            StatusMessage = "Save blocked: existing configuration could not be read. Click Reload or Restore Defaults.";
+            return false;
+        }
         try
         {
             var rt = BuildRuntimeSettings();
             var prefs = BuildPreferences();
             SkySettingsService.SaveAtomic(rt, _skySettingsPath);
             RomPreparationService.SavePreferences(prefs, _launcherSettingsPath);
+            _controllerBindings = rt.ControllerBindings;
             RescueEndpoint = prefs.RescueEndpoint;
             StatusMessage = $"Settings saved ({DateTime.Now:HH:mm:ss}).";
             OnSettingsSaved?.Invoke();
@@ -161,6 +184,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
         RescueEndpoint = LauncherPreferences.DefaultRescueEndpoint;
         RescueOfflineMode = false;
+
+        _skyLoadFailed = false;
+        _prefsLoadFailed = false;
+        SaveSettingsCommand.NotifyCanExecuteChanged();
 
         if (SaveSettingsCore())
             StatusMessage = "Restored default graphics, audio, input, and rescue settings.";

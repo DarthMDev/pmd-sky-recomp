@@ -266,6 +266,42 @@ internal static class Program
         AssertEqual(clamped.AudioVolumePercent, 100, "Clamped AudioVolumePercent");
         AssertEqual(clamped.AudioMuted, true, "Inline comment stripped from bool");
         AssertEqual(clamped.ControllerBindings, new SkyRuntimeSettings().ControllerBindings, "Invalid CSV falls back to default");
+
+        // Named controller presets serialize canonical bindings while Custom preserves user bindings
+        var modernToml = SkySettingsService.Serialize(new SkyRuntimeSettings
+        {
+            ControllerPreset = 1,
+            ControllerBindings = "12,13,14,15,1,2,3,4,10,11,7,5",
+        });
+        Assert(modernToml.Contains("controller_bindings = \"12,13,14,15,1,2,3,10,4,11,7,5\"", StringComparison.Ordinal),
+            "ModernDungeon preset writes canonical binding array");
+
+        var customToml = SkySettingsService.Serialize(new SkyRuntimeSettings
+        {
+            ControllerPreset = 3,
+            ControllerBindings = "12,13,14,15,4,3,2,1,10,11,7,5",
+        });
+        Assert(customToml.Contains("controller_bindings = \"12,13,14,15,4,3,2,1,10,11,7,5\"", StringComparison.Ordinal),
+            "Custom preset preserves user binding array");
+
+        // TryLoad succeeds cleanly on absent file and reports error on unreadable file
+        var absentOk = SkySettingsService.TryLoad(out _, out var absentErr, Path.Combine(tmp.Path, "nonexistent.toml"));
+        Assert(absentOk && absentErr == null, "Absent sky_settings.toml is not treated as read failure");
+        if (!OperatingSystem.IsWindows())
+        {
+            var unreadablePath = Path.Combine(tmp.Path, "unreadable.toml");
+            File.WriteAllText(unreadablePath, "[graphics]\naspect_ratio = 1\n");
+            File.SetUnixFileMode(unreadablePath, UnixFileMode.None);
+            try
+            {
+                var readOk = SkySettingsService.TryLoad(out _, out var readErr, unreadablePath);
+                Assert(!readOk && !string.IsNullOrEmpty(readErr), "Unreadable sky_settings.toml reports failure");
+            }
+            finally
+            {
+                File.SetUnixFileMode(unreadablePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+        }
     }
 
     private static void TestModManagerService()
@@ -309,8 +345,25 @@ internal static class Program
             File.CreateSymbolicLink(Path.Combine(symMod, "romfs", "escape.bin"), outsideFile);
         }
 
+        // 5. Invalid-romfs folder does not reserve ID for a subsequent valid folder
+        var invalidFirst = Path.Combine(modsDir, "00_broken_dup");
+        Directory.CreateDirectory(Path.Combine(invalidFirst, "romfs", "data"));
+        File.WriteAllText(Path.Combine(invalidFirst, "mod.toml"), "id = \"dup_ok\"\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            var ext = Path.Combine(tmp.Path, "outside2.bin");
+            File.WriteAllBytes(ext, new byte[] { 1 });
+            File.CreateSymbolicLink(Path.Combine(invalidFirst, "romfs", "data", "bad.bin"), ext);
+
+            var validSecond = Path.Combine(modsDir, "01_valid_dup");
+            Directory.CreateDirectory(Path.Combine(validSecond, "romfs", "data"));
+            File.WriteAllText(Path.Combine(validSecond, "mod.toml"), "id = \"dup_ok\"\npriority = 30\n");
+            File.WriteAllBytes(Path.Combine(validSecond, "romfs", "data", "good.bin"), new byte[] { 5 });
+        }
+
         var scan = ModManagerService.ScanMods(modsDir, statePath);
-        AssertEqual(scan.Mods.Count, 2, "Valid mods count");
+        int expectedValid = OperatingSystem.IsWindows() ? 2 : 3;
+        AssertEqual(scan.Mods.Count, expectedValid, "Valid mods count");
         AssertEqual(scan.Mods[0].Id, "a_mod", "First layer");
         AssertEqual(scan.Mods[1].Id, "z_mod", "Second layer");
         AssertEqual(scan.Conflicts.Count, 1, "One overlapping file conflict");
@@ -326,7 +379,7 @@ internal static class Program
         }, statePath);
         var rescanned = ModManagerService.ScanMods(modsDir, statePath);
         AssertEqual(rescanned.Mods[0].Id, "z_mod", "Lower priority first");
-        AssertEqual(rescanned.Mods[1].Id, "a_mod", "Higher priority second");
+        AssertEqual(rescanned.Mods[^1].Id, "a_mod", "Highest priority last");
         AssertEqual(rescanned.Conflicts[0].WinnerModId, "a_mod", "Higher priority wins");
 
         ModManagerService.ExportActiveModsManifest(rescanned, manifestPath);
@@ -335,7 +388,7 @@ internal static class Program
         // Null override value in mods_state.json is ignored gracefully
         File.WriteAllText(statePath, "{\"a_mod\": null, \"z_mod\": {\"Enabled\": true, \"Priority\": 10}}\n");
         var afterNull = ModManagerService.ScanMods(modsDir, statePath);
-        AssertEqual(afterNull.Mods.Count, 2, "Null override does not crash scan");
+        AssertEqual(afterNull.Mods.Count, expectedValid, "Null override does not crash scan");
         AssertEqual(afterNull.Mods.First(m => m.Id == "a_mod").Priority, 10, "a_mod falls back to metadata priority");
 
         // Path validation checks

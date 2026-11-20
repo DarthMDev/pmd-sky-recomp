@@ -85,12 +85,16 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelVerificationCommand))]
+    [NotifyPropertyChangedFor(nameof(CanChangeRom))]
     private bool _isProcessing;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopGameCommand))]
+    [NotifyPropertyChangedFor(nameof(CanChangeRom))]
     private bool _isGameRunning;
+
+    public bool CanChangeRom => !IsProcessing && !IsGameRunning;
 
     [ObservableProperty]
     private double _progressValue;
@@ -132,7 +136,7 @@ public partial class MainViewModel : ViewModelBase
         LogsSaves.IsGameRunning = value;
     }
 
-    public void WireClipboard(Func<string, Task> copyHandler)
+    public void WireClipboard(Func<string, Task<bool>> copyHandler)
     {
         LogsSaves.CopyToClipboardAsync = copyHandler;
     }
@@ -275,7 +279,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     public async Task PickRomAsync(IStorageProvider? storageProvider)
     {
-        if (storageProvider == null) return;
+        if (storageProvider == null || IsGameRunning) return;
 
         var fileTypes = new FilePickerFileType[]
         {
@@ -404,6 +408,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     public void ResetRom()
     {
+        if (IsGameRunning) return;
         _verifyCts?.Cancel();
         RomPreparationService.ClearSavedRomPath();
         RomPath = null;

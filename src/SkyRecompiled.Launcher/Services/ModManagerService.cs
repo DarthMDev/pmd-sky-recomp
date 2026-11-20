@@ -112,11 +112,6 @@ public static partial class ModManagerService
                 issues.Add(new ModValidationIssue(dirInfo.Name, $"Invalid mod ID: '{meta.Id}'"));
                 continue;
             }
-            if (!seenIds.Add(meta.Id))
-            {
-                issues.Add(new ModValidationIssue(dirInfo.Name, $"Duplicate mod ID: '{meta.Id}'"));
-                continue;
-            }
 
             List<string> virtualPaths;
             try
@@ -126,6 +121,12 @@ public static partial class ModManagerService
             catch (Exception ex)
             {
                 issues.Add(new ModValidationIssue(meta.Id, ex.Message));
+                continue;
+            }
+
+            if (!seenIds.Add(meta.Id))
+            {
+                issues.Add(new ModValidationIssue(dirInfo.Name, $"Duplicate mod ID: '{meta.Id}'"));
                 continue;
             }
 

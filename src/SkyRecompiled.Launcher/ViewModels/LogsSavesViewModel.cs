@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
@@ -22,6 +23,7 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
     private readonly string _logPath;
     private readonly Queue<string> _logLines = new();
     private readonly object _queueLock = new();
+    private int _logFlushPending;
 
     public LogsSavesViewModel()
         : this(
@@ -40,7 +42,7 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
         RefreshLog();
     }
 
-    public Func<string, Task>? CopyToClipboardAsync { get; set; }
+    public Func<string, Task<bool>>? CopyToClipboardAsync { get; set; }
     public Action? OnSaveStateChanged { get; set; }
 
     public ObservableCollection<SaveBackupInfo> Backups { get; } = new();
@@ -204,19 +206,35 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
 
     public void AppendLogLine(string line)
     {
-        string snapshot;
         lock (_queueLock)
         {
             _logLines.Enqueue(line);
             while (_logLines.Count > MaxLogLines)
                 _logLines.Dequeue();
-            snapshot = string.Join(Environment.NewLine, _logLines);
         }
 
-        if (Application.Current != null)
-            Dispatcher.UIThread.Post(() => LogText = snapshot);
-        else
-            LogText = snapshot;
+        if (Application.Current == null)
+        {
+            LogText = BuildLogSnapshot();
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _logFlushPending, 1) == 0)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                Interlocked.Exchange(ref _logFlushPending, 0);
+                LogText = BuildLogSnapshot();
+            });
+        }
+    }
+
+    private string BuildLogSnapshot()
+    {
+        lock (_queueLock)
+        {
+            return string.Join(Environment.NewLine, _logLines);
+        }
     }
 
     [RelayCommand]
@@ -264,10 +282,22 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
     [RelayCommand]
     public async Task CopyLogAsync()
     {
-        if (CopyToClipboardAsync != null)
+        if (CopyToClipboardAsync == null)
         {
-            await CopyToClipboardAsync(LogText);
-            StatusMessage = "Copied current engine log output to clipboard.";
+            StatusMessage = "Clipboard is unavailable.";
+            return;
+        }
+
+        try
+        {
+            var copied = await CopyToClipboardAsync(LogText);
+            StatusMessage = copied
+                ? "Copied current engine log output to clipboard."
+                : "Clipboard is busy or unavailable. Please try copying again.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Unable to copy log to clipboard ({ex.Message}). Please try again.";
         }
     }
 
