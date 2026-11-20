@@ -170,9 +170,7 @@ def encode_wondermail_s(mission: MissionData) -> str:
 
 
 def decode_wondermail_s(password: str) -> MissionData:
-    clean = re_clean_password(password)
-    if len(clean) != 34:
-        raise ValueError(f"Invalid Wonder Mail S password length: expected 34 chars, got {len(clean)}")
+    clean = normalize_and_validate_password(password, 34, "Wonder Mail S password")
 
     scrambled = [CHAR_TO_VAL[c] for c in clean]
     # Unscramble
@@ -223,15 +221,33 @@ def decode_wondermail_s(password: str) -> MissionData:
 # ─────────────────────────────────────────────────────────────────────────────
 # Friend Rescue SOS / A-OK Mail (54-Character Codes)
 # ─────────────────────────────────────────────────────────────────────────────
+RESCUE_KIND_CODES = {"SOS": 1, "A-OK": 2, "THANK-YOU": 3}
+CODE_TO_RESCUE_KIND = {v: k for k, v in RESCUE_KIND_CODES.items()}
+
+
 def encode_rescue_mail(data: RescueMailData) -> str:
+    kind_upper = data.kind.upper()
+    if kind_upper not in RESCUE_KIND_CODES:
+        raise ValueError(f"Invalid Rescue Mail kind: {data.kind!r}")
+    if not (0 <= data.dungeon_id <= 0x7F):
+        raise ValueError(f"dungeon_id out of range [0..127]: {data.dungeon_id}")
+    if not (0 <= data.floor <= 0x7F):
+        raise ValueError(f"floor out of range [0..127]: {data.floor}")
+    if not (0 <= data.client_species <= 0x7FF):
+        raise ValueError(f"client_species out of range [0..2047]: {data.client_species}")
+    if not (0 <= data.rescue_id <= 0xFFFFFFFF):
+        raise ValueError(f"rescue_id out of 32-bit range: {data.rescue_id}")
+    if not (0 <= data.revives_left <= 0x7):
+        raise ValueError(f"revives_left out of range [0..7]: {data.revives_left}")
+
     bw = BitWriter()
-    kind_code = {"SOS": 1, "A-OK": 2, "THANK-YOU": 3}.get(data.kind.upper(), 1)
+    kind_code = RESCUE_KIND_CODES[kind_upper]
     bw.write_bits(kind_code, 3)
-    bw.write_bits(data.dungeon_id & 0x7F, 7)
-    bw.write_bits(data.floor & 0x7F, 7)
-    bw.write_bits(data.client_species & 0x7FF, 11)
-    bw.write_bits(data.rescue_id & 0xFFFFFFFF, 32)
-    bw.write_bits(data.revives_left & 0x7, 3)
+    bw.write_bits(data.dungeon_id, 7)
+    bw.write_bits(data.floor, 7)
+    bw.write_bits(data.client_species, 11)
+    bw.write_bits(data.rescue_id, 32)
+    bw.write_bits(data.revives_left, 3)
 
     # Encode team name (up to 10 chars, 8 bits each = 80 bits)
     name_bytes = data.team_name.encode("latin-1", errors="replace")[:10]
@@ -254,9 +270,7 @@ def encode_rescue_mail(data: RescueMailData) -> str:
 
 
 def decode_rescue_mail(password: str) -> RescueMailData:
-    clean = re_clean_password(password)
-    if len(clean) != 54:
-        raise ValueError(f"Invalid Rescue password length: expected 54 chars, got {len(clean)}")
+    clean = normalize_and_validate_password(password, 54, "Rescue password")
 
     symbols = [CHAR_TO_VAL[c] for c in clean]
     expected_chk = (symbols[52] << 5) | symbols[53]
@@ -271,7 +285,9 @@ def decode_rescue_mail(password: str) -> RescueMailData:
 
     br = BitReader(bits)
     kind_code = br.read_bits(3)
-    kind_str = {1: "SOS", 2: "A-OK", 3: "THANK-YOU"}.get(kind_code, "SOS")
+    if kind_code not in CODE_TO_RESCUE_KIND:
+        raise ValueError(f"Invalid Rescue Mail kind code: {kind_code}")
+    kind_str = CODE_TO_RESCUE_KIND[kind_code]
     dungeon_id = br.read_bits(7)
     floor = br.read_bits(7)
     client_species = br.read_bits(11)
@@ -279,6 +295,8 @@ def decode_rescue_mail(password: str) -> RescueMailData:
     revives_left = br.read_bits(3)
 
     name_len = br.read_bits(4)
+    if name_len > 10:
+        raise ValueError(f"Invalid Rescue Mail team name length: {name_len}")
     name_bytes = bytearray()
     for _ in range(name_len):
         name_bytes.append(br.read_bits(8))
@@ -295,9 +313,65 @@ def decode_rescue_mail(password: str) -> RescueMailData:
     )
 
 
+def create_aok_from_sos(sos: RescueMailData, *, rescuer_team: Optional[str] = None) -> RescueMailData:
+    """Create a linked A-OK Mail response from an SOS Mail request."""
+    if sos.kind.upper() != "SOS":
+        raise ValueError(f"Expected SOS mail, got {sos.kind!r}")
+    if sos.revives_left <= 0:
+        raise ValueError("Cannot create A-OK mail: no revives left")
+    return RescueMailData(
+        kind="A-OK",
+        dungeon_id=sos.dungeon_id,
+        floor=sos.floor,
+        team_name=(rescuer_team or sos.team_name)[:10],
+        client_species=sos.client_species,
+        rescue_id=sos.rescue_id,
+        revives_left=sos.revives_left - 1,
+    )
+
+
+def create_thank_you_from_aok(aok: RescueMailData, *, team_name: Optional[str] = None) -> RescueMailData:
+    """Create a linked Thank-You Mail receipt from an A-OK Mail completion."""
+    if aok.kind.upper() != "A-OK":
+        raise ValueError(f"Expected A-OK mail, got {aok.kind!r}")
+    return RescueMailData(
+        kind="THANK-YOU",
+        dungeon_id=aok.dungeon_id,
+        floor=aok.floor,
+        team_name=(team_name or aok.team_name)[:10],
+        client_species=aok.client_species,
+        rescue_id=aok.rescue_id,
+        revives_left=aok.revives_left,
+    )
+
+
+def verify_rescue_linkage(earlier: RescueMailData, later: RescueMailData) -> bool:
+    """Verify that two Rescue Mail records share identity across an SOS->A-OK or A-OK->THANK-YOU step."""
+    transition = (earlier.kind.upper(), later.kind.upper())
+    if transition not in {("SOS", "A-OK"), ("A-OK", "THANK-YOU")}:
+        return False
+    return (
+        earlier.dungeon_id == later.dungeon_id
+        and earlier.floor == later.floor
+        and earlier.client_species == later.client_species
+        and earlier.rescue_id == later.rescue_id
+    )
+
+
 def re_clean_password(raw_str: str) -> str:
-    """Strips whitespace, hyphens, and newlines from a password."""
-    return "".join(c.upper() for c in raw_str if c in CHAR_TO_VAL)
+    """Strips whitespace and non-charset formatting characters after uppercasing."""
+    return "".join(c for c in raw_str.upper() if c in CHAR_TO_VAL)
+
+
+def normalize_and_validate_password(raw_str: str, expected_len: int, label: str = "Password") -> str:
+    """Strip whitespace, uppercase, and validate length and Explorers of Sky charset symbols."""
+    cleaned = "".join(ch for ch in raw_str if not ch.isspace()).upper()
+    for idx, ch in enumerate(cleaned):
+        if ch not in CHAR_TO_VAL:
+            raise ValueError(f"Invalid {label} character {ch!r} at position {idx}")
+    if len(cleaned) != expected_len:
+        raise ValueError(f"Invalid {label} length: expected {expected_len} chars, got {len(cleaned)}")
+    return cleaned
 
 
 def format_multiline(password: str, line_len: int = 17) -> str:
@@ -356,12 +430,12 @@ def main() -> None:
         print(format_multiline(pwd, 18))
 
     elif args.cmd == "decode":
-        clean = re_clean_password(args.password)
+        clean = "".join(ch for ch in args.password if not ch.isspace()).upper()
         if len(clean) == 34:
-            m = decode_wondermail_s(clean)
+            m = decode_wondermail_s(args.password)
             print(f"Decoded Wonder Mail S: Dungeon={m.dungeon_id}, Floor={m.floor}, Client={m.client_id}, Target={m.target_id}, RewardItem={m.item_reward}")
         elif len(clean) == 54:
-            r = decode_rescue_mail(clean)
+            r = decode_rescue_mail(args.password)
             print(f"Decoded {r.kind} Rescue: Team='{r.team_name}', Dungeon={r.dungeon_id}, Floor={r.floor}, Species={r.client_species}, ID={r.rescue_id:#x}")
         else:
             print(f"ERROR: Unknown password length ({len(clean)} characters). Expected 34 or 54.")

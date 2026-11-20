@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for the pmdsky-debug C++20 symbol binding generator."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -37,12 +38,15 @@ class TestPMDSkyBindings(unittest.TestCase):
 
     def test_cpp20_compilation_and_assertions(self):
         """Compile the bindings as C++20 and run their address assertions."""
-        # Compile with clang++ -std=c++20
-        bin_path = REPO_ROOT / "build" / "test_pmdsky_bindings"
+        cxx_compiler = os.environ.get("CXX") or ("g++" if os.name == "nt" and shutil.which("g++") else "clang++")
+        exe_suffix = ".exe" if os.name == "nt" else ""
+        bin_path = REPO_ROOT / "build" / f"test_pmdsky_bindings{exe_suffix}"
         bin_path.parent.mkdir(parents=True, exist_ok=True)
+        static_flags = ["-static"] if os.name == "nt" and Path(cxx_compiler).stem.startswith("g++") else []
         compile_cmd = [
-            "clang++",
+            cxx_compiler,
             "-std=c++20",
+            *static_flags,
             f"-I{REPO_ROOT / 'include'}",
             str(CPP_TEST),
             "-o", str(bin_path),

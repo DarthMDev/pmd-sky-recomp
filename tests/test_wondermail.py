@@ -18,6 +18,9 @@ from tools.wondermail import (
     decode_wondermail_s,
     encode_rescue_mail,
     decode_rescue_mail,
+    create_aok_from_sos,
+    create_thank_you_from_aok,
+    verify_rescue_linkage,
     re_clean_password,
     WONDER_MAIL_CHARSET,
 )
@@ -141,6 +144,101 @@ class TestFriendRescueMail(unittest.TestCase):
             decode_rescue_mail("SHORTPASSWORD")
         with self.assertRaises(ValueError):
             decode_wondermail_s("SHORTPASSWORD")
+
+    def test_roundtrip_thank_you_and_full_rescue_cycle(self):
+        sos = RescueMailData(
+            kind="SOS",
+            dungeon_id=42,
+            floor=17,
+            team_name="Explorers",
+            client_species=133,
+            rescue_id=0xA5A55A5A,
+            revives_left=3,
+        )
+        sos_pwd = encode_rescue_mail(sos)
+        decoded_sos = decode_rescue_mail(sos_pwd)
+
+        aok = create_aok_from_sos(decoded_sos, rescuer_team="Saviors")
+        aok_pwd = encode_rescue_mail(aok)
+        decoded_aok = decode_rescue_mail(aok_pwd)
+        self.assertEqual(decoded_aok.kind, "A-OK")
+        self.assertEqual(decoded_aok.revives_left, 2)
+        self.assertTrue(verify_rescue_linkage(decoded_sos, decoded_aok))
+
+        ty = create_thank_you_from_aok(decoded_aok, team_name="Explorers")
+        ty_pwd = encode_rescue_mail(ty)
+        decoded_ty = decode_rescue_mail(ty_pwd)
+        self.assertEqual(decoded_ty.kind, "THANK-YOU")
+        self.assertEqual(decoded_ty.rescue_id, sos.rescue_id)
+        self.assertEqual(decoded_ty.team_name, "Explorers")
+        self.assertTrue(verify_rescue_linkage(decoded_aok, decoded_ty))
+        self.assertFalse(verify_rescue_linkage(decoded_sos, decoded_ty))
+
+    def test_rescue_id_full_32bit_width(self):
+        for rid in (0x00000000, 0x80000000, 0x9ABCDEF0, 0xFFFFFFFF):
+            sos = RescueMailData(
+                kind="SOS",
+                dungeon_id=1,
+                floor=2,
+                team_name="WidthTest",
+                client_species=25,
+                rescue_id=rid,
+                revives_left=3,
+            )
+            pwd = encode_rescue_mail(sos)
+            decoded = decode_rescue_mail(pwd)
+            self.assertEqual(decoded.rescue_id, rid)
+
+    def test_lowercase_and_hyphen_handling(self):
+        sos = RescueMailData(
+            kind="SOS",
+            dungeon_id=7,
+            floor=5,
+            team_name="Hyphens",
+            client_species=387,
+            rescue_id=0x12345678,
+            revives_left=3,
+        )
+        pwd = encode_rescue_mail(sos)
+        # Ensure we test with lowercase letters AND verify '-' is preserved if present
+        self.assertEqual(re_clean_password(pwd.lower()), pwd)
+        decoded = decode_rescue_mail(pwd.lower())
+        self.assertEqual(decoded.rescue_id, 0x12345678)
+
+        # Force a team/id payload containing '-' in the encoded password
+        found_hyphen = False
+        for rid in range(0x100, 0x300):
+            cand = encode_rescue_mail(
+                RescueMailData("SOS", 7, 5, "Hyphens", 387, rid, 3)
+            )
+            if "-" in cand:
+                found_hyphen = True
+                self.assertEqual(decode_rescue_mail(cand.lower()).rescue_id, rid)
+                break
+        self.assertTrue(found_hyphen)
+
+    def test_rejects_invalid_characters(self):
+        mission_pwd = encode_wondermail_s(MissionData(dungeon_id=1, floor=1))
+        for bad_ch in ("O", "I", "!"):
+            bad_pwd = bad_ch + mission_pwd[1:]
+            with self.assertRaisesRegex(ValueError, "Invalid Wonder Mail S password character"):
+                decode_wondermail_s(bad_pwd)
+
+        sos_pwd = encode_rescue_mail(
+            RescueMailData("SOS", 1, 1, "Team", 25, 0x11223344, 3)
+        )
+        for bad_ch in ("O", "I", "!"):
+            bad_pwd = sos_pwd[:5] + bad_ch + sos_pwd[6:]
+            with self.assertRaisesRegex(ValueError, "Invalid Rescue password character"):
+                decode_rescue_mail(bad_pwd)
+
+    def test_rejects_invalid_rescue_kind_and_field_bounds(self):
+        with self.assertRaisesRegex(ValueError, "Invalid Rescue Mail kind"):
+            encode_rescue_mail(RescueMailData("INVALID", 1, 1, "Team", 25, 1, 3))
+        with self.assertRaisesRegex(ValueError, "dungeon_id out of range"):
+            encode_rescue_mail(RescueMailData("SOS", 200, 1, "Team", 25, 1, 3))
+        with self.assertRaisesRegex(ValueError, "rescue_id out of 32-bit range"):
+            encode_rescue_mail(RescueMailData("SOS", 1, 1, "Team", 25, 0x1_0000_0000, 3))
 
 
 if __name__ == "__main__":

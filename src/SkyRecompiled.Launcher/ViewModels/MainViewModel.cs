@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SkyRecompiled.Launcher.Services;
@@ -12,7 +14,10 @@ namespace SkyRecompiled.Launcher.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
+    private Process? _activeProcess;
+
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
     private string? _romPath;
 
     [ObservableProperty]
@@ -22,13 +27,19 @@ public partial class MainViewModel : ViewModelBase
     private string _romSha1 = "";
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
     private bool _isRomValid;
 
     [ObservableProperty]
     private bool _isRomLoaded;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
     private bool _isProcessing;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LaunchGameCommand))]
+    private bool _isGameRunning;
 
     [ObservableProperty]
     private double _progressValue;
@@ -151,31 +162,60 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
-    public async Task LaunchGameAsync()
+    private bool CanLaunchGame() => !IsGameRunning && !IsProcessing && IsRomValid && !string.IsNullOrEmpty(RomPath);
+
+    [RelayCommand(CanExecute = nameof(CanLaunchGame))]
+    public Task LaunchGameAsync()
     {
-        if (string.IsNullOrEmpty(RomPath) || !IsRomValid) return;
+        if (string.IsNullOrEmpty(RomPath) || !IsRomValid) return Task.CompletedTask;
+        if (IsGameRunning || (_activeProcess is { HasExited: false })) return Task.CompletedTask;
 
         IsProcessing = true;
-        ProgressValue = 20;
-        ProgressText = "Configuring static recompilation environment...";
-        await Task.Delay(250);
-
-        ProgressValue = 60;
+        ProgressValue = 50;
         ProgressText = "Launching game engine (nds_runner)...";
-        await Task.Delay(250);
 
         try
         {
             var proc = RomPreparationService.LaunchGame(RomPath);
+            _activeProcess = proc;
+            IsGameRunning = true;
+            int exitedHandled = 0;
+
+            void HandleExit()
+            {
+                if (Interlocked.Exchange(ref exitedHandled, 1) != 0) return;
+                var exitCode = 0;
+                try { exitCode = proc.ExitCode; } catch { }
+                void ApplyExitUi()
+                {
+                    if (ReferenceEquals(_activeProcess, proc))
+                        _activeProcess = null;
+                    IsGameRunning = false;
+                    ProgressValue = exitCode == 0 ? 100 : 0;
+                    ProgressText = exitCode == 0 ? "Ready to Play" : $"Engine Exited ({exitCode})";
+                    StatusMessage = exitCode == 0
+                        ? $"Verified Clean ROM: Pokémon Mystery Dungeon: Explorers of Sky [{RomRegion}]"
+                        : $"nds_runner exited with code {exitCode}. Check nds_runner.log for details.";
+                }
+                if (Application.Current != null)
+                    Dispatcher.UIThread.Post(ApplyExitUi);
+                else
+                    ApplyExitUi();
+            }
+
+            proc.EnableRaisingEvents = true;
+            proc.Exited += (_, _) => HandleExit();
+            if (proc.HasExited)
+                HandleExit();
+
             ProgressValue = 100;
             ProgressText = "Game Running";
             StatusMessage = "SkyRecompiled is active. Enjoy your dungeon exploration!";
-
-            // Optionally minimize or monitor
         }
         catch (Exception ex)
         {
+            IsGameRunning = false;
+            _activeProcess = null;
             StatusMessage = $"Failed to launch engine: {ex.Message}";
             ProgressText = "Launch Error";
         }
@@ -183,6 +223,7 @@ public partial class MainViewModel : ViewModelBase
         {
             IsProcessing = false;
         }
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -191,18 +232,25 @@ public partial class MainViewModel : ViewModelBase
         var dir = RomPreparationService.GetUserStorageDir();
         Directory.CreateDirectory(dir);
 
-        if (OperatingSystem.IsMacOS())
-            Process.Start("open", $"\"{dir}\"");
-        else if (OperatingSystem.IsWindows())
-            Process.Start("explorer.exe", $"\"{dir}\"");
-        else
-            Process.Start("xdg-open", $"\"{dir}\"");
+        var fileName = OperatingSystem.IsMacOS() ? "open"
+            : OperatingSystem.IsWindows() ? "explorer.exe"
+            : "xdg-open";
+        var psi = new ProcessStartInfo
+        {
+            FileName = fileName,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add(dir);
+        Process.Start(psi);
     }
 
     [RelayCommand]
     public void ResetRom()
     {
+        RomPreparationService.ClearSavedRomPath();
         RomPath = null;
+        RomRegion = "None";
+        RomSha1 = "";
         IsRomLoaded = false;
         IsRomValid = false;
         ProgressValue = 0;

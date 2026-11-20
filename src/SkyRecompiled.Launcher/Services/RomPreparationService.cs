@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
@@ -41,26 +43,62 @@ public class RomPreparationService
     public static string GetSavesPath() => Path.Combine(GetUserStorageDir(), "saves", "pmdsky.sav");
     public static string GetConsoleDir() => Path.Combine(GetUserStorageDir(), "console");
 
+    public static Dictionary<string, string> LoadSettings(string? settingsFile = null)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var path = settingsFile ?? GetSettingsPath();
+        if (!File.Exists(path)) return result;
+
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#') || !trimmed.Contains('='))
+                continue;
+            var parts = trimmed.Split('=', 2);
+            if (parts.Length == 2)
+            {
+                var key = parts[0].Trim();
+                var val = parts[1].Trim().Trim('"', '\'');
+                if (!string.IsNullOrEmpty(key))
+                    result[key] = val;
+            }
+        }
+        return result;
+    }
+
+    public static void SaveSettingsAtomic(Dictionary<string, string> settings, string? settingsFile = null)
+    {
+        var targetPath = settingsFile ?? GetSettingsPath();
+        var dir = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        var lines = new List<string> { "# SkyRecompiled Configuration" };
+        foreach (var kv in settings.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            lines.Add($"{kv.Key} = \"{kv.Value}\"");
+        }
+        var content = string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        var tmpPath = Path.Combine(dir ?? ".", $".{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(tmpPath, content);
+            File.Move(tmpPath, targetPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tmpPath))
+                File.Delete(tmpPath);
+        }
+    }
+
     public static string? LoadSavedRomPath()
     {
         try
         {
-            var settingsFile = GetSettingsPath();
-            if (!File.Exists(settingsFile)) return null;
-
-            foreach (var line in File.ReadAllLines(settingsFile))
-            {
-                var trimmed = line.Trim();
-                if (trimmed.StartsWith("rom_path") && trimmed.Contains('='))
-                {
-                    var parts = trimmed.Split('=', 2);
-                    if (parts.Length == 2)
-                    {
-                        var val = parts[1].Trim().Trim('"', '\'');
-                        if (File.Exists(val)) return val;
-                    }
-                }
-            }
+            var settings = LoadSettings();
+            if (settings.TryGetValue("rom_path", out var val) && File.Exists(val))
+                return val;
         }
         catch
         {
@@ -73,10 +111,23 @@ public class RomPreparationService
     {
         try
         {
-            var dir = GetUserStorageDir();
-            Directory.CreateDirectory(dir);
-            var settingsFile = GetSettingsPath();
-            File.WriteAllText(settingsFile, $"# SkyRecompiled Configuration\nrom_path = \"{romPath}\"\n");
+            var settings = LoadSettings();
+            settings["rom_path"] = romPath;
+            SaveSettingsAtomic(settings);
+        }
+        catch
+        {
+            // Ignore write errors
+        }
+    }
+
+    public static void ClearSavedRomPath(string? settingsFile = null)
+    {
+        try
+        {
+            var settings = LoadSettings(settingsFile);
+            if (settings.Remove("rom_path"))
+                SaveSettingsAtomic(settings, settingsFile);
         }
         catch
         {
@@ -172,25 +223,39 @@ public class RomPreparationService
         var savePath = GetSavesPath();
         var consoleDir = GetConsoleDir();
         var userDir = GetUserStorageDir();
+        var savestateDir = Path.Combine(userDir, "savestates");
 
         Directory.CreateDirectory(Path.GetDirectoryName(savePath)!);
         Directory.CreateDirectory(consoleDir);
-        Directory.CreateDirectory(Path.Combine(userDir, "savestates"));
+        Directory.CreateDirectory(savestateDir);
 
         var skySettingsPath = Path.Combine(userDir, "sky_settings.toml");
         var logPath = Path.Combine(userDir, "nds_runner.log");
         var psi = new ProcessStartInfo
         {
             FileName = runnerBin,
-            Arguments = $"\"{consoleDir}\" --interactive --config \"{configPath}\" --rom \"{romPath}\" --save-path \"{savePath}\" --savestate-dir \"{Path.Combine(userDir, "savestates")}\" --runtime-settings-path \"{skySettingsPath}\" --rtc-host",
             UseShellExecute = false,
             WorkingDirectory = Path.GetDirectoryName(runnerBin)!,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        psi.ArgumentList.Add(consoleDir);
+        psi.ArgumentList.Add("--interactive");
+        psi.ArgumentList.Add("--config");
+        psi.ArgumentList.Add(configPath);
+        psi.ArgumentList.Add("--rom");
+        psi.ArgumentList.Add(romPath);
+        psi.ArgumentList.Add("--save-path");
+        psi.ArgumentList.Add(savePath);
+        psi.ArgumentList.Add("--savestate-dir");
+        psi.ArgumentList.Add(savestateDir);
+        psi.ArgumentList.Add("--runtime-settings-path");
+        psi.ArgumentList.Add(skySettingsPath);
+        psi.ArgumentList.Add("--rtc-host");
+
         try
         {
-            File.WriteAllText(logPath, $"$ {psi.FileName} {psi.Arguments}\n");
+            File.WriteAllText(logPath, $"$ {psi.FileName} {string.Join(" ", psi.ArgumentList)}\n");
         }
         catch
         {
