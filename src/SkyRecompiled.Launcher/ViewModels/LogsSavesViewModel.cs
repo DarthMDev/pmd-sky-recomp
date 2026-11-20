@@ -89,32 +89,51 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
     [RelayCommand]
     public void RefreshSaves()
     {
-        var info = SaveManagementService.InspectSave(_savesDir, _savestatesDir);
-        HasSaveFile = info.Exists;
-        IsSaveValidEeprom = info.IsValidEepromSize;
-        SavePathDisplay = info.Path;
-        SavestateCountText = $"{info.SavestateCount} savestate file(s)";
+        try
+        {
+            var info = SaveManagementService.InspectSave(_savesDir, _savestatesDir);
+            HasSaveFile = info.Exists;
+            IsSaveValidEeprom = info.IsValidEepromSize;
+            SavePathDisplay = info.Path;
+            SavestateCountText = $"{info.SavestateCount} savestate file(s)";
 
-        if (!info.Exists)
-        {
-            SaveBadgeText = "Not Created";
-            SaveDetailsText = "Start the game once to create your 128 KiB EEPROM save (pmdsky.sav).";
+            if (!info.Exists)
+            {
+                SaveBadgeText = "Not Created";
+                SaveDetailsText = "Start the game once to create your 128 KiB EEPROM save (pmdsky.sav).";
+            }
+            else if (info.IsValidEepromSize)
+            {
+                SaveBadgeText = "Valid 128 KiB EEPROM";
+                SaveDetailsText = $"Size: {info.SizeBytes:N0} bytes • SHA-256: {info.Sha256Short}… • Modified: {info.LastModifiedUtc:yyyy-MM-dd HH:mm:ss} UTC";
+            }
+            else
+            {
+                SaveBadgeText = $"Unexpected Size ({info.SizeBytes} B)";
+                SaveDetailsText = $"Expected {SaveManagementService.ExpectedEepromSaveBytes:N0} bytes; found {info.SizeBytes:N0} bytes. Restore from a valid backup before playing.";
+            }
         }
-        else if (info.IsValidEepromSize)
+        catch (Exception ex)
         {
-            SaveBadgeText = "Valid 128 KiB EEPROM";
-            SaveDetailsText = $"Size: {info.SizeBytes:N0} bytes • SHA-256: {info.Sha256Short}… • Modified: {info.LastModifiedUtc:yyyy-MM-dd HH:mm:ss} UTC";
-        }
-        else
-        {
-            SaveBadgeText = $"Unexpected Size ({info.SizeBytes} B)";
-            SaveDetailsText = $"Expected {SaveManagementService.ExpectedEepromSaveBytes:N0} bytes; found {info.SizeBytes:N0} bytes. Restore from a valid backup before playing.";
+            HasSaveFile = false;
+            IsSaveValidEeprom = false;
+            SavePathDisplay = SaveManagementService.GetSaveFilePath(_savesDir);
+            SavestateCountText = "Unavailable";
+            SaveBadgeText = "Inspection Unavailable";
+            SaveDetailsText = $"Unable to inspect save file: {ex.Message}";
         }
 
         var prevSelected = SelectedBackup?.FileName;
         Backups.Clear();
-        foreach (var b in SaveManagementService.ListBackups(_savesDir))
-            Backups.Add(b);
+        try
+        {
+            foreach (var b in SaveManagementService.ListBackups(_savesDir))
+                Backups.Add(b);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Unable to list save backups: {ex.Message}";
+        }
         SelectedBackup = Backups.FirstOrDefault(b => b.FileName == prevSelected) ?? Backups.FirstOrDefault();
         OnPropertyChanged(nameof(HasBackups));
         OnPropertyChanged(nameof(HasNoBackups));
@@ -122,11 +141,12 @@ public sealed partial class LogsSavesViewModel : ViewModelBase
         RestoreSelectedBackupCommand.NotifyCanExecuteChanged();
     }
 
-    private bool CanCreateBackup() => HasSaveFile;
+    private bool CanCreateBackup() => !IsGameRunning && HasSaveFile;
 
     [RelayCommand(CanExecute = nameof(CanCreateBackup))]
     public void CreateBackup()
     {
+        if (IsGameRunning) return;
         try
         {
             var backup = SaveManagementService.CreateBackup(_savesDir);

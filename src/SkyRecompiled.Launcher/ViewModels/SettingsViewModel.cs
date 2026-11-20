@@ -121,7 +121,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    public void SaveSettings()
+    public void SaveSettings() => _ = SaveSettingsCore();
+
+    private bool SaveSettingsCore()
     {
         try
         {
@@ -132,10 +134,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
             RescueEndpoint = prefs.RescueEndpoint;
             StatusMessage = $"Settings saved ({DateTime.Now:HH:mm:ss}).";
             OnSettingsSaved?.Invoke();
+            return true;
         }
         catch (Exception ex)
         {
             StatusMessage = $"Failed to save settings: {ex.Message}";
+            return false;
         }
     }
 
@@ -158,7 +162,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         RescueEndpoint = LauncherPreferences.DefaultRescueEndpoint;
         RescueOfflineMode = false;
 
-        SaveSettings();
-        StatusMessage = "Restored default graphics, audio, input, and rescue settings.";
+        if (SaveSettingsCore())
+            StatusMessage = "Restored default graphics, audio, input, and rescue settings.";
     }
 }

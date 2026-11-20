@@ -258,12 +258,13 @@ internal static class Program
         AssertEqual(loaded.ControllerPreset, 2, "ControllerPreset");
         AssertEqual(loaded.ControllerBindings, "12,13,14,15,2,1,3,4,10,11,7,5", "ControllerBindings");
 
-        // Out-of-range clamping and invalid bindings preservation
+        // Out-of-range clamping, inline TOML comments, and invalid bindings preservation
         var clamped = SkySettingsService.Parse(
-            "[graphics]\naspect_ratio = 99\nhud_layout = -3\n[audio]\nvolume_percent = 500\n[input]\ncontroller_bindings = \"bad\"\n");
+            "[graphics]\naspect_ratio = 99 # clamp\nhud_layout = -3\n[audio]\nvolume_percent = 500\nmuted = true # inline comment\n[input]\ncontroller_bindings = \"bad\"\n");
         AssertEqual(clamped.AspectRatio, 3, "Clamped AspectRatio");
         AssertEqual(clamped.HudLayout, 0, "Clamped HudLayout");
         AssertEqual(clamped.AudioVolumePercent, 100, "Clamped AudioVolumePercent");
+        AssertEqual(clamped.AudioMuted, true, "Inline comment stripped from bool");
         AssertEqual(clamped.ControllerBindings, new SkyRuntimeSettings().ControllerBindings, "Invalid CSV falls back to default");
     }
 
@@ -330,6 +331,12 @@ internal static class Program
 
         ModManagerService.ExportActiveModsManifest(rescanned, manifestPath);
         Assert(File.ReadAllText(manifestPath).Contains("\"a_mod\"", StringComparison.Ordinal), "Manifest contains active mods");
+
+        // Null override value in mods_state.json is ignored gracefully
+        File.WriteAllText(statePath, "{\"a_mod\": null, \"z_mod\": {\"Enabled\": true, \"Priority\": 10}}\n");
+        var afterNull = ModManagerService.ScanMods(modsDir, statePath);
+        AssertEqual(afterNull.Mods.Count, 2, "Null override does not crash scan");
+        AssertEqual(afterNull.Mods.First(m => m.Id == "a_mod").Priority, 10, "a_mod falls back to metadata priority");
 
         // Path validation checks
         AssertThrows<ArgumentException>(() => ModManagerService.ValidateVirtualPath("../escape"), "Parent traversal");

@@ -131,7 +131,7 @@ public static partial class ModManagerService
 
             bool effectiveEnabled = meta.Enabled;
             int effectivePriority = meta.Priority;
-            if (overrides.TryGetValue(meta.Id, out var ov))
+            if (overrides.TryGetValue(meta.Id, out var ov) && ov is not null)
             {
                 effectiveEnabled = ov.Enabled;
                 effectivePriority = ov.Priority;
@@ -357,10 +357,17 @@ public static partial class ModManagerService
         try
         {
             var json = File.ReadAllText(path, Encoding.UTF8);
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, ModStateOverride>>(json);
-            return parsed != null
-                ? new Dictionary<string, ModStateOverride>(parsed, StringComparer.Ordinal)
-                : new Dictionary<string, ModStateOverride>(StringComparer.Ordinal);
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, ModStateOverride?>>(json);
+            if (parsed == null)
+                return new Dictionary<string, ModStateOverride>(StringComparer.Ordinal);
+
+            var clean = new Dictionary<string, ModStateOverride>(StringComparer.Ordinal);
+            foreach (var kv in parsed)
+            {
+                if (kv.Value is not null)
+                    clean[kv.Key] = kv.Value;
+            }
+            return clean;
         }
         catch
         {
@@ -443,7 +450,19 @@ public static partial class ModManagerService
         if (Directory.Exists(destDir))
             throw new InvalidOperationException($"Destination folder '{targetFolderName}' already exists in mods/.");
 
-        CopyDirectoryClean(sourceDir, destDir);
+        var stagingDir = Path.Combine(root, $".staging.{targetFolderName}.{Guid.NewGuid():N}");
+        try
+        {
+            CopyDirectoryClean(sourceDir, stagingDir);
+            Directory.Move(stagingDir, destDir);
+        }
+        finally
+        {
+            if (Directory.Exists(stagingDir))
+            {
+                try { Directory.Delete(stagingDir, recursive: true); } catch { }
+            }
+        }
 
         var refreshed = ScanMods(root, stateFilePath);
         return refreshed.Mods.First(m => string.Equals(m.Id, meta.Id, StringComparison.Ordinal));

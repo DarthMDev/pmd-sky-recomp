@@ -43,17 +43,19 @@
                 IsVisible="{Binding HasValidationIssues}">
             <StackPanel Spacing="6">
                 <TextBlock Text="Skipped Invalid Mod Layers" FontSize="13" FontWeight="SemiBold" Foreground="#F38BA8"/>
-                <ItemsControl ItemsSource="{Binding ValidationIssues}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:ModValidationIssue">
-                            <TextBlock FontSize="12" Foreground="#F5C2E7" TextWrapping="Wrap">
-                                <Run Text="{Binding FolderName}" FontWeight="SemiBold"/>
-                                <Run Text=": "/>
-                                <Run Text="{Binding Message}"/>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ValidationIssues}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:ModValidationIssue">
+                                <TextBlock FontSize="12" Foreground="#F5C2E7" TextWrapping="Wrap">
+                                    <Run Text="{Binding FolderName}" FontWeight="SemiBold"/>
+                                    <Run Text=": "/>
+                                    <Run Text="{Binding Message}"/>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </StackPanel>
         </Border>
 
@@ -80,6 +82,7 @@
                                     <Border Classes="subcard" Margin="0,0,0,8">
                                         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
                                             <CheckBox Grid.RowSpan="2" Grid.Column="0" IsChecked="{Binding IsEnabled}"
+                                                      AutomationProperties.Name="{Binding Name}"
                                                       VerticalAlignment="Center" Margin="0,0,10,0"/>
 
                                             <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">

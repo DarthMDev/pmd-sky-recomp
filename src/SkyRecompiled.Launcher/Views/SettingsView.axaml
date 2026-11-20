@@ -26,6 +26,7 @@
                                 <TextBlock Text="Aspect Ratio" Classes="label"/>
                                 <ComboBox ItemsSource="{Binding AspectRatioChoices}"
                                           SelectedIndex="{Binding AspectRatioIndex}"
+                                          AutomationProperties.Name="Aspect Ratio"
                                           HorizontalAlignment="Stretch"/>
                             </StackPanel>
 
@@ -34,6 +35,7 @@
                                 <TextBlock Text="HUD Layout" Classes="label"/>
                                 <ComboBox ItemsSource="{Binding HudLayoutChoices}"
                                           SelectedIndex="{Binding HudLayoutIndex}"
+                                          AutomationProperties.Name="HUD Layout"
                                           HorizontalAlignment="Stretch"/>
                             </StackPanel>
 
@@ -42,6 +44,7 @@
                                 <TextBlock Text="Refresh Rate Interpolation" Classes="label"/>
                                 <ComboBox ItemsSource="{Binding RefreshRateChoices}"
                                           SelectedIndex="{Binding RefreshRateIndex}"
+                                          AutomationProperties.Name="Refresh Rate Interpolation"
                                           HorizontalAlignment="Stretch"/>
                             </StackPanel>
 
@@ -50,6 +53,7 @@
                                 <TextBlock Text="HD Shader Filter" Classes="label"/>
                                 <ComboBox ItemsSource="{Binding ShaderFilterChoices}"
                                           SelectedIndex="{Binding ShaderFilterIndex}"
+                                          AutomationProperties.Name="HD Shader Filter"
                                           HorizontalAlignment="Stretch"/>
                             </StackPanel>
 
@@ -58,6 +62,7 @@
                                 <TextBlock Text="Controller Layout Preset" Classes="label"/>
                                 <ComboBox ItemsSource="{Binding ControllerPresetChoices}"
                                           SelectedIndex="{Binding ControllerPresetIndex}"
+                                          AutomationProperties.Name="Controller Layout Preset"
                                           HorizontalAlignment="Stretch"/>
                             </StackPanel>
 
@@ -69,6 +74,7 @@
                                                FontSize="12" Foreground="#89B4FA"/>
                                 </Grid>
                                 <Slider Minimum="0" Maximum="100" TickFrequency="10" IsSnapToTickEnabled="True"
+                                        AutomationProperties.Name="Master Audio Volume"
                                         Value="{Binding AudioVolumePercent}"/>
                             </StackPanel>
                         </Grid>
@@ -93,6 +99,7 @@
                         <StackPanel Spacing="4">
                             <TextBlock Text="Pelipper Online Rescue Endpoint" Classes="label"/>
                             <TextBox Text="{Binding RescueEndpoint}"
+                                     AutomationProperties.Name="Pelipper Online Rescue Endpoint"
                                      Watermark="https://sky-rescue-worker.darthanonymous1.workers.dev"/>
                         </StackPanel>
 

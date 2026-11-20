@@ -82,8 +82,8 @@ public static class SkySettingsService
     {
         foreach (var rawLine in tomlText.Split('\n'))
         {
-            var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line) || line.StartsWith('#') || line.StartsWith('['))
+            var line = StripTomlComment(rawLine).Trim();
+            if (string.IsNullOrEmpty(line) || line.StartsWith('['))
                 continue;
 
             var eq = line.IndexOf('=');
@@ -140,6 +140,28 @@ public static class SkySettingsService
                     break;
             }
         }
+    }
+
+    private static string StripTomlComment(string line)
+    {
+        bool inDouble = false;
+        bool inSingle = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\\' && inDouble && i + 1 < line.Length)
+            {
+                i++;
+                continue;
+            }
+            if (c == '"' && !inSingle)
+                inDouble = !inDouble;
+            else if (c == '\'' && !inDouble)
+                inSingle = !inSingle;
+            else if (c == '#' && !inDouble && !inSingle)
+                return line[..i];
+        }
+        return line;
     }
 
     private static string StripQuotes(string s)

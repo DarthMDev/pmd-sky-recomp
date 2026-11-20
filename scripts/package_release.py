@@ -39,7 +39,7 @@ setlocal
 cd /d "%~dp0"
 if exist "%~dp0SkyRecompiled.exe" (
     "%~dp0SkyRecompiled.exe" %*
-    exit /b %ERRORLEVEL%
+    exit /b
 )
 powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0SkyRecompiled.ps1" %*
 set "exit_code=%ERRORLEVEL%"

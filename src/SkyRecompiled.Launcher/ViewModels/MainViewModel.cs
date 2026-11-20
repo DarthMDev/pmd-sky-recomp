@@ -169,12 +169,19 @@ public partial class MainViewModel : ViewModelBase
             RunnerStatusSummary = err ?? "Engine binary not found";
         }
 
-        var saveInfo = SaveManagementService.InspectSave();
-        SaveSummaryText = !saveInfo.Exists
-            ? "No pmdsky.sav yet (created on first save)"
-            : saveInfo.IsValidEepromSize
-                ? $"128 KiB EEPROM OK • {saveInfo.SavestateCount} savestate(s)"
-                : $"Size mismatch ({saveInfo.SizeBytes} B) • {saveInfo.SavestateCount} savestate(s)";
+        try
+        {
+            var saveInfo = SaveManagementService.InspectSave();
+            SaveSummaryText = !saveInfo.Exists
+                ? "No pmdsky.sav yet (created on first save)"
+                : saveInfo.IsValidEepromSize
+                    ? $"128 KiB EEPROM OK • {saveInfo.SavestateCount} savestate(s)"
+                    : $"Size mismatch ({saveInfo.SizeBytes} B) • {saveInfo.SavestateCount} savestate(s)";
+        }
+        catch (Exception ex)
+        {
+            SaveSummaryText = $"Save inspection unavailable ({ex.Message})";
+        }
 
         RuntimeSummaryText = SkySettingsService.FormatSummary(Settings.BuildRuntimeSettings());
     }

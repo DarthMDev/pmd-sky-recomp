@@ -89,6 +89,9 @@ class TestLauncher(unittest.TestCase):
         )
         if not dotnet:
             self.skipTest("dotnet SDK not installed")
+        sdk_check = subprocess.run([dotnet, "--list-sdks"], capture_output=True, text=True, check=False)
+        if sdk_check.returncode != 0 or not sdk_check.stdout.strip():
+            self.skipTest("dotnet SDK not installed")
 
         csproj = REPO_ROOT / "tests" / "SkyRecompiled.Launcher.Tests" / "SkyRecompiled.Launcher.Tests.csproj"
         run_res = subprocess.run(
