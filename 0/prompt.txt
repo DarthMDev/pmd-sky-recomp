@@ -1,0 +1,28 @@
+whats left of milestone 4? with our most recent merge
+
+---
+
+lets do a new branch for 1.
+And i think the Avalonia desktop app is our best across all the platforms, its also kinda barebones right now and it be nice to have more UI
+
+---
+
+rescue board should be an in-game thing to make it feel native and like the PMD Rescue Team DX Remake, so u can scrap that, unless its simplified to just view (what u think about that)
+
+---
+
+i like option 1
+
+---
+
+pr time? give me title and description
+Actually run coderabbit in --agent mode first to catch any issues reviewing the latest commit
+
+---
+
+done commit first then review
+
+---
+
+coderabbit left a lot of comments see whats valid and worth fixing, it could be wrong 
+@[pmd-sky-recomp#13:feat(launcher): expand Avalonia desktop hub and unify cross-platform packaging]
