@@ -151,13 +151,20 @@ public class RomPreparationService
         }
     }
 
-    public static void SavePreferences(LauncherPreferences prefs, string? settingsFile = null)
+    public static void SavePreferences(
+        LauncherPreferences prefs,
+        string? settingsFile = null,
+        bool mergeWithExisting = true)
     {
-        UpdateSettings(new Dictionary<string, string>(StringComparer.Ordinal)
+        var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["rescue_endpoint"] = LauncherPreferences.NormalizeEndpoint(prefs.RescueEndpoint),
             ["rescue_offline"] = prefs.RescueOfflineMode ? "true" : "false",
-        }, settingsFile);
+        };
+        if (mergeWithExisting)
+            UpdateSettings(values, settingsFile);
+        else
+            SaveSettingsAtomic(values, settingsFile);
     }
 
     public static string? LoadSavedRomPath(string? settingsFile = null)

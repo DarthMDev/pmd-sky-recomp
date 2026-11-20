@@ -167,6 +167,17 @@ internal static class Program
         Assert(!afterClear.ContainsKey("rom_path"), "rom_path removed");
         AssertEqual(afterClear["custom_flag"], "keep_me", "custom_flag kept after clear");
         AssertEqual(Directory.GetFiles(Path.GetDirectoryName(settingsPath)!).Length, 1, "no leftover temp files");
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var lockedSettings = Path.Combine(tmp.Path, "locked_settings.toml");
+            await File.WriteAllTextAsync(lockedSettings, "rom_path = \"/tmp/sky.nds\"\n");
+            File.SetUnixFileMode(lockedSettings, UnixFileMode.None);
+            Assert(!RomPreparationService.TryLoadPreferences(out _, out _, lockedSettings), "Unreadable settings.toml detected");
+            RomPreparationService.SavePreferences(new LauncherPreferences(), lockedSettings, mergeWithExisting: false);
+            Assert(RomPreparationService.TryLoadPreferences(out var recovered, out _, lockedSettings), "Overwrite without merge recovers unreadable settings.toml");
+            AssertEqual(recovered.RescueEndpoint, LauncherPreferences.DefaultRescueEndpoint, "Recovered default endpoint");
+        }
     }
 
     private static void TestLocateEngineBinaries()
@@ -346,11 +357,11 @@ internal static class Program
         }
 
         // 5. Invalid-romfs folder does not reserve ID for a subsequent valid folder
-        var invalidFirst = Path.Combine(modsDir, "00_broken_dup");
-        Directory.CreateDirectory(Path.Combine(invalidFirst, "romfs", "data"));
-        File.WriteAllText(Path.Combine(invalidFirst, "mod.toml"), "id = \"dup_ok\"\n");
         if (!OperatingSystem.IsWindows())
         {
+            var invalidFirst = Path.Combine(modsDir, "00_broken_dup");
+            Directory.CreateDirectory(Path.Combine(invalidFirst, "romfs", "data"));
+            File.WriteAllText(Path.Combine(invalidFirst, "mod.toml"), "id = \"dup_ok\"\n");
             var ext = Path.Combine(tmp.Path, "outside2.bin");
             File.WriteAllBytes(ext, new byte[] { 1 });
             File.CreateSymbolicLink(Path.Combine(invalidFirst, "romfs", "data", "bad.bin"), ext);

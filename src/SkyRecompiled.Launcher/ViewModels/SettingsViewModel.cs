@@ -138,11 +138,11 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private bool CanSaveSettings() => !_skyLoadFailed && !_prefsLoadFailed;
 
     [RelayCommand(CanExecute = nameof(CanSaveSettings))]
-    public void SaveSettings() => _ = SaveSettingsCore();
+    public void SaveSettings() => _ = SaveSettingsCore(resetUnreadable: false);
 
-    private bool SaveSettingsCore()
+    private bool SaveSettingsCore(bool resetUnreadable)
     {
-        if (_skyLoadFailed || _prefsLoadFailed)
+        if (!resetUnreadable && (_skyLoadFailed || _prefsLoadFailed))
         {
             StatusMessage = "Save blocked: existing configuration could not be read. Click Reload or Restore Defaults.";
             return false;
@@ -152,9 +152,15 @@ public sealed partial class SettingsViewModel : ViewModelBase
             var rt = BuildRuntimeSettings();
             var prefs = BuildPreferences();
             SkySettingsService.SaveAtomic(rt, _skySettingsPath);
-            RomPreparationService.SavePreferences(prefs, _launcherSettingsPath);
+            RomPreparationService.SavePreferences(
+                prefs,
+                _launcherSettingsPath,
+                mergeWithExisting: !resetUnreadable || !_prefsLoadFailed);
             _controllerBindings = rt.ControllerBindings;
             RescueEndpoint = prefs.RescueEndpoint;
+            _skyLoadFailed = false;
+            _prefsLoadFailed = false;
+            SaveSettingsCommand.NotifyCanExecuteChanged();
             StatusMessage = $"Settings saved ({DateTime.Now:HH:mm:ss}).";
             OnSettingsSaved?.Invoke();
             return true;
@@ -185,11 +191,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         RescueEndpoint = LauncherPreferences.DefaultRescueEndpoint;
         RescueOfflineMode = false;
 
-        _skyLoadFailed = false;
-        _prefsLoadFailed = false;
-        SaveSettingsCommand.NotifyCanExecuteChanged();
-
-        if (SaveSettingsCore())
+        if (SaveSettingsCore(resetUnreadable: true))
             StatusMessage = "Restored default graphics, audio, input, and rescue settings.";
     }
 }
