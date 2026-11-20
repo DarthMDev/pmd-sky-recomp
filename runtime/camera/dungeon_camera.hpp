@@ -82,6 +82,12 @@ struct OffScreenActorAdjustment {
     int32_t delta_x_q8 = 0;           // 24.8 fixed-point horizontal offset to apply
 };
 
+enum class GroundBackground {
+    Unknown,
+    StaticPicture,
+    WideMap,
+};
+
 /// Hook for `overlay29` camera, widescreen tile-column streaming, and `IsPositionVisibleAndOnScreen`
 /// (`0x022E2CA0` NA / `0x022E3624` EU) entity culling (Task 3.1).
 class DungeonCameraHook {
@@ -167,6 +173,9 @@ public:
         GuestMemoryView mem,
         uint32_t ground_bg_addr) const noexcept;
 
+    /// Classifies the active Ground Mode background on the widescreen-capable main engine.
+    [[nodiscard]] GroundBackground ReadGroundBackground(GuestMemoryView mem) const noexcept;
+
     /// Computes the widescreen margin shift for an off-screen waiting or walking cutscene `live_actor`
     /// so NPCs parked just outside the vanilla [0, 256) frame do not appear prematurely in the margins.
     /// Adapted from Asphaltian/pmd-space (`OffScreenActors.cs`, GPL-3.0).
@@ -176,6 +185,9 @@ public:
         int camera_pixel_x) const noexcept;
 
 private:
+    [[nodiscard]] static GroundBackground ClassifyGroundBackground(
+        GuestMemoryView mem, uint32_t ground_bg_addr) noexcept;
+
     pmdsky::Region region_ = pmdsky::Region::NA;
     gpu2d::AspectRatioPreset aspect_ = gpu2d::AspectRatioPreset::Widescreen_16_9;
     gpu2d::ViewportMetrics metrics_;

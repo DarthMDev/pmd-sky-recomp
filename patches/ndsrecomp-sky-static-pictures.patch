@@ -1,0 +1,661 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+index a5c8244..7714781 100644
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -3276,6 +3276,19 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+         std::fprintf(stderr,"[sdl] CPU/render handoff unavailable for selected title/renderer/features; serial fallback\n");
+     }
+ #endif
++    const skyrecomp::camera::DungeonCameraHook camera_hook(hud_region);
++    auto ground_background = [&] {
++        using skyrecomp::camera::GroundBackground;
++        if (!pmd_sky_rom || !(options.adaptive_screens & NDS_ADAPTIVE_TOP) ||
++            nds_gpu3d_output_width() <= 256u || !(nds_powercontrol9() & 0x8000u)) {
++            return GroundBackground::Unknown;
++        }
++        BusRegion mainram{};
++        if (!bus_get_region("mainram", &mainram)) return GroundBackground::Unknown;
++        return camera_hook.ReadGroundBackground(
++            skyrecomp::GuestMemoryView(mainram.ptr, mainram.len));
++    };
++    nds_gpu2d_set_wide_affine(pmd_sky_rom);
+     while (running) {
+         finish_pending_save(false);
+         const uint64_t latency_loop = latency_trace ? SDL_GetPerformanceCounter() : 0;
+@@ -4401,6 +4414,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+         // Quit/control requests are resolved while the producer is joined.
+         // Never start another guest transaction after SDL_QUIT/window close.
+         if (!running) break;
++        const auto background_before_frame = ground_background();
+         const uint64_t phase0 = SDL_GetPerformanceCounter();
+         uint64_t latency_cycles_emu = latency_trace ? nds_frontend_latency::cycles() : 0;
+         uint64_t worker_emu_begin=phase0, worker_emu_end=phase0;
+@@ -4541,9 +4555,21 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+             const bool native_hd=presentation.gl_top && nds_gpu3d_internal_scale()>1u &&
+                                  nds_gpu3d_output_width()==256u;
+             direct_present=nds_gpu2d_direct_present_frame_active();
+-            if (((options.adaptive_screens & NDS_ADAPTIVE_TOP) || native_hd) && !direct_present)
+-                top_pixels=nds_gpu2d_adaptive_framebuffer(0,&top_width);
+-            else if (direct_present) top_width=nds_gpu3d_output_width();
++            if (((options.adaptive_screens & NDS_ADAPTIVE_TOP) || native_hd) && !direct_present) {
++                using skyrecomp::camera::GroundBackground;
++                const auto background_after_frame = ground_background();
++                NdsGpu2dScene scene = NdsGpu2dScene::Unknown;
++                if (background_before_frame == GroundBackground::StaticPicture ||
++                    background_after_frame == GroundBackground::StaticPicture) {
++                    scene = NdsGpu2dScene::StaticPicture;
++                } else if (background_before_frame == GroundBackground::WideMap &&
++                           background_after_frame == GroundBackground::WideMap) {
++                    scene = NdsGpu2dScene::ScrollingGroundMap;
++                }
++                top_pixels = nds_gpu2d_adaptive_framebuffer(0, &top_width, scene);
++            } else if (direct_present) {
++                top_width = nds_gpu3d_output_width();
++            }
+             if (options.adaptive_screens & NDS_ADAPTIVE_BOTTOM)
+                 bottom_pixels=nds_gpu2d_adaptive_framebuffer(1,&bottom_width);
+             phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
+@@ -5063,6 +5089,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+     const bool audio_opened = static_cast<bool>(audio);
+     close_audio(audio);
+     nds_frontend_latency::finish();
++    nds_gpu2d_set_wide_affine(false);
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
+     nds_gpu2d_set_direct_present(false);
+     nds_compute_host_stop();
+diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
+index b5e0ae5..4cf129f 100644
+--- a/runner/src/gpu2d.cpp
++++ b/runner/src/gpu2d.cpp
+@@ -126,6 +126,15 @@ using AdaptiveFrame = std::array<uint32_t, kMaxAdaptiveWidth * 192>;
+ // VBlank.
+ std::array<std::array<Frame, 2>, 2> g_fb{}; // [buffer][screen], 0xFFRRGGBB
+ std::array<AdaptiveFrame, 2> g_adaptive_frame{};
++// The affine reference and VRAM views belong to the native scanline latch.
++// Publish the resulting wide pixels alongside the matching native frame.
++bool g_wide_affine_enabled = false;
++std::array<AdaptiveFrame, 2> g_wide_affine_frame{};
++struct WideAffineLine {
++    uint16_t width = 0;
++    bool has_affine = false;
++};
++std::array<std::array<WideAffineLine, 192>, 2> g_wide_affine_lines{};
+ // The threaded renderer begins the next 3D frame at VCount 215, before the
+ // frontend presents the just-completed 2D buffer at the following frame
+ // boundary. Snapshot the wide lines while 2D consumes them so adaptive
+@@ -477,7 +486,7 @@ Pixel text_pixel(TextLine& line, int x) {
+ // with bit 15 as the "opaque" flag; target/priority/order are per-layer
+ // constants on a text BG so they live once beside the buffer.
+ struct BgLine {
+-    std::array<uint16_t, 256> color;  // bit15 = opaque
++    std::array<uint16_t, kMaxAdaptiveWidth> color;  // bit15 = opaque
+     uint8_t prio = 0;
+     uint8_t target = 0;
+     uint8_t order = 0;
+@@ -632,18 +641,19 @@ void advance_affine_line(Unit& u, int bg) {
+     u.refy_internal[affine] += u.pd[affine];
+ }
+ 
+-void setup_affine_output(const Unit& u, int bg, BgLine& out) {
++void setup_bg_output(const Unit& u, int bg, BgLine& out) {
+     out.prio = static_cast<uint8_t>(u.bgcnt[bg] & 3u);
+     out.target = static_cast<uint8_t>(1u << bg);
+     out.order = static_cast<uint8_t>(bg + 1);
+-    out.color.fill(0u);
+ }
+ 
+ void decode_affine_line(const Unit& u, int engine, int bg, int y,
+                         const uint8_t* palette,
+-                        const NdsVramRendererView& vram, BgLine& out) {
++                        const NdsVramRendererView& vram, BgLine& out,
++                        int width, int extra) {
+     const uint16_t cnt = u.bgcnt[bg];
+-    setup_affine_output(u, bg, out);
++    setup_bg_output(u, bg, out);
++    std::fill_n(out.color.data(), width, 0u);
+ 
+     uint32_t coordmask = 0;
+     uint32_t yshift = 0;
+@@ -669,8 +679,9 @@ void decode_affine_line(const Unit& u, int engine, int bg, int y,
+     const int affine = bg - 2;
+     const int mosaic_width =
+         (cnt & 0x0040u) ? static_cast<int>(u.bg_mosaic_x) + 1 : 1;
+-    for (int x = 0; x < 256; ++x) {
+-        const int sample_x = x - (x % mosaic_width);
++    for (int x = 0; x < width; ++x) {
++        const int screen_x = x - extra;
++        const int sample_x = screen_x - (screen_x % mosaic_width);
+         const int32_t final_x = line_x + sample_x * u.pa[affine];
+         const int32_t final_y = line_y + sample_x * u.pc[affine];
+         if ((static_cast<uint32_t>(final_x | final_y) & overflowmask) != 0u)
+@@ -696,9 +707,11 @@ void decode_affine_line(const Unit& u, int engine, int bg, int y,
+ 
+ void decode_extended_line(const Unit& u, int engine, int bg, int y,
+                           const uint8_t* palette,
+-                          const NdsVramRendererView& vram, BgLine& out) {
++                          const NdsVramRendererView& vram, BgLine& out,
++                          int width, int extra) {
+     const uint16_t cnt = u.bgcnt[bg];
+-    setup_affine_output(u, bg, out);
++    setup_bg_output(u, bg, out);
++    std::fill_n(out.color.data(), width, 0u);
+ 
+     int32_t line_x = 0;
+     int32_t line_y = 0;
+@@ -723,8 +736,9 @@ void decode_extended_line(const Unit& u, int engine, int bg, int y,
+         const uint32_t overflow_y = (cnt & 0x2000u) ? 0u : ~ymask;
+         const uint32_t bitmap_base = (cnt & 0x1F00u) << 6u;
+         const bool direct = (cnt & 0x0004u) != 0u;
+-        for (int x = 0; x < 256; ++x) {
+-            const int sample_x = x - (x % mosaic_width);
++        for (int x = 0; x < width; ++x) {
++            const int screen_x = x - extra;
++            const int sample_x = screen_x - (screen_x % mosaic_width);
+             const int32_t final_x = line_x + sample_x * u.pa[affine];
+             const int32_t final_y = line_y + sample_x * u.pc[affine];
+             if ((static_cast<uint32_t>(final_x) & overflow_x) ||
+@@ -767,8 +781,9 @@ void decode_extended_line(const Unit& u, int engine, int bg, int y,
+     }
+     const bool extpal = (u.dispcnt & 0x40000000u) != 0u;
+     yshift -= 3u;
+-    for (int x = 0; x < 256; ++x) {
+-        const int sample_x = x - (x % mosaic_width);
++    for (int x = 0; x < width; ++x) {
++        const int screen_x = x - extra;
++        const int sample_x = screen_x - (screen_x % mosaic_width);
+         const int32_t final_x = line_x + sample_x * u.pa[affine];
+         const int32_t final_y = line_y + sample_x * u.pc[affine];
+         if ((static_cast<uint32_t>(final_x | final_y) & overflowmask) != 0u)
+@@ -808,16 +823,17 @@ void decode_extended_line(const Unit& u, int engine, int bg, int y,
+ 
+ void decode_bg_line(const Unit& u, int engine, int bg, int y,
+                     const uint8_t* palette,
+-                    const NdsVramRendererView& vram, BgLine& out) {
++                    const NdsVramRendererView& vram, BgLine& out,
++                    int width = 256, int extra = 0) {
+     switch (bg_kind(u, bg)) {
+         case BgKind::Text:
+             decode_text_line(u, engine, bg, y, palette, vram, out);
+             break;
+         case BgKind::Affine:
+-            decode_affine_line(u, engine, bg, y, palette, vram, out);
++            decode_affine_line(u, engine, bg, y, palette, vram, out, width, extra);
+             break;
+         case BgKind::Extended:
+-            decode_extended_line(u, engine, bg, y, palette, vram, out);
++            decode_extended_line(u, engine, bg, y, palette, vram, out, width, extra);
+             break;
+         default:
+             out.color.fill(0u);
+@@ -837,7 +853,7 @@ void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
+                      int out_width,
+                      const uint8_t* oam, const uint8_t* palette,
+                      const NdsVramRendererView& vram,
+-                     uint8_t* obj_window = nullptr) {
++                     uint8_t* obj_window = nullptr, bool anchor_hud = true) {
+     std::fill_n(out, out_width, Pixel{});
+     if (obj_window) std::fill_n(obj_window, out_width, 0u);
+     if (!(u.dispcnt&0x1000u)) return;
+@@ -861,7 +877,7 @@ void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
+             int output_sx = sx;
+             if (out_width > 256) {
+                 const int extra = (out_width - 256) / 2;
+-                if (engine == 0 && g_adaptive_hud_anchor) {
++                if (engine == 0 && g_adaptive_hud_anchor && anchor_hud) {
+                     const int center = sx + bw / 2;
+                     const int center_left =
+                         (256 - g_adaptive_hud_center_width) / 2;
+@@ -1053,8 +1069,8 @@ uint32_t compose(const Unit& u, const Pixel& top, const Pixel& below,
+ struct LineScratch {
+     std::array<BgLine, 4> bg_lines{};
+     std::array<uint32_t, 256> comp6{};
+-    std::array<Pixel, 256> obj{};
+-    std::array<uint8_t, 256> obj_window{};
++    std::array<Pixel, kMaxAdaptiveWidth> obj{};
++    std::array<uint8_t, kMaxAdaptiveWidth> obj_window{};
+     // Profiling accumulators, merged into the module counters at a drain so
+     // concurrent renders cannot tear them.
+     uint64_t obj_ns = 0;
+@@ -1083,6 +1099,7 @@ struct LineJob {
+     int y = 0;
+     bool engine_active[2]{};
+     bool bg0_3d = false;
++    uint16_t wide_affine_width = 0;
+     bool cap = false;
+     uint32_t capw = 0;
+     uint8_t direct_class = 0;
+@@ -1123,13 +1140,14 @@ uint8_t bg_active_mask(const Unit& u, bool bg0_3d) {
+ void compose_line6(int engine, int y, const Unit& u, const uint8_t* palette,
+                    const uint8_t* oam, const NdsVramRendererView& vram,
+                    const uint32_t* line3d, bool bg0_3d, uint32_t* out,
+-                   LineScratch& sc) {
+-    std::array<Pixel,256>& obj = sc.obj;
+-    std::array<uint8_t,256>& obj_window = sc.obj_window;
++                   LineScratch& sc, int width = 256) {
++    const int extra = (width - 256) / 2;
++    auto& obj = sc.obj;
++    auto& obj_window = sc.obj_window;
+     const auto obj_start = profiling() ? std::chrono::steady_clock::now()
+                                        : std::chrono::steady_clock::time_point{};
+-    render_obj_line(u, engine, y, obj.data(), 256, oam, palette, vram,
+-                    obj_window.data());
++    render_obj_line(u, engine, y, obj.data(), width, oam, palette, vram,
++                    obj_window.data(), false);
+     if (profiling()) {
+         sc.obj_ns += static_cast<uint64_t>(
+             std::chrono::duration_cast<std::chrono::nanoseconds>(
+@@ -1141,21 +1159,30 @@ void compose_line6(int engine, int y, const Unit& u, const uint8_t* palette,
+     size_t bg_count = 0;
+     int active_bgs[4];
+     const uint8_t active_mask = bg_active_mask(u, bg0_3d);
+-    for (int bg = 0; bg < 4; ++bg)
+-        if (active_mask & (1u << bg)) active_bgs[bg_count++] = bg;
++    for (int bg = 0; bg < 4; ++bg) {
++        if (!(active_mask & (1u << bg))) continue;
++        // Text overlays stay in the native center. Ground Mode can update
++        // only the visible columns of a nominally wide text map.
++        if (extra && bg_kind(u, bg) == BgKind::Text) continue;
++        active_bgs[bg_count++] = bg;
++    }
+     for (size_t i = 0; i < bg_count; ++i)
+         decode_bg_line(u, engine, active_bgs[i], y, palette, vram,
+-                       bg_lines[i]);
++                       bg_lines[i], width, extra);
+     const uint8_t prio3d = static_cast<uint8_t>(u.bgcnt[0] & 3u);
+     auto ahead = [](const Pixel& a, const Pixel& b) {
+         return a.priority < b.priority ||
+                (a.priority == b.priority && a.order < b.order);
+     };
+     const NdsGpu2dWindowState window_state{u.dispcnt, u.win};
+-    for (int x = 0; x < 256; ++x) {
++    // Only the margins need recomposition. The native raster supplies the
++    // center unchanged, including any native OBJ clipping behavior.
++    const int pixel_count = extra ? width - 256 : 256;
++    for (int i = 0; i < pixel_count; ++i) {
++        const int x = !extra || i < extra ? i : i + 256;
++        const uint8_t window_x = static_cast<uint8_t>(std::clamp(x - extra, 0, 255));
+         const uint8_t window_mask = nds_gpu2d_window_mask(
+-            window_state, static_cast<uint8_t>(x), static_cast<uint8_t>(y),
+-            obj_window[x] != 0u);
++            window_state, window_x, static_cast<uint8_t>(y), obj_window[x] != 0u);
+         Pixel top = backdrop, below = backdrop;
+         auto push = [&](const Pixel& p) {
+             if (ahead(p, top)) { below = top; top = p; }
+@@ -1325,6 +1352,23 @@ void render_engine_line(LineJob& job, int engine, LineScratch& sc) {
+     const bool cap = engine == 0 && job.cap;
+     const bool bg0_3d = engine == 0 && job.bg0_3d;
+ 
++    if (engine == 0 && job.wide_affine_width) {
++        const int width = job.wide_affine_width;
++        uint32_t* const wide =
++            g_wide_affine_frame[job.buffer].data() + y * kMaxAdaptiveWidth;
++        compose_line6(0, y, u, palette, oam, vram, nullptr, false, wide, sc, width);
++        const uint32_t mbmode = u.master_bright >> 14;
++        const uint32_t mb = std::min<uint32_t>(16, u.master_bright & 0x1Fu);
++        const int extra = (width - 256) / 2;
++        for (int i = 0; i < 2 * extra; ++i) {
++            const int x = i < extra ? i : i + 256;
++            uint32_t color = wide[x];
++            if (mbmode == 1u) color = brighten(color, mb, 0u);
++            else if (mbmode == 2u) color = darken(color, mb, 15u);
++            wide[x] = to_rgb32(color);
++        }
++    }
++
+     if (line_general_path(u, engine, bg0_3d, cap)) {
+         // General path: mirror melonDS DrawScanline ordering — composite
+         // (when the display or capture consumes it), display-mode mux,
+@@ -1372,7 +1416,7 @@ void render_engine_line(LineJob& job, int engine, LineScratch& sc) {
+         return;
+     }
+ 
+-    std::array<Pixel,256>& obj = sc.obj;
++    auto& obj = sc.obj;
+     const auto obj_start = profiling() ? std::chrono::steady_clock::now()
+                                        : std::chrono::steady_clock::time_point{};
+     render_obj_line(u,engine,y,obj.data(),256,oam,palette,vram);
+@@ -1638,6 +1682,54 @@ uint64_t ns_since(std::chrono::steady_clock::time_point a,
+         std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count());
+ }
+ 
++WideAffineLine wide_affine_line(const LineJob& job) {
++    const Unit& u = job.unit[0];
++    const uint16_t width = nds_gpu3d_output_width();
++    if (width <= 256 || width > kMaxAdaptiveWidth || (width & 1u)) return {};
++
++    WideAffineLine line{};
++    bool can_widen = job.screen[0] == 0 && job.engine_active[0] &&
++        job.palette[0] && job.oam[0] && job.vram[0] && !job.bg0_3d &&
++        !u.capture_latch && ((u.dispcnt >> 16) & 3u) == 1u && !(u.dispcnt & 0x80u);
++    const uint32_t bg_mode = u.dispcnt & 7u;
++    if (bg_mode == 6u || bg_mode == 7u) return {0, true};
++
++    for (int bg = 0; bg < 4; ++bg) {
++        if (!(u.dispcnt & (0x100u << bg))) continue;
++        const uint16_t cnt = u.bgcnt[bg];
++        if (cnt & 0x40u) can_widen = false; // mosaic is native-only
++        const BgKind kind = bg_kind(u, bg);
++        if (kind != BgKind::Affine && kind != BgKind::Extended) continue;
++        line.has_affine = true;
++        // Only widen non-wrapping sources at least 512px across. The decoder
++        // clips transformed coordinates to the source dimensions.
++        if ((cnt & 0xA000u) != 0x8000u) can_widen = false;
++        if (can_widen && kind == BgKind::Extended && (cnt & 0x0080u)) {
++            const uint32_t base = (cnt & 0x1F00u) << 6u;
++            const uint32_t height = (cnt & 0x4000u) ? 512u : 256u;
++            const uint32_t bytes_per_pixel = (cnt & 0x0004u) ? 2u : 1u;
++            const uint32_t end = base + 512u * height * bytes_per_pixel;
++            constexpr uint32_t kChunkSize = 0x4000u;
++            if (end > 32u * kChunkSize) {
++                can_widen = false;
++                continue;
++            }
++            const auto* chunks = job.vram[0]->bg;
++            const uint32_t first = base / kChunkSize;
++            const uint32_t last = (end - 1u) / kChunkSize;
++            for (uint32_t chunk = first; chunk <= last; ++chunk) {
++                if (!chunks[chunk] ||
++                    std::find(chunks + first, chunks + chunk, chunks[chunk]) != chunks + chunk) {
++                    can_widen = false;
++                    break;
++                }
++            }
++        }
++    }
++    if (line.has_affine && can_widen) line.width = width;
++    return line;
++}
++
+ // Scheduler-thread latch. Everything a line render reads that a later guest
+ // write could change is captured here, and the two pieces of renderer-owned
+ // mutable state -- the BG2/BG3 affine accumulators and the DISPCAPCNT enable
+@@ -1692,6 +1784,12 @@ void latch_line(int y, LineJob& job) {
+     if (job.direct_pixels && job.cap) job.engine_active[0] = true;
+     job.bg0_3d = (job.unit[0].dispcnt & 0x8u) != 0 &&
+                  (job.unit[0].dispcnt & 0x100u) != 0;
++    job.wide_affine_width = 0;
++    if (g_wide_affine_enabled) {
++        const auto affine_line = wide_affine_line(job);
++        g_wide_affine_lines[job.buffer][y] = affine_line;
++        job.wide_affine_width = affine_line.width;
++    }
+ 
+     // The 3D line and the wide-3D snapshot are pulled here, in scanline order,
+     // under exactly the condition the inline render used: GPU3D::GetLine writes
+@@ -2168,10 +2266,12 @@ void nds_gpu2d_reset(){
+     for (auto& frame : g_wide_3d_frame) frame.fill(0u);
+     for (auto& frame : g_wide_3d_attr_frame) frame.fill(0u);
+     g_wide_3d_width.fill(0u);
++    g_wide_affine_lines = {};
+     for (auto& frame : g_direct_object_frame) frame.fill(0u);
+ }
+ void nds_gpu2d_stop(){
+     drain_pool(NDS_GPU2D_FENCE_FRAME);
++    g_wide_affine_lines = {};
+     for (auto& buffers : g_fb)
+         for (auto& frame : buffers)
+             frame.fill(0u);
+@@ -2301,6 +2401,7 @@ bool gpu2d_savestate_import(const NdsGpu2dSaveState& in,
+     for (auto& frame : g_wide_3d_frame) frame.fill(0u);
+     for (auto& frame : g_wide_3d_attr_frame) frame.fill(0u);
+     g_wide_3d_width.fill(0u);
++    g_wide_affine_lines = {};
+     for (auto& frame : g_direct_object_frame) frame.fill(0u);
+     return true;
+ }
+@@ -2445,6 +2546,7 @@ void nds_gpu2d_start_frame(){
+ void nds_gpu2d_finish_frame(){
+     drain_pool(NDS_GPU2D_FENCE_FRAME);
+     g_front ^= 1;
++    g_wide_affine_lines[g_front ^ 1] = {};
+ }
+ void nds_gpu2d_vblank(){
+     drain_pool(NDS_GPU2D_FENCE_FRAME);
+@@ -2461,6 +2563,12 @@ const uint32_t* nds_gpu2d_framebuffer(int screen){
+     drain_pool(NDS_GPU2D_FENCE_PRESENT);
+     return g_fb[g_front][screen & 1].data();
+ }
++void nds_gpu2d_set_wide_affine(bool enabled) {
++    if (g_wide_affine_enabled == enabled) return;
++    drain_pool(NDS_GPU2D_FENCE_PRESENT);
++    g_wide_affine_lines = {};
++    g_wide_affine_enabled = enabled;
++}
+ void nds_gpu2d_set_adaptive_skybox_fill(bool enabled) {
+     g_adaptive_skybox_fill = enabled;
+ }
+@@ -3056,7 +3164,8 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+     return true;
+ }
+ 
+-const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width) {
++const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
++                                              NdsGpu2dScene scene) {
+     drain_pool(NDS_GPU2D_FENCE_PRESENT);
+     const uint32_t* native = nds_gpu2d_framebuffer(screen);
+     const bool engine_a_on_top = (nds_powercontrol9() & 0x8000u) != 0;
+@@ -3107,8 +3216,33 @@ const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width) {
+                         adaptive.data() + y * output_width + extra);
+         return adaptive.data();
+     };
++    if (g_wide_affine_enabled && screen == 0 && output_width > 256) {
++        const auto& lines = g_wide_affine_lines[g_front];
++        const bool has_affine = std::any_of(lines.begin(), lines.end(),
++            [](const WideAffineLine& line) { return line.has_affine; });
++        if (has_affine) {
++            if (g_adaptive_center_native || scene == NdsGpu2dScene::StaticPicture)
++                return center_native(NDS_GPU2D_ADAPTIVE_CENTER_NATIVE);
++            const bool complete = std::all_of(lines.begin(), lines.end(),
++                [output_width](const WideAffineLine& line) { return line.width == output_width; });
++            if (scene == NdsGpu2dScene::ScrollingGroundMap && complete) {
++                for (int y = 0; y < 192; ++y) {
++                    uint32_t* const dst = adaptive.data() + y * output_width;
++                    const uint32_t* const wide =
++                        g_wide_affine_frame[g_front].data() + y * kMaxAdaptiveWidth;
++                    std::copy_n(wide, extra, dst);
++                    std::copy_n(native + y * 256, 256, dst + extra);
++                    std::copy_n(wide + extra + 256, extra, dst + extra + 256);
++                }
++                ++g_adaptive_fallback_frames[NDS_GPU2D_ADAPTIVE_WIDE];
++                return adaptive.data();
++            }
++            return center_native(NDS_GPU2D_ADAPTIVE_HUD_BG);
++        }
++    }
+     if (engine != 0) return center_native(NDS_GPU2D_ADAPTIVE_ENGINE_B);
+-    if (g_adaptive_center_native)
++    if (g_adaptive_center_native ||
++        (scene == NdsGpu2dScene::StaticPicture && output_width > 256))
+         return center_native(NDS_GPU2D_ADAPTIVE_CENTER_NATIVE);
+     if (g_adaptive_center_max_polygons != 0u &&
+         nds_gpu3d_render_polygon_count() <= g_adaptive_center_max_polygons &&
+diff --git a/runner/src/gpu2d.h b/runner/src/gpu2d.h
+index 991071a..92e71c0 100644
+--- a/runner/src/gpu2d.h
++++ b/runner/src/gpu2d.h
+@@ -73,9 +73,14 @@ void nds_gpu2d_finish_frame();
+ // StartScanline order.
+ void nds_gpu2d_vblank();
+ const uint32_t* nds_gpu2d_framebuffer(int screen);
+-// Host-only adaptive presentation surface. Returns the native framebuffer
+-// with width=256 when no enhanced surface is active for this physical LCD.
+-const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width);
++// Host-only scene information supplied by the title's presentation code.
++enum class NdsGpu2dScene { Unknown, StaticPicture, ScrollingGroundMap };
++// Enable collection of affine margin scanlines for the title's top LCD.
++void nds_gpu2d_set_wide_affine(bool enabled);
++// Returns the native framebuffer with width=256 when no enhanced surface is
++// active for this physical LCD.
++const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
++                                              NdsGpu2dScene scene = NdsGpu2dScene::Unknown);
+ // Title capability for repairing uncovered pixels at a cylindrical skybox
+ // seam after the host widens the horizontal field of view.
+ void nds_gpu2d_set_adaptive_skybox_fill(bool enabled);
+diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
+index 0755258..9be2df7 100644
+--- a/runner/tests/gpu2d_window_test.cpp
++++ b/runner/tests/gpu2d_window_test.cpp
+@@ -573,6 +573,150 @@ void run_adaptive_frame(AdaptiveRun& out, uint16_t output_width = 448) {
+     nds_gpu2d_set_hd_emit(false);
+ }
+ 
++// Two scanlines with different references, followed by a VBlank register and
++// VRAM change. A post-frame redraw would pick up the wrong source pixels.
++bool test_adaptive_affine_bitmap(bool threaded, bool direct) {
++    constexpr uint16_t kWidth = 342;
++    constexpr int kMargin = (kWidth - 256) / 2;
++    constexpr uint32_t kBlack = 0xFF000000u;
++    const uint32_t red = to_rgb32(rgb6(0x001Fu));
++    const uint32_t green = to_rgb32(rgb6(0x03E0u));
++    const uint32_t blue = to_rgb32(rgb6(0x7C00u));
++    static std::array<std::array<uint8_t, 0x4000>, 16> bitmap;
++
++    nds_gpu2d_set_threaded(threaded, 2);
++    nds_gpu2d_reset();
++    g_3d_output_width = kWidth;
++    g_3d_render_xpos = 0;
++    g_view = {};
++    g_palette.fill(0);
++    constexpr std::array<uint16_t, 4> kColors{0, 0x801Fu, 0x83E0u, 0xFC00u};
++    for (size_t i = 1; i < kColors.size(); ++i)
++        write16(g_palette, i * 2, kColors[i] & 0x7FFFu);
++    for (size_t i = 0; i < bitmap.size(); ++i) {
++        bitmap[i].fill(0);
++        g_view.bg[i] = bitmap[i].data();
++    }
++    auto put_pixel = [&](int x, int y, uint8_t index) {
++        const unsigned addr = static_cast<unsigned>((y * 512 + x) * (direct ? 2 : 1));
++        auto& chunk = bitmap[addr >> 14];
++        const uint16_t value = direct ? kColors[index] : index;
++        chunk[addr & 0x3FFFu] = static_cast<uint8_t>(value);
++        if (direct) chunk[(addr & 0x3FFFu) + 1] = static_cast<uint8_t>(value >> 8);
++    };
++    for (int y = 0; y < 192; ++y) {
++        put_pixel(0, y, 1);
++        put_pixel(21, y, 2);
++        put_pixel(362, y, 3);
++    }
++    Unit& u = g_unit[0];
++    u.dispcnt = 0x00010405u;  // composite, mode 5, BG2 enabled
++    const uint16_t bitmap_control = 0x8080u | (direct ? 0x4u : 0u);
++    u.bgcnt[2] = bitmap_control;   // non-wrapping 512x256 bitmap
++    u.pa[0] = 256;
++    u.pd[0] = 256;
++    u.refx[0] = 64 * 256;
++    nds_gpu2d_start_frame();
++    for (int y = 0; y < 192; ++y) {
++        if (y == 1) u.refx_internal[0] = 32 * 256;
++        if (y == 2) u.refx_internal[0] = 64 * 256;
++        nds_gpu2d_render_scanline(y);
++    }
++    nds_gpu2d_finish_frame();
++
++    // A new scene can update the live registers and VRAM before presentation.
++    u.dispcnt = 0x10000u;
++    put_pixel(21, 0, 0);
++    uint16_t width = 0;
++    const uint32_t* native = nds_gpu2d_framebuffer(0);
++    const uint32_t* wide = nds_gpu2d_adaptive_framebuffer(
++        0, &width, NdsGpu2dScene::ScrollingGroundMap);
++    if (width != kWidth || wide[0] != green || wide[kWidth - 1] != blue ||
++        wide[kWidth] != kBlack || wide[kWidth + 11] != red ||
++        wide[191 * kWidth] != green)
++        return false;
++    for (int y = 0; y < 192; ++y)
++        if (!std::equal(native + y * 256, native + (y + 1) * 256,
++                        wide + y * width + kMargin))
++            return false;
++
++    for (const auto scene : {NdsGpu2dScene::Unknown, NdsGpu2dScene::StaticPicture}) {
++        wide = nds_gpu2d_adaptive_framebuffer(0, &width, scene);
++        if (width != kWidth || wide[0] != kBlack || wide[kWidth - 1] != kBlack)
++            return false;
++    }
++
++    // A bitmap whose source banks mirror one another stays centered.
++    g_view.bg[1] = g_view.bg[0];
++    u.dispcnt = 0x00010405u;
++    nds_gpu2d_start_frame();
++    for (int y = 0; y < 192; ++y) nds_gpu2d_render_scanline(y);
++    nds_gpu2d_finish_frame();
++    wide = nds_gpu2d_adaptive_framebuffer(0, &width, NdsGpu2dScene::ScrollingGroundMap);
++    if (width != kWidth || wide[0] != kBlack || wide[kWidth - 1] != kBlack)
++        return false;
++    g_view.bg[1] = bitmap[1].data();
++
++    // A single wrapping scanline disqualifies the full frame, even though its
++    // last scanline and the live registers could otherwise permit widening.
++    u.dispcnt = 0x00010405u;
++    nds_gpu2d_start_frame();
++    for (int y = 0; y < 192; ++y) {
++        u.bgcnt[2] = bitmap_control | (y == 100 ? 0x2000u : 0u);
++        nds_gpu2d_render_scanline(y);
++    }
++    nds_gpu2d_finish_frame();
++    wide = nds_gpu2d_adaptive_framebuffer(0, &width, NdsGpu2dScene::ScrollingGroundMap);
++    nds_gpu2d_set_threaded(false, 1);
++    return width == kWidth && wide[0] == kBlack && wide[kWidth - 1] == kBlack;
++}
++
++bool test_adaptive_affine_tiles() {
++    constexpr uint16_t kWidth = 342;
++    const uint32_t red = to_rgb32(rgb6(0x001Fu));
++    const uint32_t green = to_rgb32(rgb6(0x03E0u));
++    std::array<uint8_t, 0x4000> map{};
++    std::array<uint8_t, 0x4000> tiles{};
++    std::fill_n(tiles.data() + 64, 64, 1u);
++    std::fill_n(tiles.data() + 128, 64, 2u);
++    g_view = {};
++    g_view.bg[0] = map.data();
++    g_view.bg[1] = tiles.data();
++    g_palette.fill(0);
++    write16(g_palette, 2, 0x001Fu);
++    write16(g_palette, 4, 0x03E0u);
++    g_3d_output_width = kWidth;
++
++    // Standard affine maps use one byte per tile. Extended affine maps use
++    // two bytes per tile, with palette and flip bits in the upper byte.
++    for (bool extended : {false, true}) {
++        nds_gpu2d_reset();
++        map.fill(0);
++        const int bytes_per_entry = extended ? 2 : 1;
++        for (int row = 0; row < 24; ++row) {
++            map[(row * 64 + 2) * bytes_per_entry] = 1;
++            map[(row * 64 + 45) * bytes_per_entry] = 2;
++        }
++        Unit& u = g_unit[0];
++        u.dispcnt = 0x00010400u | (extended ? 5u : 2u);
++        u.bgcnt[2] = 0x8004u;  // 512x512, character base 0x4000
++        u.pa[0] = 256;
++        u.pd[0] = 256;
++        u.refx[0] = 64 * 256;
++        nds_gpu2d_start_frame();
++        for (int y = 0; y < 192; ++y) nds_gpu2d_render_scanline(y);
++        nds_gpu2d_finish_frame();
++        uint16_t width = 0;
++        const uint32_t* wide = nds_gpu2d_adaptive_framebuffer(
++            0, &width, NdsGpu2dScene::ScrollingGroundMap);
++        if (width != kWidth || wide[0] != red || wide[kWidth - 1] != green ||
++            wide[191 * kWidth] != red)
++            return false;
++    }
++    g_view = {};
++    return true;
++}
++
+ bool test_adaptive_window_x() {
+     // HUD-sourced columns keep their native coordinate; margins clamp to the
+     // nearest native edge column instead of wrapping through uint8_t.
+@@ -909,6 +1053,12 @@ int main() {
+     if (!test_capture_uses_reference()) return 15;
+     if (!test_direct_window_scanline_latch()) return 16;
+     if (!test_native_aspect_hd_keeps_native_fallback()) return 17;
++    nds_gpu2d_set_wide_affine(true);
++    if (!test_adaptive_affine_bitmap(false, true)) return 18;
++    if (!test_adaptive_affine_bitmap(true, true)) return 19;
++    if (!test_adaptive_affine_bitmap(true, false)) return 20;
++    if (!test_adaptive_affine_tiles()) return 21;
++    nds_gpu2d_set_wide_affine(false);
+     return 0;
+ }
+ #endif

@@ -1,6 +1,6 @@
 --- a/runner/src/gpu2d.cpp
 +++ b/runner/src/gpu2d.cpp
-@@ -2938,6 +2938,123 @@
+@@ -2938,4 +2938,121 @@
  }
  
  }  // namespace
@@ -122,8 +122,6 @@
 +    return true;
 +}
  
- const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width) {
-     drain_pool(NDS_GPU2D_FENCE_PRESENT);
 @@ -2954,6 +3071,21 @@
      if (output_width < 256 || (output_width == 256 && !g_hd_emit_enabled)) {
          if (width) *width = 256;
