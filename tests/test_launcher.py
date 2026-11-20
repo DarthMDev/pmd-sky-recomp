@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -80,6 +82,27 @@ class TestLauncher(unittest.TestCase):
             # Clearing again when rom_path is absent is a clean no-op
             launcher.clear_saved_rom_path(settings_file)
             self.assertEqual(launcher.load_settings(settings_file), {"custom_flag": "enabled"})
+
+    def test_csharp_launcher_suite(self) -> None:
+        dotnet = shutil.which("dotnet") or (
+            "/usr/local/share/dotnet/dotnet" if Path("/usr/local/share/dotnet/dotnet").is_file() else None
+        )
+        if not dotnet:
+            self.skipTest("dotnet SDK not installed")
+
+        csproj = REPO_ROOT / "tests" / "SkyRecompiled.Launcher.Tests" / "SkyRecompiled.Launcher.Tests.csproj"
+        run_res = subprocess.run(
+            [dotnet, "run", "--project", str(csproj)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            run_res.returncode,
+            0,
+            msg=f"C# launcher tests failed:\nSTDOUT:\n{run_res.stdout}\nSTDERR:\n{run_res.stderr}",
+        )
 
 
 if __name__ == "__main__":
