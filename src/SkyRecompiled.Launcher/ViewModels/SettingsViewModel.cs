@@ -152,10 +152,14 @@ public sealed partial class SettingsViewModel : ViewModelBase
             var rt = BuildRuntimeSettings();
             var prefs = BuildPreferences();
             SkySettingsService.SaveAtomic(rt, _skySettingsPath);
-            RomPreparationService.SavePreferences(
-                prefs,
-                _launcherSettingsPath,
-                mergeWithExisting: !resetUnreadable || !_prefsLoadFailed);
+            try
+            {
+                RomPreparationService.SavePreferences(prefs, _launcherSettingsPath, mergeWithExisting: true);
+            }
+            catch (Exception) when (resetUnreadable)
+            {
+                RomPreparationService.SavePreferences(prefs, _launcherSettingsPath, mergeWithExisting: false);
+            }
             _controllerBindings = rt.ControllerBindings;
             RescueEndpoint = prefs.RescueEndpoint;
             _skyLoadFailed = false;
