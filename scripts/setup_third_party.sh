@@ -87,20 +87,64 @@ apply_patch() {
     git -C "${dest}" apply "${applied[@]:+"${applied[@]}"}" "${patch}"
 }
 
-apply_patches() {
+apply_patches() (
     local ndsrecomp="${TP_DIR}/ndsrecomp"
-    apply_patch "${ndsrecomp}" ndsrecomp-macos-arm64.patch
-    apply_patch "${ndsrecomp}" ndsrecomp-msvc-tools.patch
-    apply_patch "${ndsrecomp}" ndsrecomp-window-title.patch
-    apply_patch "${ndsrecomp}" ndsrecomp-sky-settings-overlay.patch
-    apply_patch "${ndsrecomp}" ndsrecomp-sky-widescreen.patch
-    apply_patch "${ndsrecomp}" ndsrecomp-sky-static-pictures.patch required
-    apply_patch "${ndsrecomp}" ndsrecomp-sky-ultrawide.patch required
-    if [[ "${1:-}" == "--ios" ]]; then
-        apply_patch "${ndsrecomp}" ndsrecomp-ios.patch required
-        apply_patch "${ndsrecomp}" ndsrecomp-ios-touch.patch required
+    local patch_root="${REPO_ROOT}/patches"
+    local -a patches=(
+        ndsrecomp-macos-arm64.patch
+        ndsrecomp-msvc-tools.patch
+        ndsrecomp-window-title.patch
+        ndsrecomp-sky-settings-overlay.patch
+        ndsrecomp-sky-widescreen.patch
+        ndsrecomp-sky-static-pictures.patch
+        ndsrecomp-sky-ultrawide.patch
+    )
+    local patch patch_files files file stage i all_applied=true
+    # Keep the iOS patches if an existing checkout is also used for desktop.
+    if [[ "${1:-}" == "--ios" ]] ||
+        git -C "${ndsrecomp}" apply --reverse --check --include=runner/src/main.cpp             "${patch_root}/ndsrecomp-ios.patch" 2>/dev/null; then
+        patches+=(ndsrecomp-ios.patch ndsrecomp-ios-touch.patch)
     fi
-}
+
+    stage="$(mktemp -d)"
+    trap 'rm -rf -- "${stage}"' EXIT
+    git -C "${stage}" init --quiet
+    files="$(
+        for patch in "${patches[@]}"; do
+            git -C "${ndsrecomp}" apply --numstat "${patch_root}/${patch}" || exit 1
+        done | cut -f3- | sort -u
+    )"
+    while IFS= read -r file; do
+        mkdir -p "${stage}/$(dirname "${file}")"
+        cp -p "${ndsrecomp}/${file}" "${stage}/${file}"
+    done <<< "${files}"
+
+    # Check the top of the stack first. Later patches can change the lines
+    # used to identify an earlier patch. Peel the applied hunks in scratch so
+    # a complete cache can return without touching the checkout.
+    for ((i=${#patches[@]}-1; i>=0; --i)); do
+        patch="${patch_root}/${patches[i]}"
+        patch_files="$(git -C "${stage}" apply --numstat "${patch}" | cut -f3-)"
+        while IFS= read -r file; do
+            if git -C "${stage}" apply --reverse --check --include="${file}" "${patch}" 2>/dev/null; then
+                git -C "${stage}" apply --reverse --include="${file}" "${patch}"
+            else
+                all_applied=false
+            fi
+        done <<< "${patch_files}"
+    done
+    if [[ "${all_applied}" == true ]]; then return; fi
+
+    # Validate the complete stack before publishing any changes to the cache.
+    for patch in "${patches[@]}"; do
+        apply_patch "${stage}" "${patch}" required
+    done
+    while IFS= read -r file; do
+        if ! cmp -s "${stage}/${file}" "${ndsrecomp}/${file}"; then
+            cp -p "${stage}/${file}" "${ndsrecomp}/${file}"
+        fi
+    done <<< "${files}"
+)
 
 if cache_valid; then
     apply_patches "$@"
