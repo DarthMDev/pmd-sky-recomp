@@ -645,17 +645,25 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
                  surface_changed = true;
              }
  
-@@ -4672,7 +4697,8 @@
+@@ -4672,7 +4697,16 @@
                      const uint64_t now_ms = SDL_GetTicks();
                      if (bottom_content) bottom_focus_until = now_ms + 10000;
                      const bool keep_bottom_main = now_ms < bottom_focus_until;
 -                    presentation.bottom_main = menu_view || keep_bottom_main;
-+                    presentation.bottom_main = sky_dungeon
-+                        ? game_on_bottom : menu_view || keep_bottom_main;
++                    if (sky_dungeon) {
++                        // The independent Hybrid windows hide the secondary
++                        // LCD. Show it when it alone is hosting a guest menu.
++                        const bool sub_menu_only = presentation.separate &&
++                            ui_flags.top_screen_menu_open &&
++                            !ui_flags.bottom_screen_window_open && !ui_flags.team_menu_or_grid;
++                        presentation.bottom_main = game_on_bottom != sub_menu_only;
++                    } else {
++                        presentation.bottom_main = menu_view || keep_bottom_main;
++                    }
                      presentation.show_inset = true;
                      static bool last_menu_view = false;
                      static bool last_bottom_content = false;
-@@ -4702,24 +4728,36 @@
+@@ -4702,24 +4736,36 @@
              }
  
              if (surface_changed) {
@@ -696,7 +704,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
              }
          }
          // At most ONE synthetic frame, presented ahead of the real one, so
-@@ -5091,6 +5129,7 @@
+@@ -5091,6 +5137,7 @@
      nds_frontend_latency::finish();
      nds_gpu2d_set_wide_affine(false);
  #if defined(NDS_HAVE_COMPUTE_RENDERER)
@@ -704,7 +712,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
      nds_gpu2d_set_direct_present(false);
      nds_compute_host_stop();
  #endif
-@@ -5158,7 +5197,7 @@
+@@ -5158,7 +5205,7 @@
      const bool menu_selftest_failed = selftest_menu &&
          (selftest_event_error || !selftest_key_up || !selftest_touch_up ||
           host_key_presses != 1 || host_touch_presses != 1 ||
@@ -724,7 +732,15 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  };
  std::array<std::array<WideAffineLine, 192>, 2> g_wide_affine_lines{};
  // The threaded renderer begins the next 3D frame at VCount 215, before the
-@@ -435,7 +436,7 @@
+@@ -142,6 +143,7 @@
+ std::array<AdaptiveFrame, 2> g_wide_3d_frame{};
+ std::array<AdaptiveFrame, 2> g_wide_3d_attr_frame{};
+ std::array<uint16_t, 2> g_wide_3d_width{};
++std::array<std::array<uint16_t, 192>, 2> g_wide_3d_line_width{};
+ bool g_adaptive_skybox_fill = false;
+ bool g_adaptive_center_native = false;
+ uint32_t g_adaptive_center_max_polygons = 0;
+@@ -435,7 +437,7 @@
      return line;
  }
  
@@ -733,7 +749,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      const Unit& u = *line.u;
      const uint16_t cnt = line.cnt;
      const int bg = line.bg;
-@@ -451,8 +452,9 @@
+@@ -451,8 +453,9 @@
      map_addr += ((sx & 0xF8u) >> 2) + ((sx & line.width_extra) << 3);
      if (map_addr != line.cached_map_addr) {
          line.cached_map_addr = map_addr;
@@ -745,7 +761,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      }
      const uint16_t tile = line.cached_tile;
      uint32_t tx = sx & 7u, ty = line.sy & 7u;
-@@ -853,7 +855,8 @@
+@@ -853,7 +856,8 @@
                       int out_width,
                       const uint8_t* oam, const uint8_t* palette,
                       const NdsVramRendererView& vram,
@@ -755,7 +771,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      std::fill_n(out, out_width, Pixel{});
      if (obj_window) std::fill_n(obj_window, out_width, 0u);
      if (!(u.dispcnt&0x1000u)) return;
-@@ -873,7 +876,11 @@
+@@ -873,7 +877,11 @@
              const int sy=a0&0xFF;
              int row=(line_y-sy)&0xFF;
              if (row>=bh) continue;
@@ -768,7 +784,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              int output_sx = sx;
              if (out_width > 256) {
                  const int extra = (out_width - 256) / 2;
-@@ -1688,11 +1695,15 @@
+@@ -1688,11 +1696,15 @@
      if (width <= 256 || width > kMaxAdaptiveWidth || (width & 1u)) return {};
  
      WideAffineLine line{};
@@ -786,7 +802,54 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  
      for (int bg = 0; bg < 4; ++bg) {
          if (!(u.dispcnt & (0x100u << bg))) continue;
-@@ -3055,32 +3066,30 @@
+@@ -1813,8 +1825,12 @@
+             if (wide_width > 256u &&
+                 wide_width <= static_cast<uint16_t>(kMaxAdaptiveWidth)) {
+                 const size_t offset = static_cast<size_t>(y) * wide_width;
+-                std::copy_n(nds_gpu3d_wide_line(y), wide_width,
+-                            g_wide_3d_frame[job.buffer].data() + offset);
++                if (const uint32_t* line = nds_gpu3d_wide_line(y)) {
++                    std::copy_n(line, wide_width,
++                                g_wide_3d_frame[job.buffer].data() + offset);
++                    g_wide_3d_width[job.buffer] = wide_width;
++                    g_wide_3d_line_width[job.buffer][y] = wide_width;
++                }
+                 if (g_adaptive_skybox_fill) {
+                     const uint32_t* const attr = nds_gpu3d_wide_attr_line(y);
+                     if (attr)
+@@ -1822,7 +1838,6 @@
+                                     g_wide_3d_attr_frame[job.buffer].data() +
+                                         offset);
+                 }
+-                g_wide_3d_width[job.buffer] = wide_width;
+             }
+         }
+     }
+@@ -2266,6 +2281,7 @@
+     for (auto& frame : g_wide_3d_frame) frame.fill(0u);
+     for (auto& frame : g_wide_3d_attr_frame) frame.fill(0u);
+     g_wide_3d_width.fill(0u);
++    g_wide_3d_line_width = {};
+     g_wide_affine_lines = {};
+     for (auto& frame : g_direct_object_frame) frame.fill(0u);
+ }
+@@ -2401,6 +2417,7 @@
+     for (auto& frame : g_wide_3d_frame) frame.fill(0u);
+     for (auto& frame : g_wide_3d_attr_frame) frame.fill(0u);
+     g_wide_3d_width.fill(0u);
++    g_wide_3d_line_width = {};
+     g_wide_affine_lines = {};
+     for (auto& frame : g_direct_object_frame) frame.fill(0u);
+     return true;
+@@ -2547,6 +2564,7 @@
+     drain_pool(NDS_GPU2D_FENCE_FRAME);
+     g_front ^= 1;
+     g_wide_affine_lines[g_front ^ 1] = {};
++    g_wide_3d_line_width[g_front ^ 1].fill(0);
+ }
+ void nds_gpu2d_vblank(){
+     drain_pool(NDS_GPU2D_FENCE_FRAME);
+@@ -3055,32 +3073,30 @@
      uint8_t order = 0;
  };
  
@@ -828,7 +891,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      static bool logged_wide_2d = false;
      if (!logged_wide_2d) {
          logged_wide_2d = true;
-@@ -3095,9 +3104,17 @@
+@@ -3095,9 +3111,16 @@
      const NdsGpu2dWindowState window_state{u.dispcnt, u.win};
      int active_bgs[4]{};
      size_t bg_count = 0;
@@ -843,28 +906,26 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +        if (dungeon && bg != 3) continue;
 +        active_bgs[bg_count++] = bg;
 +    }
-+    const bool snapshot_matches = g_wide_3d_width[g_front] == output_width;
 +    const uint8_t prio3d = static_cast<uint8_t>(u.bgcnt[0] & 3u);
 +    const int pixel_count = dungeon ? output_width - 256 : output_width;
  
      std::array<Pixel, kMaxAdaptiveWidth> obj{};
      std::array<uint8_t, kMaxAdaptiveWidth> obj_window{};
-@@ -3105,7 +3122,13 @@
+@@ -3105,7 +3128,12 @@
  
      for (int y = 0; y < 192; ++y) {
          render_obj_line(u, 0, y, obj.data(), output_width, oam, palette, vram,
 -                        obj_window.data());
 +                        obj_window.data(), !dungeon, dungeon);
 +        const uint32_t* line3d = nullptr;
-+        if (bg0_3d) {
-+            line3d = snapshot_matches
-+                ? g_wide_3d_frame[g_front].data() + static_cast<size_t>(y) * output_width
-+                : nds_gpu3d_wide_line(y);
-+        }
++        // Only raster-time snapshots belong to the published native
++        // frame. During width changes, missing weather lines are transparent.
++        if (bg0_3d && g_wide_3d_line_width[g_front][y] == output_width)
++            line3d = g_wide_3d_frame[g_front].data() + static_cast<size_t>(y) * output_width;
          for (size_t i = 0; i < bg_count; ++i) {
              const int bg = active_bgs[i];
              TextLine line = prepare_text_line(u, 0, bg, y, palette, &vram);
-@@ -3113,8 +3136,9 @@
+@@ -3113,8 +3141,9 @@
              line_out.prio = static_cast<uint8_t>(line.cnt & 3u);
              line_out.target = static_cast<uint8_t>(1u << bg);
              line_out.order = static_cast<uint8_t>(bg + 1);
@@ -876,7 +937,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
                  line_out.color[x] = p.valid
                      ? static_cast<uint16_t>(p.color | 0x8000u) : 0u;
              }
-@@ -3124,7 +3148,8 @@
+@@ -3124,7 +3153,8 @@
              return a.priority < b.priority ||
                     (a.priority == b.priority && a.order < b.order);
          };
@@ -886,7 +947,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              const int hud_x = x - extra;
              const uint8_t window_x =
                  nds_gpu2d_adaptive_window_x(x, extra, hud_x);
-@@ -3151,6 +3176,12 @@
+@@ -3151,6 +3181,12 @@
                             bg_lines[i].target, 0, bg_lines[i].prio,
                             bg_lines[i].order, true});
              }
@@ -899,7 +960,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              if (obj[x].valid && (window_mask & 0x10u)) push(obj[x]);
              uint32_t color = compose(u, top, below,
                                       (window_mask & 0x20u) != 0u);
-@@ -3161,11 +3192,10 @@
+@@ -3161,11 +3197,10 @@
              dst[x] = to_rgb32(color);
          }
      }
@@ -912,7 +973,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      drain_pool(NDS_GPU2D_FENCE_PRESENT);
      const uint32_t* native = nds_gpu2d_framebuffer(screen);
      const bool engine_a_on_top = (nds_powercontrol9() & 0x8000u) != 0;
-@@ -3216,7 +3246,7 @@
+@@ -3216,7 +3251,7 @@
                          adaptive.data() + y * output_width + extra);
          return adaptive.data();
      };
@@ -921,7 +982,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
          const auto& lines = g_wide_affine_lines[g_front];
          const bool has_affine = std::any_of(lines.begin(), lines.end(),
              [](const WideAffineLine& line) { return line.has_affine; });
-@@ -3224,7 +3254,9 @@
+@@ -3224,7 +3259,9 @@
              if (g_adaptive_center_native || scene == NdsGpu2dScene::StaticPicture)
                  return center_native(NDS_GPU2D_ADAPTIVE_CENTER_NATIVE);
              const bool complete = std::all_of(lines.begin(), lines.end(),
@@ -932,7 +993,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              if (scene == NdsGpu2dScene::ScrollingGroundMap && complete) {
                  for (int y = 0; y < 192; ++y) {
                      uint32_t* const dst = adaptive.data() + y * output_width;
-@@ -3259,13 +3291,31 @@
+@@ -3259,13 +3296,31 @@
      // PMD Sky's dungeon compositor is text-BG based. Widen those layers by
      // sampling the same 512x256 maps outside the vanilla viewport before the
      // 3D-only adaptive path rejects the scene.
@@ -1009,7 +1070,7 @@ diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test
  uint64_t g_wide_line_reads = 0;
  uint16_t g_3d_render_xpos = 0;
  uint32_t g_3d_render_polygon_count = 0;
-@@ -717,6 +718,62 @@
+@@ -717,6 +718,71 @@
      return true;
  }
  
@@ -1048,31 +1109,40 @@ diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test
 +    uint16_t actual_width = 0;
 +    const uint32_t* wide = nds_gpu2d_adaptive_framebuffer(
 +        1, &actual_width, NdsGpu2dScene::Dungeon, &map);
++    if (actual_width != width) { g_powercontrol = 0x8002u; return false; }
 +    const uint32_t* native = nds_gpu2d_framebuffer(1);
 +    bool center_matches = true;
 +    for (int y = 0; y < 192; ++y) {
 +        center_matches &= std::equal(native + y * 256, native + (y + 1) * 256,
 +                                    wide + y * width + margin);
 +    }
-+    const bool routed = actual_width == width && center_matches &&
++    const bool routed = center_matches &&
 +        wide[0] == terrain_color && wide[447] == terrain_color &&
 +        wide[6] == sprite_color && wide[416] == sprite_color &&
 +        wide[8] == weather_color;
 +
 +    wide = nds_gpu2d_adaptive_framebuffer(0, &actual_width, NdsGpu2dScene::Dungeon, &map);
-+    const bool other_screen_centered = wide[0] == 0xFF000000u &&
++    const bool other_screen_centered = actual_width == width && wide[0] == 0xFF000000u &&
 +        wide[447] == 0xFF000000u;
 +    wide = nds_gpu2d_adaptive_framebuffer(1, &actual_width, NdsGpu2dScene::Dungeon);
-+    const bool missing_map_centered = wide[0] == 0xFF000000u &&
++    const bool missing_map_centered = actual_width == width && wide[0] == 0xFF000000u &&
 +        wide[447] == 0xFF000000u;
++
++    // The published weather snapshot still has the old stride immediately
++    // after an aspect change. Presentation should not read live GPU3D lines.
++    g_3d_output_width = 342;
++    const uint64_t reads = g_wide_line_reads;
++    wide = nds_gpu2d_adaptive_framebuffer(1, &actual_width, NdsGpu2dScene::Dungeon, &map);
++    const bool width_change_safe = actual_width == 342 &&
++        wide[8] == terrain_color && g_wide_line_reads == reads;
 +    g_powercontrol = 0x8002u;
-+    return routed && other_screen_centered && missing_map_centered;
++    return routed && other_screen_centered && missing_map_centered && width_change_safe;
 +}
 +
  bool test_adaptive_window_x() {
      // HUD-sourced columns keep their native coordinate; margins clamp to the
      // nearest native edge column instead of wrapping through uint8_t.
-@@ -965,7 +1022,7 @@
+@@ -965,7 +1031,7 @@
  }
  
  // Minimal device implementations required by the production renderer object.
@@ -1081,7 +1151,7 @@ diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test
  const uint8_t* nds_vram_renderer_palette(int) { return g_palette.data(); }
  const uint8_t* nds_vram_renderer_oam(int) { return g_oam.data(); }
  const NdsVramRendererView* nds_vram_renderer_view(int) { return &g_view; }
-@@ -1058,6 +1115,7 @@
+@@ -1058,6 +1124,7 @@
      if (!test_adaptive_affine_bitmap(true, true)) return 19;
      if (!test_adaptive_affine_bitmap(true, false)) return 20;
      if (!test_adaptive_affine_tiles()) return 21;
