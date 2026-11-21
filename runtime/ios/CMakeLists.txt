@@ -52,6 +52,9 @@ target_include_directories(sky_runtime_enhancements PUBLIC
     "${SKY_NDSRECOMP_DIR}/../recomp-ui/src"
 )
 target_link_libraries(nds_runner PRIVATE sky_runtime_enhancements)
+if(NDS_SDL_BACKEND STREQUAL "SDL3")
+    include(../shaders/metal_hd_presenter.cmake)
+endif()
 
 target_sources(nds_runner PRIVATE Launcher.mm RomCompiler.cpp)
 target_include_directories(nds_runner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
