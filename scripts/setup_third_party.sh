@@ -105,6 +105,7 @@ apply_patches() (
         git -C "${ndsrecomp}" apply --reverse --check --include=runner/src/main.cpp             "${patch_root}/ndsrecomp-ios.patch" 2>/dev/null; then
         patches+=(ndsrecomp-ios.patch ndsrecomp-ios-touch.patch)
     fi
+    patches+=(ndsrecomp-sky-metal.patch)
 
     stage="$(mktemp -d)"
     trap 'rm -rf -- "${stage}"' EXIT

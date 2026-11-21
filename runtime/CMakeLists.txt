@@ -32,6 +32,9 @@ endif()
 if(EXISTS "${_sky_gen_dir}/arm9_bios.c")
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../third_party/ndsrecomp/runner" ndsrecomp)
     target_link_libraries(nds_runner PRIVATE sky_runtime_enhancements)
+    if(APPLE AND NDS_SDL_BACKEND STREQUAL "SDL3")
+        include(shaders/metal_hd_presenter.cmake)
+    endif()
     set_target_properties(nds_runner PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${SKY_RUNNER_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${SKY_RUNNER_OUTPUT_DIR}")
