@@ -1,0 +1,258 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -218,6 +218,9 @@
+ #include "ui/guest_ui_state.hpp"
+ #include "ui/settings_overlay.hpp"
+ #include "ui/remaster_hud.hpp"
++#if defined(SKY_HAVE_METAL_HD)
++#include "shaders/metal_hd_presenter.hpp"
++#endif
+ 
+ #include "frontend_latency.h"
+ 
+@@ -1310,6 +1313,8 @@
+     bool bottom_main = false;
+     bool show_inset = false;
+     bool sky_adaptive = false;
++    skyrecomp::shaders::ShaderFilterPreset shader_filter =
++        skyrecomp::shaders::ShaderFilterPreset::Nearest;
+     SkyPostFilter post_filter = SkyPostFilter::None;
+     SDL_Window* windows[2]{};
+     SDL_Renderer* renderers[2]{};
+@@ -1321,6 +1326,18 @@
+     int configured_sample_scale = 1;
+     int sample_scale = 1;
+     uint8_t antialiasing = 0;
++#if defined(SKY_HAVE_METAL_HD)
++    std::unique_ptr<skyrecomp::shaders::MetalHdPresenter> metal[2];
++#endif
++
++    bool uses_metal(int screen) const {
++#if defined(SKY_HAVE_METAL_HD)
++        return sample_scale == 1 && metal[separate ? screen : 0] != nullptr;
++#else
++        (void)screen;
++        return false;
++#endif
++    }
+ };
+ 
+ // docs/frame_interpolation.md, MVP blend mode. Holds the previous DS frame's
+@@ -1374,6 +1391,9 @@
+ #endif
+ 
+ void destroy_presentation(FrontendPresentation& presentation) {
++#if defined(SKY_HAVE_METAL_HD)
++    for (auto& metal : presentation.metal) metal.reset();
++#endif
+     for (SDL_Texture*& texture : presentation.sample_targets) {
+         if (texture) SDL_DestroyTexture(texture);
+         texture = nullptr;
+@@ -1905,6 +1925,17 @@
+         presentation.window_ids[screen] =
+             SDL_GetWindowID(presentation.windows[screen]);
+     }
++#if defined(SKY_HAVE_METAL_HD)
++    if (presentation.sky_adaptive) {
++        const int renderer_count = presentation.separate ? 2 : 1;
++        for (int i = 0; i < renderer_count; ++i) {
++            presentation.metal[i] =
++                skyrecomp::shaders::MetalHdPresenter::Create(presentation.renderers[i]);
++            if (presentation.metal[i])
++                std::fprintf(stderr, "[sky] Metal HD shaders ready (renderer %d)\n", i + 1);
++        }
++    }
++#endif
+     return true;
+ }
+ 
+@@ -1938,11 +1969,40 @@
+     }
+ }
+ 
++void upload_screen(const FrontendPresentation& presentation, int screen,
++                   const uint32_t* pixels, int width) {
++    const SDL_Rect upload{0, 0, width, kScreenHeight};
++    SDL_UpdateTexture(presentation.textures[screen],
++                      presentation.sky_adaptive ? &upload : nullptr,
++                      pixels, width * sizeof(uint32_t));
++}
++
+ void render_screen(FrontendPresentation& presentation, int screen,
+-                   const SDL_Rect& destination) {
++                   const SDL_Rect& destination,
++                   const uint32_t* pixels = nullptr,
++                   const skyrecomp::shaders::GuestWeatherState* weather = nullptr) {
+     SDL_Renderer* renderer = presentation.renderers[screen];
+     SDL_Texture* source = presentation.textures[screen];
+     SDL_Rect source_rect{0, 0, presentation.screen_widths[screen], kScreenHeight};
++#if defined(SKY_HAVE_METAL_HD)
++    if (presentation.uses_metal(screen)) {
++        auto& metal = presentation.metal[presentation.separate ? screen : 0];
++        if (metal->Draw(destination, pixels, source_rect.w, source_rect.h,
++                        presentation.shader_filter, weather)) return;
++        if (weather) {
++            static std::vector<uint32_t> fallback;
++            fallback.assign(pixels, pixels + source_rect.w * source_rect.h);
++            const skyrecomp::shaders::WeatherShaderPipeline shader(
++                skyrecomp::pmdsky::Region::NA, skyrecomp::shaders::ShaderFilterPreset::Nearest, true);
++            shader.ApplyPostProcessArgb8888(fallback, source_rect.w, source_rect.h, *weather);
++            pixels = fallback.data();
++        }
++        upload_screen(presentation, screen, pixels, source_rect.w);
++    }
++#else
++    (void)pixels;
++    (void)weather;
++#endif
+     if (presentation.sample_scale > 1 && presentation.sample_targets[screen]) {
+         const SDL_Rect sample_rect{
+             0, 0, source_rect.w * presentation.sample_scale,
+@@ -1964,6 +2024,7 @@
+ 
+ void apply_sky_shader_filter(FrontendPresentation& presentation,
+                              skyrecomp::shaders::ShaderFilterPreset filter) {
++    presentation.shader_filter = filter;
+     bool linear = true;
+     presentation.post_filter = SkyPostFilter::None;
+     switch (filter) {
+@@ -2182,7 +2243,9 @@
+                                   bool virtual_stylus_visible,
+                                   float virtual_stylus_x,
+                                   float virtual_stylus_y,
+-                                  const char* savestate_notice
++                                  const char* savestate_notice,
++                                  const skyrecomp::shaders::GuestWeatherState* weather,
++                                  int weather_screen
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
+                                   ,const NdsComputePresentationFrame* owned = nullptr
+ #endif
+@@ -2242,15 +2305,14 @@
+     else
+         top_pixels = runtime_menu_overlay(runtime_ui, top_pixels, top_width, kScreenHeight);
+     uint64_t start = SDL_GetPerformanceCounter();
+-    const SDL_Rect top_upload{0, 0, top_width, kScreenHeight};
+-    const SDL_Rect bottom_upload{0, 0, bottom_width, kScreenHeight};
+-    SDL_UpdateTexture(presentation.textures[0],
+-                      presentation.sky_adaptive ? &top_upload : nullptr,
+-                      top_pixels, top_width * sizeof(uint32_t));
+-    SDL_UpdateTexture(presentation.textures[1],
+-                      presentation.sky_adaptive ? &bottom_upload : nullptr,
+-                      bottom_pixels, bottom_width * sizeof(uint32_t));
++    if (!presentation.uses_metal(0)) upload_screen(presentation, 0, top_pixels, top_width);
++    if (!presentation.uses_metal(1)) upload_screen(presentation, 1, bottom_pixels, bottom_width);
+     ticks.upload += SDL_GetPerformanceCounter() - start;
++    const uint32_t* pixels[]{top_pixels, bottom_pixels};
++    const auto render_lcd = [&](int screen, const SDL_Rect& destination) {
++        render_screen(presentation, screen, destination, pixels[screen],
++                      screen == weather_screen ? weather : nullptr);
++    };
+     if (!presentation.separate) {
+         SDL_Renderer* renderer = presentation.renderers[0];
+         start = SDL_GetPerformanceCounter();
+@@ -2262,14 +2324,14 @@
+                 ? presentation.screen_widths[1]
+                 : presentation.screen_widths[0];
+             const SDL_Rect main_rect{0, 0, main_width, kScreenHeight};
+-            render_screen(presentation, main_screen, main_rect);
++            render_lcd(main_screen, main_rect);
+             if (presentation.show_inset) {
+                 const int inset_screen = presentation.bottom_main ? 0 : 1;
+                 const SDL_Rect inset =
+                     single_screen_inset_rect(presentation);
+                 SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+                 fill_rect(renderer, inset);
+-                render_screen(presentation, inset_screen, inset);
++                render_lcd(inset_screen, inset);
+             }
+             draw_savestate_notice(renderer, main_rect, savestate_notice);
+         } else {
+@@ -2281,8 +2343,8 @@
+                 (presentation.canvas_width -
+                  presentation.screen_widths[1]) / 2,
+                 kScreenHeight, presentation.screen_widths[1], kScreenHeight};
+-            render_screen(presentation, 0, top_rect);
+-            render_screen(presentation, 1, bottom_rect);
++            render_lcd(0, top_rect);
++            render_lcd(1, bottom_rect);
+             if (virtual_stylus_visible)
+                 draw_virtual_stylus(renderer, native_touch_rect(presentation, bottom_rect),
+                                     virtual_stylus_x, virtual_stylus_y);
+@@ -2304,7 +2366,7 @@
+         start = SDL_GetPerformanceCounter();
+         SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+         SDL_RenderClear(renderer);
+-        render_screen(presentation, screen, screen_rect);
++        render_lcd(screen, screen_rect);
+         if (screen == 1 && virtual_stylus_visible)
+             draw_virtual_stylus(renderer, native_touch_rect(presentation, screen_rect),
+                                 virtual_stylus_x, virtual_stylus_y);
+@@ -4665,6 +4727,8 @@
+             frame_sky_state.weather_ambient_bloom;
+         const bool fps_meter_frame = frame_sky_state.show_fps_meter;
+         const bool game_on_bottom = sky_dungeon && sky_game_screen == 1;
++        const int game_screen = game_on_bottom ? 1 : 0;
++        skyrecomp::shaders::GuestWeatherState metal_weather{};
+         const int game_width = game_on_bottom ? bottom_width : top_width;
+         const uint32_t*& game_pixels = game_on_bottom ? bottom_pixels : top_pixels;
+         if ((single_screen_frame || weather_bloom_frame || fps_meter_frame) &&
+@@ -4678,25 +4742,29 @@
+                 have_mainram ? mainram.len : 0);
+             const size_t count = static_cast<size_t>(game_width) *
+                                  static_cast<size_t>(kScreenHeight);
+-            present_overlay_surface.assign(game_pixels, game_pixels + count);
+             bool surface_changed = false;
+ 
+             if (weather_bloom_frame && mem.valid()) {
+                 const auto weather =
+                     weather_pipeline.ReadWeatherStateFromGuest(mem);
+                 if (weather.in_dungeon) {
+-                    weather_pipeline.SetWeatherBloomEnabled(true);
+-                    weather_pipeline.SetFilterPreset(
+-                        skyrecomp::shaders::ShaderFilterPreset::Nearest);
+-                    weather_pipeline.ApplyPostProcessArgb8888(
+-                        std::span<uint32_t>(present_overlay_surface.data(),
+-                                            count),
+-                        game_width, kScreenHeight, weather);
+-                    surface_changed = true;
++                    // Host overlays are composited in CPU memory. Grade the scene
++                    // before they are drawn so their colors remain readable.
++                    if (presentation.uses_metal(game_screen) && !fps_meter_frame &&
++                        !recomp_runtime_ui_is_open(runtime_ui)) {
++                        metal_weather = weather;
++                    } else {
++                        present_overlay_surface.assign(game_pixels, game_pixels + count);
++                        weather_pipeline.ApplyPostProcessArgb8888(
++                            present_overlay_surface, game_width, kScreenHeight, weather);
++                        surface_changed = true;
++                    }
+                 }
+             }
+ 
+             if (fps_meter_frame) {
++                if (!surface_changed)
++                    present_overlay_surface.assign(game_pixels, game_pixels + count);
+                 skyrecomp::ui::RemasterHud::RenderFpsMeter(
+                     std::span<uint32_t>(present_overlay_surface.data(), count),
+                     game_width, kScreenHeight, fps_current);
+@@ -4849,7 +4917,8 @@
+                 runtime_ui,
+                 mph_prime_virtual_stylus || generic_virtual_stylus,
+                 mph_virtual_x, mph_virtual_y,
+-                savestate_notice.empty() ? nullptr : savestate_notice.c_str());
++                savestate_notice.empty() ? nullptr : savestate_notice.c_str(),
++                metal_weather.in_dungeon ? &metal_weather : nullptr, game_screen);
+             if (!synthetic_ticks.ok) {
+                 compute_failed = true;
+                 running = false;
+@@ -4873,7 +4942,8 @@
+             runtime_ui,
+             mph_prime_virtual_stylus || generic_virtual_stylus,
+             mph_virtual_x, mph_virtual_y,
+-            savestate_notice.empty() ? nullptr : savestate_notice.c_str()
++            savestate_notice.empty() ? nullptr : savestate_notice.c_str(),
++            metal_weather.in_dungeon ? &metal_weather : nullptr, game_screen
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
+             ,cpu_handoff ? &presented->gl : nullptr
+ #endif

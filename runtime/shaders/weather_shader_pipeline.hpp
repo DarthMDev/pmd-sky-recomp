@@ -5,6 +5,7 @@
 #include "skyrecomp/pmdsky_addrs.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -53,7 +54,7 @@ struct alignas(16) SkyHdShaderUniforms {
     float output_height = 768.0f;
     float scale_factor = 4.0f;
     uint32_t filter_mode = static_cast<uint32_t>(ShaderFilterPreset::SharpBilinear);
-    uint32_t weather_id = static_cast<uint32_t>(DungeonWeatherId::Clear);
+    uint32_t has_weather_lut = 0u;
     uint32_t bloom_enabled = 1u;
     float bloom_intensity = 0.22f;
     float bloom_threshold = 0.62f;
@@ -62,8 +63,10 @@ struct alignas(16) SkyHdShaderUniforms {
     float subpixel_grid_strength = 0.45f;
 };
 static_assert(sizeof(SkyHdShaderUniforms) == 96);
+static_assert(offsetof(SkyHdShaderUniforms, weather_tint) == 48);
+static_assert(offsetof(SkyHdShaderUniforms, subpixel_grid_strength) == 80);
 
-/// Custom Apple Metal & SDL_GPU HD Shader Pipeline + CPU Reference Post-Processor (Task 3.3).
+/// Apple Metal shader uniforms and CPU reference post-processor (Task 3.3).
 class WeatherShaderPipeline {
 public:
     /// Constructs a weather-aware HD shader pipeline for the specified ROM region and filter preset.

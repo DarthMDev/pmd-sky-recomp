@@ -117,7 +117,7 @@ SkyHdShaderUniforms WeatherShaderPipeline::BuildUniforms(
     u.output_height = oh;
     u.scale_factor = std::max(1.0f, std::min(ow / sw, oh / sh));
     u.filter_mode = static_cast<uint32_t>(filter_);
-    u.weather_id = static_cast<uint32_t>(weather_state.weather);
+    u.has_weather_lut = weather_state.in_dungeon && weather_state.has_custom_color_table;
     u.bloom_enabled = weather_bloom_enabled_ ? 1u : 0u;
     u.subpixel_grid_strength = subpixel_grid_strength_;
 
@@ -127,19 +127,6 @@ SkyHdShaderUniforms WeatherShaderPipeline::BuildUniforms(
     u.weather_bloom_rgb = profile.bloom_rgb;
     u.bloom_intensity = weather_bloom_enabled_ ? profile.bloom_intensity : 0.0f;
     u.bloom_threshold = profile.bloom_threshold;
-
-    // Incorporate guest `dungeon->color_table` (GetWeatherColorTable) mid-tone shift if populated
-    if (weather_state.in_dungeon && weather_state.has_custom_color_table) {
-        const uint32_t mid = weather_state.color_table[128];
-        const float lut_r = static_cast<float>(mid & 0xFFu) / 128.0f;
-        const float lut_g = static_cast<float>((mid >> 8) & 0xFFu) / 128.0f;
-        const float lut_b = static_cast<float>((mid >> 16) & 0xFFu) / 128.0f;
-        if (lut_r > 0.1f && lut_g > 0.1f && lut_b > 0.1f) {
-            u.weather_tint[0] = std::clamp(0.5f * u.weather_tint[0] + 0.5f * lut_r, 0.5f, 1.5f);
-            u.weather_tint[1] = std::clamp(0.5f * u.weather_tint[1] + 0.5f * lut_g, 0.5f, 1.5f);
-            u.weather_tint[2] = std::clamp(0.5f * u.weather_tint[2] + 0.5f * lut_b, 0.5f, 1.5f);
-        }
-    }
 
     return u;
 }
@@ -225,11 +212,7 @@ void WeatherShaderPipeline::ApplyPostProcessArgb8888(
         return;
     }
 
-    // Omit the mid-tone LUT tint adjustment from uniforms in the CPU path because the full
-    // 256-entry color_table is applied directly per pixel below when has_custom_color_table is true.
-    GuestWeatherState uniform_weather_state = weather_state;
-    uniform_weather_state.has_custom_color_table = false;
-    const SkyHdShaderUniforms u = BuildUniforms(width, height, width, height, uniform_weather_state);
+    const SkyHdShaderUniforms u = BuildUniforms(width, height, width, height, weather_state);
 
     for (int y = 0; y < height; ++y) {
         const bool crt_darken_row = (filter_ == ShaderFilterPreset::CrtScanline) && ((y & 1) == 1);
@@ -242,7 +225,7 @@ void WeatherShaderPipeline::ApplyPostProcessArgb8888(
             uint8_t b8 = static_cast<uint8_t>(px & 0xFFu);
 
             // 1. Optional direct LUT lookup from `dungeon->color_table` if populated by GetWeatherColorTable
-            if (weather_state.in_dungeon && weather_state.has_custom_color_table) {
+            if (u.has_weather_lut != 0u) {
                 const uint32_t lut_r = weather_state.color_table[r8];
                 const uint32_t lut_g = weather_state.color_table[g8];
                 const uint32_t lut_b = weather_state.color_table[b8];

@@ -356,12 +356,11 @@ void TestWeatherShaderPipeline() {
     assert(wstate.has_custom_color_table);
 
     const auto uniforms = pipeline.BuildUniforms(342, 192, 1368, 768, wstate);
-    assert(uniforms.weather_id == static_cast<uint32_t>(DungeonWeatherId::Sunny));
+    assert(uniforms.has_weather_lut == 1u);
     assert(uniforms.bloom_enabled == 1u);
     assert(uniforms.weather_tint[0] > uniforms.weather_tint[2]); // Warm sunny red > blue
 
-    // Apply post-processing to a mid-tone test frame and verify exact per-pixel LUT application
-    // without double-applying the mid-tone LUT tint shift in BuildUniforms.
+    // Apply post-processing to a mid-tone test frame and verify exact per-pixel LUT application.
     std::vector<uint32_t> mid_fb(4, 0xFF808080u);
     pipeline.SetWeatherBloomEnabled(false);
     pipeline.ApplyPostProcessArgb8888(mid_fb, 2, 2, wstate);

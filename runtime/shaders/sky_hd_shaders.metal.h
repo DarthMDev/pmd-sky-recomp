@@ -2,7 +2,7 @@
 
 namespace skyrecomp::shaders {
 
-/// Embedded Apple Metal Shading Language (MSL) shader source for SDL_GPU / Metal backend (Task 3.3).
+/// Embedded Apple Metal Shading Language (MSL) shader source for the Metal presenter (Task 3.3).
 /// Implements:
 ///   1. Crisp pixel-art reconstruction (`sharp-bilinear` & `pixellate` box-filter integration)
 ///   2. Optional NDS RGB LCD sub-pixel grid & CRT scanline phosphor mask
@@ -17,7 +17,7 @@ struct SkyHdUniforms {
     float2 output_size;       // e.g. (1368.0, 768.0)
     float  scale_factor;      // Integer/fractional upscale ratio
     uint   filter_mode;       // 0=Nearest, 1=SharpBilinear, 2=Pixellate, 3=NdsLcdGrid, 4=CrtScanline
-    uint   weather_id;        // 0=Clear, 1=Sunny, 2=Sandstorm, 3=Cloudy, 4=Rainy, 5=Hail, 6=Fog, 7=Snow
+    uint   has_weather_lut;
     uint   bloom_enabled;     // 0 or 1
     float  bloom_intensity;   // 0.0 .. 1.0
     float  bloom_threshold;   // 0.0 .. 1.0
@@ -64,7 +64,8 @@ static inline float2 sharp_bilinear_uv(float2 uv, float2 tex_size, float2 inv_te
 fragment float4 sky_hd_fragment_main(
     VertexOut in [[stage_in]],
     texture2d<float, access::sample> src_tex [[texture(0)]],
-    constant SkyHdUniforms& u [[buffer(0)]])
+    constant SkyHdUniforms& u [[buffer(0)]],
+    constant uint* weather_lut [[buffer(1)]])
 {
     constexpr sampler linear_samp(coord::normalized, address::clamp_to_edge, filter::linear);
     constexpr sampler nearest_samp(coord::normalized, address::clamp_to_edge, filter::nearest);
@@ -94,8 +95,14 @@ fragment float4 sky_hd_fragment_main(
         color = src_tex.sample(linear_samp, warped_uv).rgb;
     }
 
-    // Apply GetWeatherColorTable LUT grading & atmospheric haze
-    color = clamp(color * u.weather_tint.rgb, 0.0, 1.0);
+    // Apply the guest's RGBX8888 table before atmospheric tint and haze.
+    if (u.has_weather_lut != 0u) {
+        uint3 indices = uint3(round(clamp(color, 0.0, 1.0) * 255.0));
+        color = float3(weather_lut[indices.r] & 255u,
+                       (weather_lut[indices.g] >> 8u) & 255u,
+                       (weather_lut[indices.b] >> 16u) & 255u) / 255.0;
+    }
+    color *= u.weather_tint.rgb;
     color = mix(color, u.weather_bloom_rgb.rgb, u.weather_tint.a);
 
     // Apply per-weather dungeon ambient bloom
