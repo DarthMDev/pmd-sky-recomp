@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7XQK3G9B8QVSZYCYP5E6QYY",
+  "strategy": "manual-commit",
+  "branch": "feature/ultrawide-dungeon-culling",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "include/skyrecomp/guest_mem.hpp",
+    "include/skyrecomp/pmdsky_addrs.hpp",
+    "patches/ndsrecomp-ios.patch",
+    "patches/ndsrecomp-sky-ultrawide.patch",
+    "runtime/camera/dungeon_camera.cpp",
+    "runtime/camera/dungeon_camera.hpp",
+    "runtime/ui/settings_overlay.cpp",
+    "scripts/setup_third_party.sh",
+    "tests/milestone3_runtime_test.cpp",
+    "translator/gen_pmdsky_bindings.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 777250,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 27936768,
+    "output_tokens": 62027,
+    "api_call_count": 142,
+    "subagent_tokens_complete": true
+  },
+  "redaction": {
+    "replacements": 752,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 752,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
