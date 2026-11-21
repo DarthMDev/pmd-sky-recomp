@@ -1,0 +1,1091 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -1303,6 +1303,7 @@
+     bool single_screen = false;
+     bool bottom_main = false;
+     bool show_inset = false;
++    bool sky_adaptive = false;
+     SkyPostFilter post_filter = SkyPostFilter::None;
+     SDL_Window* windows[2]{};
+     SDL_Renderer* renderers[2]{};
+@@ -1552,8 +1553,11 @@
+ }
+ 
+ void render_texture(SDL_Renderer* renderer, SDL_Texture* texture,
+-                    const SDL_Rect* destination) {
++                    const SDL_Rect* destination, const SDL_Rect* source = nullptr) {
+ #if defined(NDS_HAVE_SDL3)
++    SDL_FRect src{};
++    if (source)
++        src = {float(source->x), float(source->y), float(source->w), float(source->h)};
+     SDL_FRect dst{};
+     const SDL_FRect* dst_ptr = nullptr;
+     if (destination) {
+@@ -1563,9 +1567,9 @@
+         dst.h = static_cast<float>(destination->h);
+         dst_ptr = &dst;
+     }
+-    SDL_RenderTexture(renderer, texture, nullptr, dst_ptr);
++    SDL_RenderTexture(renderer, texture, source ? &src : nullptr, dst_ptr);
+ #else
+-    SDL_RenderCopy(renderer, texture, nullptr, destination);
++    SDL_RenderCopy(renderer, texture, source, destination);
+ #endif
+ }
+ 
+@@ -1707,8 +1711,12 @@
+     presentation.sample_scale = presentation.configured_sample_scale;
+     for (int screen = 0; screen < 2; ++screen) {
+         const uint8_t bit = static_cast<uint8_t>(1u << screen);
+-        if ((options.adaptive_screens & bit) &&
+-            (options.adaptive_supported & bit)) {
++        if (presentation.sky_adaptive) {
++            const int engine_a_screen = (nds_powercontrol9() & 0x8000u) ? 0 : 1;
++            if (screen == engine_a_screen)
++                presentation.screen_widths[screen] = nds_gpu3d_output_width();
++        } else if ((options.adaptive_screens & bit) &&
++                   (options.adaptive_supported & bit)) {
+             presentation.screen_widths[screen] =
+                 options.adaptive_max_width[screen];
+         }
+@@ -1843,10 +1851,16 @@
+                                       SDL_TRUE);
+ #endif
+         }
++        // Allocate both textures at the largest Sky preset so engine A can
++        // move between LCDs or change aspect without recreating a texture.
++        const int texture_width = presentation.sky_adaptive
++            ? skyrecomp::gpu2d::WidescreenPpu::ComputeMetrics(
++                skyrecomp::gpu2d::AspectRatioPreset::Ultrawide_21_9).width
++            : presentation.screen_widths[screen];
+         presentation.textures[screen] = SDL_CreateTexture(
+             presentation.renderers[screen], SDL_PIXELFORMAT_ARGB8888,
+             SDL_TEXTUREACCESS_STREAMING,
+-            presentation.screen_widths[screen], kScreenHeight);
++            texture_width, kScreenHeight);
+         if (!presentation.textures[screen]) {
+             std::fprintf(stderr, "[sdl] texture failed: %s\n",
+                          SDL_GetError());
+@@ -1863,8 +1877,7 @@
+             presentation.sample_targets[screen] = SDL_CreateTexture(
+                 presentation.renderers[screen], SDL_PIXELFORMAT_ARGB8888,
+                 SDL_TEXTUREACCESS_TARGET,
+-                presentation.screen_widths[screen] *
+-                    presentation.sample_scale,
++                texture_width * presentation.sample_scale,
+                 kScreenHeight * presentation.sample_scale);
+             if (!presentation.sample_targets[screen]) {
+                 std::fprintf(stderr,
+@@ -1923,15 +1936,23 @@
+                    const SDL_Rect& destination) {
+     SDL_Renderer* renderer = presentation.renderers[screen];
+     SDL_Texture* source = presentation.textures[screen];
++    SDL_Rect source_rect{0, 0, presentation.screen_widths[screen], kScreenHeight};
+     if (presentation.sample_scale > 1 && presentation.sample_targets[screen]) {
++        const SDL_Rect sample_rect{
++            0, 0, source_rect.w * presentation.sample_scale,
++            source_rect.h * presentation.sample_scale};
+         SDL_SetRenderTarget(renderer, presentation.sample_targets[screen]);
+         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+         SDL_RenderClear(renderer);
+-        render_texture(renderer, source, nullptr);
++        render_texture(renderer, source,
++                       presentation.sky_adaptive ? &sample_rect : nullptr,
++                       presentation.sky_adaptive ? &source_rect : nullptr);
+         SDL_SetRenderTarget(renderer, nullptr);
+         source = presentation.sample_targets[screen];
+-    }
+-    render_texture(renderer, source, &destination);
++        source_rect = sample_rect;
++    }
++    render_texture(renderer, source, &destination,
++                   presentation.sky_adaptive ? &source_rect : nullptr);
+     draw_post_filter(renderer, destination, presentation.post_filter);
+ }
+ 
+@@ -1966,46 +1987,18 @@
+     }
+ }
+ 
+-bool resize_top_screen_texture(
+-    FrontendPresentation& presentation, int width,
+-    skyrecomp::shaders::ShaderFilterPreset filter) {
+-    if (width <= 0 || presentation.renderers[0] == nullptr) return false;
+-    SDL_Texture* new_texture = SDL_CreateTexture(
+-        presentation.renderers[0], SDL_PIXELFORMAT_ARGB8888,
+-        SDL_TEXTUREACCESS_STREAMING, width, kScreenHeight);
+-    if (new_texture == nullptr) return false;
+-    SDL_Texture* new_sample = nullptr;
+-    if (presentation.sample_scale > 1) {
+-        new_sample = SDL_CreateTexture(
+-            presentation.renderers[0], SDL_PIXELFORMAT_ARGB8888,
+-            SDL_TEXTUREACCESS_TARGET, width * presentation.sample_scale,
+-            kScreenHeight * presentation.sample_scale);
+-        if (new_sample == nullptr) {
+-            SDL_DestroyTexture(new_texture);
+-            return false;
+-        }
+-    }
+-    if (presentation.textures[0] != nullptr) {
+-        SDL_DestroyTexture(presentation.textures[0]);
+-    }
+-    if (presentation.sample_targets[0] != nullptr) {
+-        SDL_DestroyTexture(presentation.sample_targets[0]);
+-    }
+-    presentation.textures[0] = new_texture;
+-    presentation.sample_targets[0] = new_sample;
+-    presentation.screen_widths[0] = width;
+-    apply_sky_shader_filter(presentation, filter);
+-    return true;
+-}
+-
+ void apply_single_screen_presentation(FrontendPresentation& presentation,
+                                       bool single_screen) {
+     if (presentation.separate) {
+         if (!presentation.windows[1]) return;
+-        if (single_screen)
+-            SDL_HideWindow(presentation.windows[1]);
+-        else
+-            SDL_ShowWindow(presentation.windows[1]);
++        const int main_screen = presentation.bottom_main ? 1 : 0;
++        for (int screen = 0; screen < 2; ++screen) {
++            const bool visible = !single_screen || screen == main_screen;
++            const bool hidden = (SDL_GetWindowFlags(presentation.windows[screen]) &
++                                 SDL_WINDOW_HIDDEN) != 0;
++            if (visible && hidden) SDL_ShowWindow(presentation.windows[screen]);
++            if (!visible && !hidden) SDL_HideWindow(presentation.windows[screen]);
++        }
+         return;
+     }
+     if (!presentation.windows[0] || !presentation.renderers[0]) return;
+@@ -2040,13 +2033,22 @@
+     return {main_width + kMargin, kMargin, kInsetWidth, inset_height};
+ }
+ 
+-SDL_Rect single_screen_bottom_rect(
+-    const FrontendPresentation& presentation) {
++SDL_Rect native_touch_rect(const FrontendPresentation& presentation, SDL_Rect rect) {
++    if (presentation.sky_adaptive && presentation.screen_widths[1] > kScreenWidth) {
++        const int width = rect.w * kScreenWidth / presentation.screen_widths[1];
++        rect.x += (rect.w - width) / 2;
++        rect.w = width;
++    }
++    return rect;
++}
++
++SDL_Rect single_screen_bottom_rect(const FrontendPresentation& presentation) {
+     if (presentation.bottom_main) {
+-        return {0, 0, presentation.screen_widths[1], kScreenHeight};
+-    }
+-    if (presentation.show_inset) {
+-        return single_screen_inset_rect(presentation);
++        return native_touch_rect(presentation,
++            {0, 0, presentation.screen_widths[1], kScreenHeight});
++    }
++    if (presentation.show_inset && !presentation.separate) {
++        return native_touch_rect(presentation, single_screen_inset_rect(presentation));
+     }
+     return {0, 0, 0, 0};
+ }
+@@ -2229,13 +2231,19 @@
+ #endif
+         return ticks;
+     }
+-    top_pixels = runtime_menu_overlay(
+-        runtime_ui, top_pixels, top_width, kScreenHeight);
++    if (presentation.sky_adaptive && presentation.single_screen && presentation.bottom_main)
++        bottom_pixels = runtime_menu_overlay(runtime_ui, bottom_pixels, bottom_width, kScreenHeight);
++    else
++        top_pixels = runtime_menu_overlay(runtime_ui, top_pixels, top_width, kScreenHeight);
+     uint64_t start = SDL_GetPerformanceCounter();
+-    SDL_UpdateTexture(presentation.textures[0], nullptr, top_pixels,
+-                      top_width * sizeof(uint32_t));
+-    SDL_UpdateTexture(presentation.textures[1], nullptr, bottom_pixels,
+-                      bottom_width * sizeof(uint32_t));
++    const SDL_Rect top_upload{0, 0, top_width, kScreenHeight};
++    const SDL_Rect bottom_upload{0, 0, bottom_width, kScreenHeight};
++    SDL_UpdateTexture(presentation.textures[0],
++                      presentation.sky_adaptive ? &top_upload : nullptr,
++                      top_pixels, top_width * sizeof(uint32_t));
++    SDL_UpdateTexture(presentation.textures[1],
++                      presentation.sky_adaptive ? &bottom_upload : nullptr,
++                      bottom_pixels, bottom_width * sizeof(uint32_t));
+     ticks.upload += SDL_GetPerformanceCounter() - start;
+     if (!presentation.separate) {
+         SDL_Renderer* renderer = presentation.renderers[0];
+@@ -2270,7 +2278,7 @@
+             render_screen(presentation, 0, top_rect);
+             render_screen(presentation, 1, bottom_rect);
+             if (virtual_stylus_visible)
+-                draw_virtual_stylus(renderer, bottom_rect,
++                draw_virtual_stylus(renderer, native_touch_rect(presentation, bottom_rect),
+                                     virtual_stylus_x, virtual_stylus_y);
+             draw_savestate_notice(renderer, bottom_rect, savestate_notice);
+         }
+@@ -2282,6 +2290,8 @@
+     }
+ 
+     for (int screen = 0; screen < 2; ++screen) {
++        if (presentation.sky_adaptive && presentation.single_screen &&
++            screen != (presentation.bottom_main ? 1 : 0)) continue;
+         const SDL_Rect screen_rect{
+             0, 0, presentation.screen_widths[screen], kScreenHeight};
+         SDL_Renderer* renderer = presentation.renderers[screen];
+@@ -2290,7 +2300,7 @@
+         SDL_RenderClear(renderer);
+         render_screen(presentation, screen, screen_rect);
+         if (screen == 1 && virtual_stylus_visible)
+-            draw_virtual_stylus(renderer, screen_rect,
++            draw_virtual_stylus(renderer, native_touch_rect(presentation, screen_rect),
+                                 virtual_stylus_x, virtual_stylus_y);
+         if (screen == 1)
+             draw_savestate_notice(renderer, screen_rect, savestate_notice);
+@@ -2394,7 +2404,8 @@
+     }
+ #endif
+     FrontendPresentation presentation{};
+-    if (!create_presentation(options, presentation)) {
++    presentation.sky_adaptive = pmd_sky_rom;
++    if (!create_presentation(options, presentation, !pmd_sky_rom)) {
+         SDL_Quit();
+         return 1;
+     }
+@@ -2401,19 +2412,24 @@
+-    const int bottom_logical_width = presentation.separate
+-        ? presentation.screen_widths[1]
+-        : presentation.canvas_width;
+-    const int bottom_content_left =
+-        (bottom_logical_width - kScreenWidth) / 2;
+-    const int top_content_left = presentation.separate
+-        ? 0 : (presentation.canvas_width - presentation.screen_widths[0]) / 2;
+-    const NdsLogicalRect stacked_top_screen{
+-        top_content_left, 0, presentation.screen_widths[0], kScreenHeight};
++    auto bottom_logical_width = [&] {
++        return presentation.separate
++            ? presentation.screen_widths[1] : presentation.canvas_width;
++    };
++    auto bottom_content_left = [&] {
++        return (bottom_logical_width() - kScreenWidth) / 2;
++    };
++    auto top_content_left = [&] {
++        return presentation.separate
++            ? 0 : (presentation.canvas_width - presentation.screen_widths[0]) / 2;
++    };
++    auto stacked_top_screen = [&]() -> NdsLogicalRect {
++        return {top_content_left(), 0, presentation.screen_widths[0], kScreenHeight};
++    };
+     auto bottom_touch_rect = [&]() -> NdsLogicalRect {
+         if (presentation.single_screen) {
+             const SDL_Rect bottom = single_screen_bottom_rect(presentation);
+             return {bottom.x, bottom.y, bottom.w, bottom.h};
+         }
+-        return {bottom_content_left, kScreenHeight, kScreenWidth,
+-                kScreenHeight};
++        return {bottom_content_left(), kScreenHeight,
++                kScreenWidth, kScreenHeight};
+     };
+     auto host_touch = [&](float x, float y, bool down) {
+         if (presentation.single_screen) {
+@@ -2425,7 +2441,7 @@
+             set_touch_from_rect(x, y, down, bottom);
+         } else {
+             set_touch_from_mouse(x, y, down, options.screen_layout,
+-                                 bottom_logical_width);
++                                 bottom_logical_width());
+         }
+     };
+     std::fprintf(stderr,
+@@ -2485,7 +2501,9 @@
+     // Activate only after every fallible visible-frontend allocation. From
+     // here onward teardown always destroys the compute renderer while this
+     // context is current.
+-    if (!nds_compute_host_start(
++    const bool use_compute = !pmd_sky_rom ||
++        nds_gpu3d_renderer_policy() == NdsGpu3dRendererPolicy::Compute;
++    if (use_compute && !nds_compute_host_start(
+             presentation.gl_top ? presentation.windows[0] : nullptr)) {
+         destroy_presentation(presentation);
+         SDL_Quit();
+@@ -3216,7 +3234,7 @@
+             static_cast<int>(std::lround(mph_virtual_y));
+         g_input_debug.top_window_id = presentation.window_ids[0];
+         g_input_debug.bottom_window_id = presentation.window_ids[1];
+-        g_input_debug.bottom_content_left = bottom_content_left;
++        g_input_debug.bottom_content_left = bottom_content_left();
+         g_input_debug.separate = presentation.separate ? 1 : 0;
+     };
+     publish_input_debug();
+@@ -3277,16 +3295,20 @@
+     }
+ #endif
+     const skyrecomp::camera::DungeonCameraHook camera_hook(hud_region);
++    skyrecomp::camera::DungeonMarginMap dungeon_tiles{};
++    auto sky_memory = [&] {
++        BusRegion mainram{};
++        if (pmd_sky_rom) bus_get_region("mainram", &mainram);
++        return skyrecomp::GuestMemoryView(mainram.ptr, mainram.len);
++    };
++    auto set_sky_culling_width = [&](uint16_t width) {
++        if (pmd_sky_rom)
++            camera_hook.UpdateDungeonSpriteCulling(sky_memory(), width, bus_write_u32_slow);
++    };
+     auto ground_background = [&] {
+-        using skyrecomp::camera::GroundBackground;
+-        if (!pmd_sky_rom || !(options.adaptive_screens & NDS_ADAPTIVE_TOP) ||
+-            nds_gpu3d_output_width() <= 256u || !(nds_powercontrol9() & 0x8000u)) {
+-            return GroundBackground::Unknown;
+-        }
+-        BusRegion mainram{};
+-        if (!bus_get_region("mainram", &mainram)) return GroundBackground::Unknown;
+-        return camera_hook.ReadGroundBackground(
+-            skyrecomp::GuestMemoryView(mainram.ptr, mainram.len));
++        if (nds_gpu3d_output_width() <= 256u)
++            return skyrecomp::camera::GroundBackground::Unknown;
++        return camera_hook.ReadGroundBackground(sky_memory());
+     };
+     nds_gpu2d_set_wide_affine(pmd_sky_rom);
+     while (running) {
+@@ -3348,7 +3370,7 @@
+                 // Synthetic events use window pixels; the SDL3 frontend path
+                 // converts absolute mouse positions into logical DS-space.
+                 injected.button.x =
+-                    (bottom_content_left + 127) * kWindowScale;
++                    (bottom_content_left() + 127) * kWindowScale;
+                 injected.button.y = (presentation.separate
+                     ? 180 : 192 + 180) * kWindowScale;
+                 selftest_event_error |= !sdl_push_event(injected);
+@@ -3361,7 +3383,7 @@
+                 injected.button.button = SDL_BUTTON_LEFT;
+                 sdl_set_mouse_button_state(injected, false);
+                 injected.button.x =
+-                    (bottom_content_left + 127) * kWindowScale;
++                    (bottom_content_left() + 127) * kWindowScale;
+                 injected.button.y = (presentation.separate
+                     ? 180 : 192 + 180) * kWindowScale;
+                 selftest_event_error |= !sdl_push_event(injected);
+@@ -3391,7 +3413,7 @@
+                 // top-window capture path.
+                 injected.button.x = presentation.separate
+                     ? 127 * kWindowScale
+-                    : (bottom_content_left + 127) * kWindowScale;
++                    : (bottom_content_left() + 127) * kWindowScale;
+                 injected.button.y = presentation.separate
+                     ? 96 * kWindowScale
+                     : (kScreenHeight + 96) * kWindowScale;
+@@ -3414,7 +3436,7 @@
+                     injected.button.button = SDL_BUTTON_LEFT;
+                     sdl_set_mouse_button_state(injected, false);
+                     injected.button.x =
+-                        (bottom_content_left + 127) * kWindowScale;
++                        (bottom_content_left() + 127) * kWindowScale;
+                     injected.button.y =
+                         (kScreenHeight + 96) * kWindowScale;
+                     relative_mouse_selftest_stage = 2;
+@@ -3428,7 +3450,7 @@
+                 injected.button.button = SDL_BUTTON_LEFT;
+                 sdl_set_mouse_button_state(injected, true);
+                 injected.button.x =
+-                    (top_content_left + 127) * kWindowScale;
++                    (top_content_left() + 127) * kWindowScale;
+                 injected.button.y = 96 * kWindowScale;
+                 relative_mouse_selftest_error |= !sdl_push_event(injected);
+                 relative_mouse_selftest_stage = 3;
+@@ -3484,7 +3506,7 @@
+                 injected.button.button = SDL_BUTTON_LEFT;
+                 sdl_set_mouse_button_state(injected, true);
+                 injected.button.x =
+-                    (top_content_left + 127) * kWindowScale;
++                    (top_content_left() + 127) * kWindowScale;
+                 injected.button.y = 96 * kWindowScale;
+                 relative_mouse_selftest_error |= !sdl_push_event(injected);
+                 relative_mouse_selftest_stage = 8;
+@@ -3593,8 +3615,13 @@
+                     function_key, sdl_event_shift(event), false,
+                     &state_command);
+                 if (state_shortcut) {
+-                    if (state_command.action == NdsSavestateSlotAction::Load)
++                    if (state_command.action == NdsSavestateSlotAction::Load) {
+                         finish_pending_save(true);
++                    } else {
++                        // Savestates capture guest RAM. Store the original
++                        // compares and reapply the display policy next frame.
++                        set_sky_culling_width(256);
++                    }
+                     const NdsSavestateSlotResult result =
+                         state_command.action == NdsSavestateSlotAction::Save ?
+                         nds_savestate_slot_request_save(
+@@ -3816,7 +3843,7 @@
+                 primary_left_down && !presentation.separate
+                     ? nds_route_stacked_relative_mouse_button(
+                         options.relative_mouse_touch,
+-                        relative_mouse.captured(), stacked_top_screen,
++                        relative_mouse.captured(), stacked_top_screen(),
+                         bottom_touch_rect(), event.button.x, event.button.y)
+                     : NdsStackedRelativeMouseRoute::None;
+             bool virtual_stylus_mouse_consumed = false;
+@@ -3899,8 +3926,8 @@
+                 !(mph_prime_unified_window_focus &&
+                   relative_mouse.captured()) &&
+                 (presentation.separate
+-                    ? event.button.x >= bottom_content_left &&
+-                          event.button.x < bottom_content_left + kScreenWidth
++                    ? event.button.x >= bottom_content_left() &&
++                          event.button.x < bottom_content_left() + kScreenWidth
+                     : stacked_left_route ==
+                           NdsStackedRelativeMouseRoute::Touchscreen)) {
+                 mouse_down = true;
+@@ -3985,53 +4012,16 @@
+             applied_shader_filter = sky_state.shader_filter;
+             std::fprintf(stderr, "[sdl] shader filter changed\n");
+         }
+-        if (sky_state.aspect_ratio != applied_aspect_ratio) {
++        if (pmd_sky_rom && sky_state.aspect_ratio != applied_aspect_ratio) {
+             applied_aspect_ratio = sky_state.aspect_ratio;
+-            if (!presentation.single_screen) {
+-                std::fprintf(stderr,
+-                             "[sdl] aspect ratio saved; switch to Hybrid or "
+-                             "restart to apply the new widescreen width\n");
++            const uint16_t width = skyrecomp::gpu2d::WidescreenPpu::ComputeMetrics(
++                applied_aspect_ratio).width;
++            if (!nds_gpu3d_set_output_width(width)) {
++                std::fprintf(stderr, "[sdl] aspect ratio: width %u is unavailable\n",
++                             static_cast<unsigned>(width));
+             } else {
+-                static constexpr uint16_t kAspectWidths[4] = {
+-                    256, 308, 342, 448};
+-                const int aspect_index = std::clamp<int>(
+-                    static_cast<int>(sky_state.aspect_ratio), 0, 3);
+-                const uint16_t new_width = kAspectWidths[aspect_index];
+-                const uint16_t old_width = presentation.screen_widths[0];
+-                if (new_width == old_width) {
+-                    // No-op; keep the current renderer width.
+-                } else if (!nds_gpu3d_set_output_width(new_width)) {
+-                    std::fprintf(stderr,
+-                                 "[sdl] aspect ratio: width %u is "
+-                                 "unavailable\n",
+-                                 static_cast<unsigned>(new_width));
+-                } else {
+-                    const uint8_t old_screens = options.adaptive_screens;
+-                    const uint16_t old_max_width =
+-                        options.adaptive_max_width[0];
+-                    if (new_width > 256) {
+-                        options.adaptive_screens = NDS_ADAPTIVE_TOP;
+-                        options.adaptive_max_width[0] = new_width;
+-                    } else {
+-                        options.adaptive_screens = NDS_ADAPTIVE_NONE;
+-                        options.adaptive_max_width[0] = 256;
+-                    }
+-                    if (!resize_top_screen_texture(
+-                            presentation, new_width,
+-                            sky_state.shader_filter)) {
+-                        options.adaptive_screens = old_screens;
+-                        options.adaptive_max_width[0] = old_max_width;
+-                        (void)nds_gpu3d_set_output_width(old_width);
+-                        std::fprintf(stderr,
+-                                     "[sdl] aspect ratio: texture resize "
+-                                     "failed; keeping %upx\n",
+-                                     static_cast<unsigned>(old_width));
+-                    } else {
+-                        std::fprintf(stderr,
+-                                     "[sdl] aspect ratio applied live: %upx\n",
+-                                     static_cast<unsigned>(new_width));
+-                    }
+-                }
++                std::fprintf(stderr, "[sdl] aspect ratio applied live: %upx\n",
++                             static_cast<unsigned>(width));
+             }
+         }
+         if (sky_state.hud_layout != applied_hud_layout) {
+@@ -4041,7 +4031,9 @@
+                 skyrecomp::gpu2d::HudLayoutMode::SingleScreenModern;
+             presentation.bottom_main = false;
+             presentation.show_inset = false;
+-            presentation.canvas_width = presentation.screen_widths[0];
++            presentation.canvas_width = presentation.single_screen
++                ? presentation.screen_widths[0]
++                : std::max(presentation.screen_widths[0], presentation.screen_widths[1]);
+             apply_single_screen_presentation(presentation,
+                                              presentation.single_screen);
+             std::fprintf(stderr, "[sdl] HUD layout changed\n");
+@@ -4414,6 +4406,7 @@
+         // Quit/control requests are resolved while the producer is joined.
+         // Never start another guest transaction after SDL_QUIT/window close.
+         if (!running) break;
++        set_sky_culling_width(nds_gpu3d_output_width());
+         const auto background_before_frame = ground_background();
+         const uint64_t phase0 = SDL_GetPerformanceCounter();
+         uint64_t latency_cycles_emu = latency_trace ? nds_frontend_latency::cycles() : 0;
+@@ -4538,6 +4531,8 @@
+         uint16_t top_width=256,bottom_width=256;
+         const uint64_t adaptive_start=SDL_GetPerformanceCounter();
+         bool direct_present=false;
++        int sky_game_screen = 0;
++        bool sky_dungeon = false;
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
+         if (cpu_handoff) {
+             native_top=presented->native_top.data();
+@@ -4555,38 +4550,68 @@
+             const bool native_hd=presentation.gl_top && nds_gpu3d_internal_scale()>1u &&
+                                  nds_gpu3d_output_width()==256u;
+             direct_present=nds_gpu2d_direct_present_frame_active();
+-            if (((options.adaptive_screens & NDS_ADAPTIVE_TOP) || native_hd) && !direct_present) {
+-                using skyrecomp::camera::GroundBackground;
+-                const auto background_after_frame = ground_background();
+-                NdsGpu2dScene scene = NdsGpu2dScene::Unknown;
+-                if (background_before_frame == GroundBackground::StaticPicture ||
+-                    background_after_frame == GroundBackground::StaticPicture) {
+-                    scene = NdsGpu2dScene::StaticPicture;
+-                } else if (background_before_frame == GroundBackground::WideMap &&
+-                           background_after_frame == GroundBackground::WideMap) {
+-                    scene = NdsGpu2dScene::ScrollingGroundMap;
++            if (pmd_sky_rom) {
++                sky_game_screen = (nds_powercontrol9() & 0x8000u) ? 0 : 1;
++                const auto mem = sky_memory();
++                sky_dungeon = mem.resolve_dungeon_ptr(hud_region) != 0;
++                const int width = nds_gpu3d_output_width();
++                if (width > 256) {
++                    using skyrecomp::camera::GroundBackground;
++                    const auto after = ground_background();
++                    NdsGpu2dScene scene = NdsGpu2dScene::Unknown;
++                    NdsGpu2dDungeonMap map{};
++                    if (sky_dungeon) {
++                        scene = NdsGpu2dScene::Dungeon;
++                        if (camera_hook.ReadDungeonMarginMap(mem, width, dungeon_tiles)) {
++                            map = {dungeon_tiles.entries.data(),
++                                   dungeon_tiles.scroll_x, dungeon_tiles.scroll_y};
++                        }
++                    } else if (background_before_frame == GroundBackground::StaticPicture ||
++                               after == GroundBackground::StaticPicture) {
++                        scene = NdsGpu2dScene::StaticPicture;
++                    } else if (background_before_frame == GroundBackground::WideMap &&
++                               after == GroundBackground::WideMap) {
++                        scene = NdsGpu2dScene::ScrollingGroundMap;
++                    }
++                    if (sky_game_screen == 0)
++                        top_pixels = nds_gpu2d_adaptive_framebuffer(0, &top_width, scene, &map);
++                    else
++                        bottom_pixels = nds_gpu2d_adaptive_framebuffer(1, &bottom_width, scene, &map);
+                 }
+-                top_pixels = nds_gpu2d_adaptive_framebuffer(0, &top_width, scene);
+-            } else if (direct_present) {
+-                top_width = nds_gpu3d_output_width();
+-            }
+-            if (options.adaptive_screens & NDS_ADAPTIVE_BOTTOM)
+-                bottom_pixels=nds_gpu2d_adaptive_framebuffer(1,&bottom_width);
++            } else {
++                if (((options.adaptive_screens & NDS_ADAPTIVE_TOP) || native_hd) && !direct_present)
++                    top_pixels = nds_gpu2d_adaptive_framebuffer(0, &top_width);
++                else if (direct_present)
++                    top_width = nds_gpu3d_output_width();
++                if (options.adaptive_screens & NDS_ADAPTIVE_BOTTOM)
++                    bottom_pixels = nds_gpu2d_adaptive_framebuffer(1, &bottom_width);
++            }
+             phase_adaptive_ticks+=SDL_GetPerformanceCounter()-adaptive_start;
+             observe_top_black_bands(native_top,shown_frames);
+         }
+-        // Single-screen modern layout: draw the dungeon HP/belly/floor and
+-        // minimap HUD over the top screen. The bottom screen remains a small
+-        // touchable inset, so menus and pointer input stay reachable in one
+-        // window instead of a stacked dual-screen layout.
++        if (pmd_sky_rom) {
++            const int widths[]{top_width, bottom_width};
++            for (int screen = 0; screen < 2; ++screen) {
++                if (widths[screen] == presentation.screen_widths[screen]) continue;
++                presentation.screen_widths[screen] = widths[screen];
++                if (presentation.separate)
++                    set_render_logical_size(presentation.renderers[screen],
++                                            widths[screen], kScreenHeight);
++            }
++        }
++        // Hybrid shows the dungeon LCD as its main view and keeps the other
++        // LCD available for the map and touchscreen menus.
+         const auto& frame_sky_state = settings_overlay.GetState();
+         const bool single_screen_frame =
+             presentation.single_screen && !presentation.gl_top;
+         const bool weather_bloom_frame =
+             frame_sky_state.weather_ambient_bloom;
+         const bool fps_meter_frame = frame_sky_state.show_fps_meter;
++        const bool game_on_bottom = sky_dungeon && sky_game_screen == 1;
++        const int game_width = game_on_bottom ? bottom_width : top_width;
++        const uint32_t*& game_pixels = game_on_bottom ? bottom_pixels : top_pixels;
+         if ((single_screen_frame || weather_bloom_frame || fps_meter_frame) &&
+-            top_pixels != nullptr && top_width > 0) {
++            game_pixels != nullptr && game_width > 0) {
+             BusRegion mainram{};
+             const bool have_mainram =
+                 bus_get_region("mainram", &mainram) && mainram.ptr != nullptr &&
+@@ -4594,9 +4619,9 @@
+             const skyrecomp::GuestMemoryView mem(
+                 have_mainram ? mainram.ptr : nullptr,
+                 have_mainram ? mainram.len : 0);
+-            const size_t count = static_cast<size_t>(top_width) *
++            const size_t count = static_cast<size_t>(game_width) *
+                                  static_cast<size_t>(kScreenHeight);
+-            present_overlay_surface.assign(top_pixels, top_pixels + count);
++            present_overlay_surface.assign(game_pixels, game_pixels + count);
+             bool surface_changed = false;
+ 
+             if (weather_bloom_frame && mem.valid()) {
+@@ -4609,7 +4634,7 @@
+                     weather_pipeline.ApplyPostProcessArgb8888(
+                         std::span<uint32_t>(present_overlay_surface.data(),
+                                             count),
+-                        top_width, kScreenHeight, weather);
++                        game_width, kScreenHeight, weather);
+                     surface_changed = true;
+                 }
+             }
+@@ -4617,7 +4642,7 @@
+             if (fps_meter_frame) {
+                 skyrecomp::ui::RemasterHud::RenderFpsMeter(
+                     std::span<uint32_t>(present_overlay_surface.data(), count),
+-                    top_width, kScreenHeight, fps_current);
++                    game_width, kScreenHeight, fps_current);
+                 surface_changed = true;
+             }
+ 
+@@ -4672,7 +4697,8 @@
+                     const uint64_t now_ms = SDL_GetTicks();
+                     if (bottom_content) bottom_focus_until = now_ms + 10000;
+                     const bool keep_bottom_main = now_ms < bottom_focus_until;
+-                    presentation.bottom_main = menu_view || keep_bottom_main;
++                    presentation.bottom_main = sky_dungeon
++                        ? game_on_bottom : menu_view || keep_bottom_main;
+                     presentation.show_inset = true;
+                     static bool last_menu_view = false;
+                     static bool last_bottom_content = false;
+@@ -4702,24 +4728,36 @@
+             }
+ 
+             if (surface_changed) {
+-                top_pixels = present_overlay_surface.data();
++                game_pixels = present_overlay_surface.data();
+             }
+         }
+         if (presentation.single_screen) {
+             const bool host_menu = recomp_runtime_ui_is_open(runtime_ui);
+             if (host_menu) {
+-                presentation.bottom_main = false;
++                if (!pmd_sky_rom) presentation.bottom_main = false;
+                 presentation.show_inset = false;
+             }
+             const int main_w = presentation.bottom_main
+                 ? presentation.screen_widths[1]
+                 : presentation.screen_widths[0];
+-            const int layout_w = presentation.show_inset
++            const int layout_w = presentation.show_inset && !presentation.separate
+                 ? main_w + 160
+                 : main_w;
++            if (presentation.separate && pmd_sky_rom) {
++                apply_single_screen_presentation(presentation, true);
++            } else if (layout_w != presentation.canvas_width) {
++                presentation.canvas_width = layout_w;
++                if (pmd_sky_rom) {
++                    set_render_logical_size(presentation.renderers[0], layout_w, kScreenHeight);
++                } else {
++                    apply_single_screen_presentation(presentation, true);
++                }
++            }
++        } else if (pmd_sky_rom && !presentation.separate) {
++            const int layout_w = std::max(top_width, bottom_width);
+             if (layout_w != presentation.canvas_width) {
+                 presentation.canvas_width = layout_w;
+-                apply_single_screen_presentation(presentation, true);
++                set_render_logical_size(presentation.renderers[0], layout_w, kScreenHeight * 2);
+             }
+         }
+         // At most ONE synthetic frame, presented ahead of the real one, so
+@@ -5091,6 +5129,7 @@
+     nds_frontend_latency::finish();
+     nds_gpu2d_set_wide_affine(false);
+ #if defined(NDS_HAVE_COMPUTE_RENDERER)
++    set_sky_culling_width(256);
+     nds_gpu2d_set_direct_present(false);
+     nds_compute_host_stop();
+ #endif
+@@ -5158,7 +5197,7 @@
+     const bool menu_selftest_failed = selftest_menu &&
+         (selftest_event_error || !selftest_key_up || !selftest_touch_up ||
+          host_key_presses != 1 || host_touch_presses != 1 ||
+-         last_touch_event_x != bottom_content_left + 127 ||
++         last_touch_event_x != bottom_content_left() + 127 ||
+          last_touch_event_y != (presentation.separate ? 180 : 372) ||
+          top_hash != 0xa0f41b93e4eefa55ull ||
+          bottom_hash != 0x6c43b370e9cda730ull);
+diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
+--- a/runner/src/gpu2d.cpp
++++ b/runner/src/gpu2d.cpp
+@@ -133,6 +133,7 @@
+ struct WideAffineLine {
+     uint16_t width = 0;
+     bool has_affine = false;
++    uint8_t screen = 0;
+ };
+ std::array<std::array<WideAffineLine, 192>, 2> g_wide_affine_lines{};
+ // The threaded renderer begins the next 3D frame at VCount 215, before the
+@@ -435,7 +436,7 @@
+     return line;
+ }
+ 
+-Pixel text_pixel(TextLine& line, int x) {
++Pixel text_pixel(TextLine& line, int x, const uint16_t* dungeon_tiles = nullptr) {
+     const Unit& u = *line.u;
+     const uint16_t cnt = line.cnt;
+     const int bg = line.bg;
+@@ -451,8 +452,9 @@
+     map_addr += ((sx & 0xF8u) >> 2) + ((sx & line.width_extra) << 3);
+     if (map_addr != line.cached_map_addr) {
+         line.cached_map_addr = map_addr;
+-        line.cached_tile = static_cast<uint16_t>(
+-            bg_view16(*line.vram, line.engine, map_addr));
++        line.cached_tile = dungeon_tiles
++            ? dungeon_tiles[(line.sy >> 3u) * 64u + (sx >> 3u)]
++            : static_cast<uint16_t>(bg_view16(*line.vram, line.engine, map_addr));
+     }
+     const uint16_t tile = line.cached_tile;
+     uint32_t tx = sx & 7u, ty = line.sy & 7u;
+@@ -853,7 +855,8 @@
+                      int out_width,
+                      const uint8_t* oam, const uint8_t* palette,
+                      const NdsVramRendererView& vram,
+-                     uint8_t* obj_window = nullptr, bool anchor_hud = true) {
++                     uint8_t* obj_window = nullptr, bool anchor_hud = true,
++                     bool wide_dungeon = false) {
+     std::fill_n(out, out_width, Pixel{});
+     if (obj_window) std::fill_n(obj_window, out_width, 0u);
+     if (!(u.dispcnt&0x1000u)) return;
+@@ -873,7 +876,11 @@
+             const int sy=a0&0xFF;
+             int row=(line_y-sy)&0xFF;
+             if (row>=bh) continue;
+-            int sx=static_cast<int16_t>(a1<<7)>>7;
++            int sx = a1 & 0x1FFu;
++            // Sky submits dungeon pieces in the interval [-160, 352) at
++            // 448px. Their 9-bit coordinates are unique over that interval.
++            const int x_wrap = wide_dungeon ? (256 + (kMaxAdaptiveWidth - 256) / 2) : 256;
++            if (sx >= x_wrap) sx -= 512;
+             int output_sx = sx;
+             if (out_width > 256) {
+                 const int extra = (out_width - 256) / 2;
+@@ -1688,11 +1695,15 @@
+     if (width <= 256 || width > kMaxAdaptiveWidth || (width & 1u)) return {};
+ 
+     WideAffineLine line{};
+-    bool can_widen = job.screen[0] == 0 && job.engine_active[0] &&
++    line.screen = static_cast<uint8_t>(job.screen[0]);
++    bool can_widen = job.engine_active[0] &&
+         job.palette[0] && job.oam[0] && job.vram[0] && !job.bg0_3d &&
+         !u.capture_latch && ((u.dispcnt >> 16) & 3u) == 1u && !(u.dispcnt & 0x80u);
+     const uint32_t bg_mode = u.dispcnt & 7u;
+-    if (bg_mode == 6u || bg_mode == 7u) return {0, true};
++    if (bg_mode == 6u || bg_mode == 7u) {
++        line.has_affine = true;
++        return line;
++    }
+ 
+     for (int bg = 0; bg < 4; ++bg) {
+         if (!(u.dispcnt & (0x100u << bg))) continue;
+@@ -3055,32 +3066,30 @@
+     uint8_t order = 0;
+ };
+ 
+-// PMD Sky dungeons are text-BG scenes (the 3D layer is not BG0). The native
+-// 256px compositor samples BG map columns only inside the vanilla viewport;
+-// widening the sample range by the margin lets the same 512x256 map supply
+-// the extra left/right columns. Affine/bitmap/mosaic scenes still fall back
+-// to the centered native image because their source coordinates do not have
+-// an equivalent simple horizontal window.
+-bool wide_2d_scene_supported(const Unit& u) {
++// Sky dungeons draw their maps with text backgrounds. BG0 can also carry
++// 3D weather. Read the world maps in the margins and compose the weather
++// with the same DS layer priority and blending rules.
++bool wide_2d_scene_supported(const Unit& u, bool bg0_3d) {
+     const uint32_t mode = (u.dispcnt >> 16) & 3u;
+     if (mode != 0u && mode != 1u) return false;
+     if (u.dispcnt & 0x80u) return false;
+     if (g_present_capture_active) return false;
+     if (nds_gpu3d_render_xpos() != 0u) return false;
+     for (int bg = 0; bg < 4; ++bg) {
+-        if (!(u.dispcnt & (0x100u << bg))) continue;
++        if (!(u.dispcnt & (0x100u << bg)) || (bg == 0 && bg0_3d)) continue;
+         if (bg_kind(u, bg) != BgKind::Text) return false;
+         if (u.bgcnt[bg] & 0x40u) return false;
+     }
+     return true;
+ }
+ 
+-bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
++void composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+                              const uint8_t* oam,
+                              const NdsVramRendererView& vram,
+                              int output_width, int extra,
+-                             AdaptiveFrame& out) {
+-    if (!wide_2d_scene_supported(u)) return false;
++                             AdaptiveFrame& out, const uint16_t* dungeon_tiles,
++                             bool bg0_3d) {
++    const bool dungeon = dungeon_tiles != nullptr;
+     static bool logged_wide_2d = false;
+     if (!logged_wide_2d) {
+         logged_wide_2d = true;
+@@ -3095,9 +3104,17 @@
+     const NdsGpu2dWindowState window_state{u.dispcnt, u.win};
+     int active_bgs[4]{};
+     size_t bg_count = 0;
+-    const uint8_t active_mask = bg_active_mask(u, false);
+-    for (int bg = 0; bg < 4; ++bg)
+-        if (active_mask & (1u << bg)) active_bgs[bg_count++] = bg;
++    const uint8_t active_mask = bg_active_mask(u, bg0_3d);
++    for (int bg = 0; bg < 4; ++bg) {
++        if (!(active_mask & (1u << bg))) continue;
++        // Dungeon BG3 scrolls with the camera. The other text layers
++        // carry native viewport overlays such as the tile grid.
++        if (dungeon && bg != 3) continue;
++        active_bgs[bg_count++] = bg;
++    }
++    const bool snapshot_matches = g_wide_3d_width[g_front] == output_width;
++    const uint8_t prio3d = static_cast<uint8_t>(u.bgcnt[0] & 3u);
++    const int pixel_count = dungeon ? output_width - 256 : output_width;
+ 
+     std::array<Pixel, kMaxAdaptiveWidth> obj{};
+     std::array<uint8_t, kMaxAdaptiveWidth> obj_window{};
+@@ -3105,7 +3122,13 @@
+ 
+     for (int y = 0; y < 192; ++y) {
+         render_obj_line(u, 0, y, obj.data(), output_width, oam, palette, vram,
+-                        obj_window.data());
++                        obj_window.data(), !dungeon, dungeon);
++        const uint32_t* line3d = nullptr;
++        if (bg0_3d) {
++            line3d = snapshot_matches
++                ? g_wide_3d_frame[g_front].data() + static_cast<size_t>(y) * output_width
++                : nds_gpu3d_wide_line(y);
++        }
+         for (size_t i = 0; i < bg_count; ++i) {
+             const int bg = active_bgs[i];
+             TextLine line = prepare_text_line(u, 0, bg, y, palette, &vram);
+@@ -3113,8 +3136,9 @@
+             line_out.prio = static_cast<uint8_t>(line.cnt & 3u);
+             line_out.target = static_cast<uint8_t>(1u << bg);
+             line_out.order = static_cast<uint8_t>(bg + 1);
+-            for (int x = 0; x < output_width; ++x) {
+-                const Pixel p = text_pixel(line, x - extra);
++            for (int column = 0; column < pixel_count; ++column) {
++                const int x = dungeon && column >= extra ? column + 256 : column;
++                const Pixel p = text_pixel(line, x - extra, dungeon_tiles);
+                 line_out.color[x] = p.valid
+                     ? static_cast<uint16_t>(p.color | 0x8000u) : 0u;
+             }
+@@ -3124,7 +3148,8 @@
+             return a.priority < b.priority ||
+                    (a.priority == b.priority && a.order < b.order);
+         };
+-        for (int x = 0; x < output_width; ++x) {
++        for (int column = 0; column < pixel_count; ++column) {
++            const int x = dungeon && column >= extra ? column + 256 : column;
+             const int hud_x = x - extra;
+             const uint8_t window_x =
+                 nds_gpu2d_adaptive_window_x(x, extra, hud_x);
+@@ -3151,6 +3176,12 @@
+                            bg_lines[i].target, 0, bg_lines[i].prio,
+                            bg_lines[i].order, true});
+             }
++            if (line3d && (window_mask & 0x01u)) {
++                const uint32_t c3 = line3d[x];
++                const uint8_t alpha = static_cast<uint8_t>((c3 >> 24) & 0x1Fu);
++                if (alpha)
++                    push(Pixel{c3 & 0x003F3F3Fu, 0x01u, 0, prio3d, 1, true, alpha});
++            }
+             if (obj[x].valid && (window_mask & 0x10u)) push(obj[x]);
+             uint32_t color = compose(u, top, below,
+                                      (window_mask & 0x20u) != 0u);
+@@ -3161,11 +3192,10 @@
+             dst[x] = to_rgb32(color);
+         }
+     }
+-    return true;
+ }
+ 
+ const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
+-                                              NdsGpu2dScene scene) {
++    NdsGpu2dScene scene, const NdsGpu2dDungeonMap* dungeon_map) {
+     drain_pool(NDS_GPU2D_FENCE_PRESENT);
+     const uint32_t* native = nds_gpu2d_framebuffer(screen);
+     const bool engine_a_on_top = (nds_powercontrol9() & 0x8000u) != 0;
+@@ -3216,7 +3246,7 @@
+                         adaptive.data() + y * output_width + extra);
+         return adaptive.data();
+     };
+-    if (g_wide_affine_enabled && screen == 0 && output_width > 256) {
++    if (g_wide_affine_enabled && engine == 0 && output_width > 256) {
+         const auto& lines = g_wide_affine_lines[g_front];
+         const bool has_affine = std::any_of(lines.begin(), lines.end(),
+             [](const WideAffineLine& line) { return line.has_affine; });
+@@ -3224,7 +3254,9 @@
+             if (g_adaptive_center_native || scene == NdsGpu2dScene::StaticPicture)
+                 return center_native(NDS_GPU2D_ADAPTIVE_CENTER_NATIVE);
+             const bool complete = std::all_of(lines.begin(), lines.end(),
+-                [output_width](const WideAffineLine& line) { return line.width == output_width; });
++                [output_width, screen](const WideAffineLine& line) {
++                    return line.width == output_width && line.screen == screen;
++                });
+             if (scene == NdsGpu2dScene::ScrollingGroundMap && complete) {
+                 for (int y = 0; y < 192; ++y) {
+                     uint32_t* const dst = adaptive.data() + y * output_width;
+@@ -3259,13 +3291,31 @@
+     // PMD Sky's dungeon compositor is text-BG based. Widen those layers by
+     // sampling the same 512x256 maps outside the vanilla viewport before the
+     // 3D-only adaptive path rejects the scene.
+-    if (!bg0_3d && palette && oam && vram && wide_2d_scene_supported(u)) {
+-        if (composite_2d_wide_frame(u, palette, oam, *vram, output_width,
+-                                    extra, adaptive)) {
+-            ++g_adaptive_fallback_frames[NDS_GPU2D_ADAPTIVE_WIDE];
+-            return adaptive.data();
+-        }
+-    }
++    const bool dungeon = scene == NdsGpu2dScene::Dungeon;
++    const uint16_t* dungeon_tiles = nullptr;
++    if (dungeon) {
++        if (!dungeon_map || !dungeon_map->entries ||
++            !(u.dispcnt & 0x800u) || (u.bgcnt[3] >> 14) != 1u ||
++            u.bgx[3] != (dungeon_map->scroll_x & 0x1FF) ||
++            (u.bgy[3] & 0xFF) != (dungeon_map->scroll_y & 0xFF)) {
++            return center_native(NDS_GPU2D_ADAPTIVE_HUD_BG);
++        }
++        dungeon_tiles = dungeon_map->entries;
++    }
++    if ((!bg0_3d || dungeon) && palette && oam && vram &&
++        wide_2d_scene_supported(u, bg0_3d)) {
++        composite_2d_wide_frame(u, palette, oam, *vram, output_width,
++                                extra, adaptive, dungeon_tiles, bg0_3d);
++        if (dungeon) {
++            // The native HUD and scanline effects own the center.
++            for (int y = 0; y < 192; ++y)
++                std::copy_n(native + y * 256, 256,
++                            adaptive.data() + y * output_width + extra);
++        }
++        ++g_adaptive_fallback_frames[NDS_GPU2D_ADAPTIVE_WIDE];
++        return adaptive.data();
++    }
++    if (dungeon) return center_native(NDS_GPU2D_ADAPTIVE_HUD_BG);
+     // Known-safe adaptive scenes use main-engine 3D plus OBJ. Text BG planes
+     // can either be title-anchored into left/center/right bands or kept as a
+     // native-width centered overlay. Affine/bitmap backgrounds still retain a
+diff --git a/runner/src/gpu2d.h b/runner/src/gpu2d.h
+--- a/runner/src/gpu2d.h
++++ b/runner/src/gpu2d.h
+@@ -74,13 +74,20 @@
+ void nds_gpu2d_vblank();
+ const uint32_t* nds_gpu2d_framebuffer(int screen);
+ // Host-only scene information supplied by the title's presentation code.
+-enum class NdsGpu2dScene { Unknown, StaticPicture, ScrollingGroundMap };
+-// Enable collection of affine margin scanlines for the title's top LCD.
++enum class NdsGpu2dScene { Unknown, StaticPicture, ScrollingGroundMap, Dungeon };
++// Enable collection of affine margin scanlines for the title's main engine.
+ void nds_gpu2d_set_wide_affine(bool enabled);
++// The map must contain BG3 entries in 64x32 row-major DS tile coordinates.
++struct NdsGpu2dDungeonMap {
++    const uint16_t* entries;
++    int scroll_x;
++    int scroll_y;
++};
+ // Returns the native framebuffer with width=256 when no enhanced surface is
+ // active for this physical LCD.
+ const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
+-                                              NdsGpu2dScene scene = NdsGpu2dScene::Unknown);
++    NdsGpu2dScene scene = NdsGpu2dScene::Unknown,
++    const NdsGpu2dDungeonMap* dungeon_map = nullptr);
+ // Title capability for repairing uncovered pixels at a cylindrical skybox
+ // seam after the host widens the horizontal field of view.
+ void nds_gpu2d_set_adaptive_skybox_fill(bool enabled);
+diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
+--- a/runner/tests/gpu2d_window_test.cpp
++++ b/runner/tests/gpu2d_window_test.cpp
+@@ -23,6 +23,7 @@
+ std::array<uint8_t, 0x20000> g_capture_bank{};
+ bool g_lcdc_mapped = false;
+ uint16_t g_3d_output_width = 256;
++uint16_t g_powercontrol = 0x8002u;
+ uint64_t g_wide_line_reads = 0;
+ uint16_t g_3d_render_xpos = 0;
+ uint32_t g_3d_render_polygon_count = 0;
+@@ -717,6 +718,62 @@
+     return true;
+ }
+ 
++bool test_bottom_dungeon_margins() {
++    std::array<uint8_t, 0x4000> obj_vram{};
++    std::array<uint8_t, 0x4000> bg_vram{};
++    std::array<uint16_t, 64 * 32> terrain{};
++    constexpr int width = 448;
++    constexpr int margin = (width - 256) / 2;
++    const uint32_t terrain_color = to_rgb32(rgb6(0x001Fu));
++    const uint32_t sprite_color = to_rgb32(rgb6(0x7C00u));
++    const uint32_t weather_color = to_rgb32(rgb6(0x03E0u));
++
++    nds_gpu2d_reset();
++    reset_obj_fixture(obj_vram);
++    g_powercontrol = 0x0002u; // Engine A feeds the bottom LCD.
++    g_3d_output_width = width;
++    g_3d_line.fill(0);
++    g_3d_line[8] = rgb6(0x03E0u) | (31u << 24);
++    g_view.bg[0] = bg_vram.data();
++    std::fill_n(bg_vram.data() + 32, 32, 0x11u); // terrain tile 1
++    write16(g_palette, 2, 0x001Fu);
++    write16(g_palette, 0x202, 0x7C00u);
++    terrain.fill(1);
++    set_4bpp_index(obj_vram, 0, 0, 1);
++    set_obj(0, 0, 422, 0); // x = -90
++    set_obj(1, 0, 320, 0); // x = 320, above the native signed X limit
++    g_unit[0].dispcnt = 0x00011908u; // composite, BG3 + BG0 weather + OBJ
++    g_unit[0].bgcnt[3] = 0x4403u;   // 512x256 text map, priority 3
++
++    nds_gpu2d_start_frame();
++    for (int y = 0; y < 192; ++y) nds_gpu2d_render_scanline(y);
++    nds_gpu2d_finish_frame();
++
++    const NdsGpu2dDungeonMap map{terrain.data(), 0, 0};
++    uint16_t actual_width = 0;
++    const uint32_t* wide = nds_gpu2d_adaptive_framebuffer(
++        1, &actual_width, NdsGpu2dScene::Dungeon, &map);
++    const uint32_t* native = nds_gpu2d_framebuffer(1);
++    bool center_matches = true;
++    for (int y = 0; y < 192; ++y) {
++        center_matches &= std::equal(native + y * 256, native + (y + 1) * 256,
++                                    wide + y * width + margin);
++    }
++    const bool routed = actual_width == width && center_matches &&
++        wide[0] == terrain_color && wide[447] == terrain_color &&
++        wide[6] == sprite_color && wide[416] == sprite_color &&
++        wide[8] == weather_color;
++
++    wide = nds_gpu2d_adaptive_framebuffer(0, &actual_width, NdsGpu2dScene::Dungeon, &map);
++    const bool other_screen_centered = wide[0] == 0xFF000000u &&
++        wide[447] == 0xFF000000u;
++    wide = nds_gpu2d_adaptive_framebuffer(1, &actual_width, NdsGpu2dScene::Dungeon);
++    const bool missing_map_centered = wide[0] == 0xFF000000u &&
++        wide[447] == 0xFF000000u;
++    g_powercontrol = 0x8002u;
++    return routed && other_screen_centered && missing_map_centered;
++}
++
+ bool test_adaptive_window_x() {
+     // HUD-sourced columns keep their native coordinate; margins clamp to the
+     // nearest native edge column instead of wrapping through uint8_t.
+@@ -965,7 +1022,7 @@
+ }
+ 
+ // Minimal device implementations required by the production renderer object.
+-uint16_t nds_powercontrol9() { return 0x8002u; }
++uint16_t nds_powercontrol9() { return g_powercontrol; }
+ const uint8_t* nds_vram_renderer_palette(int) { return g_palette.data(); }
+ const uint8_t* nds_vram_renderer_oam(int) { return g_oam.data(); }
+ const NdsVramRendererView* nds_vram_renderer_view(int) { return &g_view; }
+@@ -1058,6 +1115,7 @@
+     if (!test_adaptive_affine_bitmap(true, true)) return 19;
+     if (!test_adaptive_affine_bitmap(true, false)) return 20;
+     if (!test_adaptive_affine_tiles()) return 21;
++    if (!test_bottom_dungeon_margins()) return 22;
+     nds_gpu2d_set_wide_affine(false);
+     return 0;
+ }

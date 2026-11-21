@@ -28,6 +28,7 @@ struct SymbolAddresses {
     uint32_t RunDungeon;
     uint32_t GetWeatherColorTable;
     uint32_t DisplayMonstersAndItems;
+    uint32_t DisplayMonsterShadow;
     uint32_t DisplayItem;
     uint32_t DisplayThrownItemShadow;
     uint32_t UpdateEntityPixelPos;
@@ -40,6 +41,7 @@ struct SymbolAddresses {
     uint32_t GetVisibilityRange;
     uint32_t DUNGEON_PTR_MASTER;
     uint32_t DUNGEON_PTR;
+    uint32_t DEFAULT_TILE;
     uint32_t LEADER_PTR;
     uint32_t TOP_SCREEN_STATUS_PTR;
     uint32_t MESSAGE_LOG_INFO;
@@ -69,6 +71,7 @@ inline constexpr SymbolAddresses NA = {
     .RunDungeon = 0x022DEF38,
     .GetWeatherColorTable = 0x022DE620,
     .DisplayMonstersAndItems = 0x022E1854,
+    .DisplayMonsterShadow = 0x02303E5C,
     .DisplayItem = 0x023457C8,
     .DisplayThrownItemShadow = 0x022E9488,
     .UpdateEntityPixelPos = 0x022E1A40,
@@ -81,6 +84,7 @@ inline constexpr SymbolAddresses NA = {
     .GetVisibilityRange = 0x022E333C,
     .DUNGEON_PTR_MASTER = 0x0235353C,
     .DUNGEON_PTR = 0x02353538,
+    .DEFAULT_TILE = 0x02353724,
     .LEADER_PTR = 0x0235355C,
     .TOP_SCREEN_STATUS_PTR = 0x02353554,
     .MESSAGE_LOG_INFO = 0x023537CC,
@@ -110,6 +114,7 @@ inline constexpr SymbolAddresses EU = {
     .RunDungeon = 0x022DF878,
     .GetWeatherColorTable = 0x022DEF60,
     .DisplayMonstersAndItems = 0x022E2194,
+    .DisplayMonsterShadow = 0x02304888,
     .DisplayItem = 0x023463B4,
     .DisplayThrownItemShadow = 0x022E9E38,
     .UpdateEntityPixelPos = 0x022E2380,
@@ -122,6 +127,7 @@ inline constexpr SymbolAddresses EU = {
     .GetVisibilityRange = 0x022E3CEC,
     .DUNGEON_PTR_MASTER = 0x0235413C,
     .DUNGEON_PTR = 0x02354138,
+    .DEFAULT_TILE = 0x0235433C,
     .LEADER_PTR = 0x0235415C,
     .TOP_SCREEN_STATUS_PTR = 0x02354154,
     .MESSAGE_LOG_INFO = 0x023543E4,

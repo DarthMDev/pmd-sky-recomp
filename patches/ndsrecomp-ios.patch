@@ -123,9 +123,9 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 +    extern void sky_show_game_controls(SDL_Window*);
 +    sky_show_game_controls(presentation.windows[0]);
 +#endif
-     const int bottom_logical_width = presentation.separate
-         ? presentation.screen_widths[1]
-         : presentation.canvas_width;
+     auto bottom_logical_width = [&] {
+         return presentation.separate
+             ? presentation.screen_widths[1] : presentation.canvas_width;
 @@ -3260,6 +3264,12 @@
          SDL_Event event{};
          while (SDL_PollEvent(&event)) {

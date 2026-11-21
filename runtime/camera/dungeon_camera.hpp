@@ -4,6 +4,7 @@
 #include "skyrecomp/pmdsky_addrs.hpp"
 #include "../gpu2d/widescreen_ppu.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -12,6 +13,13 @@ namespace skyrecomp::camera {
 inline constexpr int kDungeonTilePixels = 24;
 inline constexpr int kVanillaHorizontalTileRadius = 6;
 inline constexpr int kVanillaVerticalTileRadius = 5;
+
+/// Text BG3 world tiles in the DS 512x256 map's circular coordinates.
+struct DungeonMarginMap {
+    int scroll_x = 0;
+    int scroll_y = 0;
+    std::array<uint16_t, 64 * 32> entries{};
+};
 
 /// Snapshot of `overlay29` `struct display_data` camera & lighting fields.
 struct DungeonDisplaySnapshot {
@@ -124,6 +132,15 @@ public:
     /// Computes the tile-column streaming window for the current camera position and aspect ratio.
     [[nodiscard]] TileStreamingWindow ComputeStreamingWindow(
         const DungeonDisplaySnapshot& snapshot) const noexcept;
+
+    /// Samples the guest's terrain graphics for columns outside the native viewport.
+    /// Returns false when the floor, lighting or tile data cannot be widened safely.
+    [[nodiscard]] bool ReadDungeonMarginMap(
+        GuestMemoryView mem, int width, DungeonMarginMap& map) const noexcept;
+
+    /// Applies or restores the verified guest render compares for 21:9.
+    void UpdateDungeonSpriteCulling(
+        GuestMemoryView mem, uint16_t width, void (*write_word)(uint32_t, uint32_t)) const;
 
     /// Widescreen replacement hook for `IsPositionVisibleAndOnScreen` (`0x022E2CA0` NA / `0x022E3624` EU)
     /// and `ShouldDisplayEntity` (`0x022E2574` NA / `0x022E2EB4` EU).

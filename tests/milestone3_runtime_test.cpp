@@ -715,6 +715,106 @@ void TestPmdSpaceWidescreenEdgeCases() {
     assert(adj.delta_x_q8 == -43 * 256);
 }
 
+void TestDungeonMarginMap() {
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0);
+    constexpr uint32_t dungeon = 0x02100000;
+    constexpr uint32_t default_tile = 0x02200000;
+    constexpr uint32_t floor_tile = 0x02201000;
+    constexpr uint32_t display = dungeon + layout::dungeon::kDisplayDataOffset;
+    WriteGuest(ram, pmdsky::NA.DUNGEON_PTR, dungeon);
+    WriteGuest(ram, pmdsky::NA.DisplayMonstersAndItems, 0xE92D43F0u);
+    WriteGuest(ram, 0x02353724, default_tile);
+    WriteGuest<uint8_t>(ram, display + layout::display_data::kNaturalLightingOffset, 1);
+    WriteGuest<uint16_t>(ram, floor_tile + layout::tile::kTextureIdOffset, 1);
+    for (int i = 0; i < layout::dungeon::kMaxGridX * layout::dungeon::kMaxGridY; ++i)
+        WriteGuest(ram, dungeon + layout::dungeon::kTilePtrsOffset + i * 4, floor_tile);
+    for (int i = 0; i < 9; ++i) {
+        WriteGuest<uint16_t>(ram, dungeon + 0x102A8 + 2 * i, 0x200u + i);
+        WriteGuest<uint16_t>(ram, dungeon + 0x102A8 + 2 * (9 + i), 0x400u + i);
+        WriteGuest<uint16_t>(ram, dungeon + 0x11EC8 + 2 * (30 * 9 + i), 0x600u + i);
+    }
+
+    const camera::DungeonCameraHook camera;
+    const GuestMemoryView mem(ram.data(), ram.size());
+    camera::DungeonMarginMap map;
+    assert(camera.ReadDungeonMarginMap(mem, 448, map));
+    assert(map.scroll_x == 0 && map.scroll_y == 0);
+    assert(map.entries[63] == 0x202); // world column -1 is the outer subtile of the default tile
+    assert(map.entries[33] == 0x400);
+    assert(map.entries[64 + 34] == 0x404);
+
+    WriteGuest<uint16_t>(ram, floor_tile + layout::tile::kTerrainFlagsOffset, 0x20u);
+    assert(camera.ReadDungeonMarginMap(mem, 448, map));
+    assert(map.entries[64 + 34] == 0x604); // shop graphics override the regular terrain tile
+
+    WriteGuest<uint8_t>(ram, display + layout::display_data::kDropeyeOffset, 1);
+    assert(!camera.ReadDungeonMarginMap(mem, 448, map));
+}
+
+void TestDungeonSpriteCullPatches() {
+    static std::vector<uint8_t> ram(layout::kMainRamSize);
+    auto write = [](uint32_t addr, uint32_t word) { WriteGuest(ram, addr, word); };
+    const GuestMemoryView mem(ram.data(), ram.size());
+
+    struct Compare {
+        uint32_t na;
+        uint32_t eu;
+        uint32_t native;
+        uint32_t wide;
+        uint32_t next;
+    };
+    constexpr Compare compares[]{
+        {0x0201B9B4, 0x0201BA50, 0xE1500001, 0xE37000A0, 0xBA000001},
+        {0x0201B9BC, 0x0201BA58, 0xE3500C01, 0xE3500E16, 0xBA000001},
+        {0x02303E64, 0x02304890, 0xE1530004, 0xE3730080, 0xC1DDC1F0},
+        {0x02303E78, 0x023048A4, 0xE153000E, 0xE3530E16, 0xB35C00E0},
+        {0x022E94B0, 0x022E9E60, 0xE153000E, 0xE3730070, 0xA150000E},
+        {0x022E94C0, 0x022E9E70, 0xE1530001, 0xE3530E16, 0xB35000D0},
+        {0x02345880, 0x0234646C, 0xE1580002, 0xE3780080, 0xE1A0A0C1},
+        {0x02345894, 0x02346480, 0xE1580000, 0xE3580E16, 0xD35900E0},
+    };
+
+    for (const auto region : {pmdsky::Region::NA, pmdsky::Region::EU}) {
+        const camera::DungeonCameraHook camera(region);
+        const auto& symbols = pmdsky::Get(region);
+        auto address = [region](const Compare& compare) {
+            return region == pmdsky::Region::NA ? compare.na : compare.eu;
+        };
+        auto verify = [&](bool wide) {
+            for (const Compare& compare : compares) {
+                assert(mem.read_or<uint32_t>(address(compare)) ==
+                       (wide ? compare.wide : compare.native));
+            }
+        };
+
+        for (const Compare& compare : compares) {
+            write(address(compare), compare.native);
+            write(address(compare) + 4u, compare.next);
+        }
+        write(symbols.DisplayMonstersAndItems, 0xE92D43F0);
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(false);
+
+        write(symbols.DUNGEON_PTR_MASTER, 0x02100000);
+        write(address(compares[0]) + 4u, 0);
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(false);
+        write(address(compares[0]) + 4u, compares[0].next);
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(true);
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(true);
+        camera.UpdateDungeonSpriteCulling(mem, 342, write);
+        verify(false);
+
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(true);
+        write(symbols.DUNGEON_PTR_MASTER, 0);
+        camera.UpdateDungeonSpriteCulling(mem, 448, write);
+        verify(false);
+    }
+}
+
 void TestStaticGroundPictureCentering() {
     using namespace layout::ground;
     using camera::GroundBackground;
@@ -763,6 +863,8 @@ void TestStaticGroundPictureCentering() {
 /// Entry point for the Milestone 3 runtime enhancement test suite.
 int main() {
     TestStaticGroundPictureCentering();
+    TestDungeonSpriteCullPatches();
+    TestDungeonMarginMap();
     TestWidescreenPpuAndHudAnchoring();
     TestOverlay29CameraAndTileStreaming();
     TestSubpixelInterpolationDeterminism();
