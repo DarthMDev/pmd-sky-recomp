@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <optional>
 
 namespace skyrecomp::camera {
 
@@ -299,6 +300,183 @@ bool DungeonCameraHook::IsOamPieceOffWidescreen(int vanilla_piece_x) const noexc
     const int min_x = std::max(kPieceReachLeft - margin, kLowestObjectX);
     const int max_x = gpu2d::kVanillaWidth + metrics_.right_margin;
     return vanilla_piece_x < min_x || vanilla_piece_x >= max_x;
+}
+
+namespace {
+
+// Each dungeon tile has a 3x3 block of 8px text-BG entries. These are the
+// decompressed descriptor tables used by the guest's column updater.
+constexpr uint32_t kTerrainGraphicsOffset = 0x102A8;
+constexpr int kTerrainTileCount = 400;
+constexpr uint32_t kSpecialGraphicsOffset = 0x11EC8;
+constexpr int kSpecialTileCount = 34;
+constexpr uint32_t kStaircaseTextureOffset = 0x40D8;
+constexpr uint32_t kFixedRoomIdOffset = 0x40DA;
+constexpr int kSubtilesPerAxis = 3;
+constexpr int kEntriesPerMetatile = kSubtilesPerAxis * kSubtilesPerAxis;
+
+struct DungeonTerrain {
+    GuestMemoryView mem;
+    uint32_t dungeon;
+    uint32_t default_tile;
+    bool can_see_traps;
+    bool hallucinating;
+    bool uses_tileset_only;
+
+    std::optional<uint16_t> ReadEntry(int x, int y) const {
+        // Floor division keeps the subtile in [0, 2] on either side of zero.
+        const int tile_x = (x - (x < 0 ? kSubtilesPerAxis - 1 : 0)) / kSubtilesPerAxis;
+        const int tile_y = (y - (y < 0 ? kSubtilesPerAxis - 1 : 0)) / kSubtilesPerAxis;
+        const int subtile = (y - tile_y * kSubtilesPerAxis) * kSubtilesPerAxis +
+                            x - tile_x * kSubtilesPerAxis;
+        uint32_t tile = default_tile;
+        if (tile_x >= 0 && tile_x < layout::dungeon::kMaxGridX &&
+            tile_y >= 0 && tile_y < layout::dungeon::kMaxGridY) {
+            const auto index = static_cast<uint32_t>(tile_y * layout::dungeon::kMaxGridX + tile_x);
+            tile = mem.read_or<uint32_t>(dungeon + layout::dungeon::kTilePtrsOffset + index * 4);
+        }
+        if (!mem.in_range(tile, layout::tile::kSize)) return std::nullopt;
+
+        const uint16_t terrain = mem.read_or<uint16_t>(tile + layout::tile::kTerrainFlagsOffset);
+        const uint16_t visibility = mem.read_or<uint16_t>(tile + layout::tile::kVisibilityFlagsOffset);
+        int texture = mem.read_or<uint16_t>(tile + layout::tile::kTextureIdOffset);
+        uint32_t table = kTerrainGraphicsOffset;
+        if (terrain & 0x3000u) {
+            table = kSpecialGraphicsOffset;
+            texture = 31;
+        } else if (terrain & 0x0020u) {
+            table = kSpecialGraphicsOffset;
+            texture = 30;
+        } else if (!uses_tileset_only && (visibility & 0x0004u)) {
+            table = kSpecialGraphicsOffset;
+            texture = 32;
+        } else if (!uses_tileset_only) {
+            const uint32_t object = mem.read_or<uint32_t>(tile + layout::tile::kObjectPtrOffset);
+            const int staircase = mem.read_or<int16_t>(dungeon + kStaircaseTextureOffset, -1);
+            if (object == 0) {
+                if (!hallucinating && (terrain & 0x0200u)) {
+                    table = kSpecialGraphicsOffset;
+                    texture = staircase;
+                }
+            } else if (mem.in_range(object, layout::entity::kSize) &&
+                       (can_see_traps ||
+                        mem.read_or<uint8_t>(object + layout::entity::kIsVisibleOffset))) {
+                const int type = mem.read_or<int32_t>(object + layout::entity::kTypeOffset);
+                if (type == 2 || type == 5) {
+                    const uint32_t trap = mem.read_or<uint32_t>(object + layout::entity::kInfoPtrOffset);
+                    table = kSpecialGraphicsOffset;
+                    texture = type == 2 ? mem.read_or<uint8_t>(trap, 0xFFu) : staircase;
+                }
+            }
+        }
+
+        const int limit = table == kTerrainGraphicsOffset ? kTerrainTileCount : kSpecialTileCount;
+        if (texture < 0 || texture >= limit) return std::nullopt;
+        const auto index = static_cast<uint32_t>(texture * kEntriesPerMetatile + subtile);
+        return mem.read<uint16_t>(dungeon + table + 2 * index);
+    }
+};
+
+} // namespace
+
+bool DungeonCameraHook::ReadDungeonMarginMap(
+    GuestMemoryView mem, int width, DungeonMarginMap& map) const noexcept {
+    const uint32_t dungeon = mem.resolve_dungeon_ptr(region_);
+    if (dungeon == 0u || !mem.in_range(dungeon, layout::dungeon::kSize) ||
+        width <= gpu2d::kVanillaWidth || width > gpu2d::kMaxWidescreenWidth) return false;
+
+    const auto display = ReadDisplaySnapshot(mem);
+    // Darkness quads are authored for the native LCD. Until their outer
+    // boundaries are extended, the native view is the safe result.
+    if (display.blinded || display.dropeye || display.darkness ||
+        (!display.luminous && !display.natural_lighting)) return false;
+
+    const auto& symbols = pmdsky::Get(region_);
+    if (mem.read_or<uint32_t>(symbols.DisplayMonstersAndItems) != 0xE92D43F0u) return false;
+    const uint32_t display_base = dungeon + layout::dungeon::kDisplayDataOffset;
+    const DungeonTerrain terrain{
+        mem, dungeon, mem.read_or<uint32_t>(symbols.DEFAULT_TILE),
+        mem.read_or<uint8_t>(display_base + layout::display_data::kCanSeeTrapsOffset) != 0u,
+        mem.read_or<uint8_t>(display_base + layout::display_data::kHallucinatingOffset) != 0u,
+        mem.read_or<uint8_t>(dungeon + kFixedRoomIdOffset) == 0x70u,
+    };
+    map.scroll_x = display.camera_pixel_x;
+    map.scroll_y = display.camera_pixel_y;
+    const int margin = (width - gpu2d::kVanillaWidth) / 2;
+    const int left = (map.scroll_x - margin) >> 3;
+    const int middle_left = map.scroll_x >> 3;
+    const int middle_right = (map.scroll_x + gpu2d::kVanillaWidth - 1) >> 3;
+    const int right = (map.scroll_x + gpu2d::kVanillaWidth + margin - 1) >> 3;
+    const int top = map.scroll_y >> 3;
+    const int bottom = (map.scroll_y + gpu2d::kVanillaHeight - 1) >> 3;
+    for (int y = top; y <= bottom; ++y) {
+        for (int x = left; x <= right; ++x) {
+            // Keep the two edge tiles, which can straddle the viewport.
+            if (x > middle_left && x < middle_right) continue;
+            const auto entry = terrain.ReadEntry(x, y);
+            if (!entry) return false;
+            map.entries[(y & 31) * 64 + (x & 63)] = *entry;
+        }
+    }
+    return true;
+}
+
+// These compares are in the render paths. The subsequent instructions
+// still apply the original Y bounds and the callers retain their guest
+// visibility, lighting, and entity-state checks. The range of submitted WAN
+// pieces fits one 9-bit OAM coordinate period: [-160, 352) at 448px.
+void DungeonCameraHook::UpdateDungeonSpriteCulling(
+    GuestMemoryView mem, uint16_t width, void (*write_word)(uint32_t, uint32_t)) const {
+    struct SkyCullCompare {
+        uint32_t address;
+        uint32_t native;
+        uint32_t wide;
+        uint32_t next;
+    };
+    const auto& symbols = pmdsky::Get(region_);
+    const uint32_t wan_x = symbols.AddSimpleObjToOam - 0x48u;
+    const uint32_t monster_shadow = symbols.DisplayMonsterShadow;
+    const uint32_t thrown_shadow = symbols.DisplayThrownItemShadow;
+    const uint32_t item = symbols.DisplayItem;
+    const std::array sites{
+        SkyCullCompare{wan_x + 0x04, 0xE1500001, 0xE37000A0, 0xBA000001}, // X >= -160
+        SkyCullCompare{wan_x + 0x0C, 0xE3500C01, 0xE3500E16, 0xBA000001}, // X < 352
+        SkyCullCompare{monster_shadow + 0x08, 0xE1530004, 0xE3730080, 0xC1DDC1F0},
+        SkyCullCompare{monster_shadow + 0x1C, 0xE153000E, 0xE3530E16, 0xB35C00E0},
+        SkyCullCompare{thrown_shadow + 0x28, 0xE153000E, 0xE3730070, 0xA150000E},
+        SkyCullCompare{thrown_shadow + 0x38, 0xE1530001, 0xE3530E16, 0xB35000D0},
+        SkyCullCompare{item + 0xB8, 0xE1580002, 0xE3780080, 0xE1A0A0C1},
+        SkyCullCompare{item + 0xCC, 0xE1580000, 0xE3580E16, 0xD35900E0},
+    };
+
+    const bool dungeon = mem.resolve_dungeon_ptr(region_) != 0u &&
+        mem.read_or<uint32_t>(symbols.DisplayMonstersAndItems) == 0xE92D43F0u;
+    const bool want_wide = dungeon &&
+        width == gpu2d::WidescreenPpu::ComputeMetrics(
+            gpu2d::AspectRatioPreset::Ultrawide_21_9).width;
+
+    // Overlay 29 shares RAM with other overlays. Check the exact compare and
+    // its successor, and only enable the set when all sites agree. Restore
+    // any still-resident patches when the aspect changes, a dungeon unloads,
+    // or a savestate restores guest RAM.
+    std::array<uint32_t, sites.size()> current{};
+    bool all_match = true;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        const auto& site = sites[i];
+        const uint32_t word = mem.read_or<uint32_t>(site.address);
+        if (mem.read_or<uint32_t>(site.address + 4u) != site.next ||
+            (word != site.native && word != site.wide)) {
+            all_match = false;
+            continue;
+        }
+        current[i] = word;
+    }
+    for (size_t i = 0; i < sites.size(); ++i) {
+        const auto& site = sites[i];
+        const uint32_t wanted = want_wide && all_match ? site.wide : site.native;
+        if (current[i] != 0 && current[i] != wanted)
+            write_word(site.address, wanted);
+    }
 }
 
 /// Samples a single 8x8 tilemap entry from an `overlay11` 3x3 chunk `map_render` structure.
