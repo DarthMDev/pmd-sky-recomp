@@ -161,6 +161,7 @@ void DungeonEntityRaster::GroupObjects(uint32_t info) {
         grouped_.attributes[i] = {0x200, 0, 0};
         grouped_.owners[i] = {};
     }
+    grouped_.sequence = ++group_sequence_;
     grouped_.valid = true;
 }
 
@@ -176,8 +177,13 @@ bool DungeonEntityRaster::MatchesOam(const OamList& list, const uint8_t* oam) co
 
 void DungeonEntityRaster::LatchOam(const uint8_t* oam) {
     pending_.valid = false;
-    if (Enabled() && SameFloor() && MatchesOam(copied_, oam))
+    // A retained list still has screen coordinates from its original draw.
+    // It cannot be paired with the camera from a later raster.
+    if (Enabled() && copied_.sequence != last_latched_sequence_ &&
+        SameFloor() && MatchesOam(copied_, oam)) {
         pending_ = copied_;
+        last_latched_sequence_ = copied_.sequence;
+    }
 }
 
 void DungeonEntityRaster::FinishFrame(bool valid) {

@@ -322,6 +322,19 @@ void TestDungeonEntityOamOwnership() {
     assert(!raster.MidpointOffsets(0, 0, offsets));
     frame(107, 0, 11, true, false, true, 0x0103);
     assert(raster.MidpointOffsets(0, 0, offsets));
+
+    // The guest can copy the same grouped list again without drawing it
+    // against the new camera. That list must break the interpolation history.
+    raster.BeginFrame(GuestMemoryView(ram.data(), ram.size()), pmdsky::Region::NA,
+                      (uint64_t{dungeon} << 16) | 0x0103);
+    raster.ObserveCall(symbols.CopyAttributesToOam, 0, 0, info);
+    raster.LatchOam(oam.data());
+    raster.FinishFrame(true);
+    assert(!raster.MidpointOffsets(128, 0, offsets));
+    frame(108, 0, 11, true, false, true, 0x0103);
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(109, 0, 11, true, false, true, 0x0103);
+    assert(raster.MidpointOffsets(0, 0, offsets));
 }
 
 /// Verifies high-refresh-rate sub-pixel interpolation without mutating guest RAM.

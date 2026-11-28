@@ -60,6 +60,7 @@ class TestMilestone3Runtime(unittest.TestCase):
             str(REPO_ROOT / "tests" / "milestone3_runtime_test.cpp"),
             str(REPO_ROOT / "runtime" / "gpu2d" / "widescreen_ppu.cpp"),
             str(REPO_ROOT / "runtime" / "camera" / "dungeon_camera.cpp"),
+            str(REPO_ROOT / "runtime" / "camera" / "dungeon_entities.cpp"),
             str(REPO_ROOT / "runtime" / "camera" / "subpixel_interpolator.cpp"),
             str(REPO_ROOT / "runtime" / "shaders" / "weather_shader_pipeline.cpp"),
             str(REPO_ROOT / "runtime" / "ui" / "settings_overlay.cpp"),

@@ -53,6 +53,7 @@ private:
     struct OamList {
         Owners owners{};
         std::array<std::array<uint16_t, 3>, kSceneObjects> attributes{};
+        uint64_t sequence = 0;
         bool valid = false;
     };
 
@@ -66,6 +67,8 @@ private:
     const pmdsky::SymbolAddresses* symbols_ = nullptr;
     pmdsky::Region region_ = pmdsky::Region::NA;
     uint64_t identity_ = 0;
+    uint64_t group_sequence_ = 0;
+    uint64_t last_latched_sequence_ = 0;
     uint32_t entity_ = 0;
     uint32_t entity_return_ = 0, entity_sp_ = 0;
     Submission submission_{};

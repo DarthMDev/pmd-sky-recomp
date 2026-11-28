@@ -3,7 +3,7 @@ index bdca21d..848cc2f 100644
 --- a/runner/src/frontend.cpp
 +++ b/runner/src/frontend.cpp
 @@ -217,6 +217,7 @@ void observe_top_black_bands(const uint32_t* pixels, uint64_t frame,
-
+ 
  #include "ui/guest_ui_state.hpp"
  #include "ui/settings_overlay.hpp"
 +#include "camera/dungeon_entities.hpp"
@@ -113,7 +113,7 @@ index bdca21d..848cc2f 100644
 @@ -5307,6 +5326,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
          }
      }
-
+ 
 +    entity_raster = {};
      if (cpu_handoff) {
          cpu_handoff.reset(); // drain/pump before SDL/GL teardown or durable flush
@@ -136,7 +136,7 @@ index bdca21d..848cc2f 100644
      }
      const bool audio_failed = audio_queue_error ||
 diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
-index 2f8fc5b..5a36d76 100644
+index 2f8fc5b..797b315 100644
 --- a/runner/src/gpu2d.cpp
 +++ b/runner/src/gpu2d.cpp
 @@ -1,4 +1,7 @@
@@ -146,11 +146,11 @@ index 2f8fc5b..5a36d76 100644
 +#endif
  #include "host_profile.h"
  #include "gpu2d_window.h"
-
+ 
 @@ -881,12 +884,15 @@ void put_obj(Pixel* line, int width, int x, const Pixel& p) {
      if (!line[x].valid || p.priority <= line[x].priority) line[x]=p;
  }
-
+ 
 +using ObjectOffsets = std::array<std::array<int8_t, 2>, 128>;
 +
  void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
@@ -201,7 +201,7 @@ index 2f8fc5b..5a36d76 100644
      bool half_y;
 +    const ObjectOffsets* object_offsets;
  };
-
+ 
  // Sky dungeons draw their maps with text backgrounds. BG0 can also carry
 @@ -3208,10 +3223,26 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
      std::array<Pixel, kMaxAdaptiveWidth> obj{};
@@ -215,7 +215,7 @@ index 2f8fc5b..5a36d76 100644
 +    const int object_taps_x = has_half_offset(0) ? 2 : 1;
 +    const int object_taps_y = has_half_offset(1) ? 2 : 1;
 +    std::array<std::array<Pixel, kMaxAdaptiveWidth>, 4> moved_objects;
-
+ 
      for (int y = 0; y < 192; ++y) {
          render_obj_line(u, 0, y, obj.data(), output_width, oam, palette, vram,
                          obj_window.data(), !dungeon, dungeon);
@@ -263,7 +263,7 @@ index 2f8fc5b..5a36d76 100644
                  Pixel front = top;
                  Pixel second = below;
                  if (window_mask & 0x08u) {
-@@ -3317,21 +3359,37 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+@@ -3317,21 +3359,38 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
                          }
                      }
                  }
@@ -271,18 +271,19 @@ index 2f8fc5b..5a36d76 100644
 +                if (native || !offsets)
 +                    return push_object(obj[x], front, second);
 +
-+                // Pair fractional OBJ and terrain on each axis that they
-+                // both filter. An OBJ-only fractional axis still needs both taps.
++                // Terrain taps advance in source coordinates. OBJ taps
++                // translate in screen coordinates, so the paired indices
++                // run in opposite directions.
 +                const bool paired_x = camera->half_x && object_taps_x == 2;
 +                const bool paired_y = camera->half_y && object_taps_y == 2;
 +                const auto sample_objects = [&](int ty) {
-+                    const auto left = push_object(moved_objects[ty * 2 + (paired_x ? terrain_tap_x : 0)][x],
++                    const auto left = push_object(moved_objects[ty * 2 + (paired_x ? 1 - terrain_tap_x : 0)][x],
 +                                                  front, second);
 +                    return object_taps_x == 2 && !paired_x
 +                        ? blend(left, push_object(moved_objects[ty * 2 + 1][x], front, second), 8, 8)
 +                        : left;
 +                };
-+                const auto upper = sample_objects(paired_y ? terrain_tap_y : 0);
++                const auto upper = sample_objects(paired_y ? 1 - terrain_tap_y : 0);
 +                return object_taps_y == 2 && !paired_y ? blend(upper, sample_objects(1), 8, 8) : upper;
              };
              // Live tile views or scanline effects can disagree with the
@@ -290,7 +291,7 @@ index 2f8fc5b..5a36d76 100644
 -            if (native_column && to_rgb32(sample(terrain, hud_x, y)) != camera->native[y * 256 + hud_x])
 +            if (native_column && to_rgb32(sample(terrain, hud_x, y, true)) != camera->native[y * 256 + hud_x])
                  return false;
-
+ 
              const int sx = hud_x + camera->dx;
              const int sy = y + camera->dy;
 -            const auto sample_row = [&](TextLine& row, int source_y) {
@@ -308,9 +309,9 @@ index 2f8fc5b..5a36d76 100644
              if (terrain.missing_snapshot || shifted.missing_snapshot || next_row.missing_snapshot)
                  return false;
          }
-@@ -3369,10 +3427,11 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
+@@ -3369,10 +3428,11 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
  }
-
+ 
  const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
 -    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8) {
 +    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8,
@@ -322,9 +323,9 @@ index 2f8fc5b..5a36d76 100644
          dx_q8 % 128 || dy_q8 % 128 || std::abs(dx_q8) > 12 * 256 || std::abs(dy_q8) > 12 * 256)
          return nullptr;
      drain_pool(NDS_GPU2D_FENCE_PRESENT);
-@@ -3388,7 +3447,7 @@ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
+@@ -3388,7 +3448,7 @@ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
      if (!vram) return nullptr;
-
+ 
      const DungeonCameraSample camera{nds_gpu2d_framebuffer(screen), raster.terrain_view,
 -        dx_q8 >> 8, dy_q8 >> 8, (dx_q8 & 0x80) != 0, (dy_q8 & 0x80) != 0};
 +        dx_q8 >> 8, dy_q8 >> 8, (dx_q8 & 0x80) != 0, (dy_q8 & 0x80) != 0, object_offsets};
@@ -337,11 +338,11 @@ index 077862b..f61c1ff 100644
 +++ b/runner/src/gpu2d.h
 @@ -1,6 +1,7 @@
  #pragma once
-
+ 
  #include <atomic>
 +#include <array>
  #include <cstdint>
-
+ 
  // ---- Threaded scanline rendering -----------------------------------------
 @@ -91,7 +92,8 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y);
  // Host-only midpoint surface. The map must cover the shifted viewport taps.
@@ -359,7 +360,7 @@ index 0238a6a..c3fb09d 100644
 +++ b/runner/src/runtime_arm.cpp
 @@ -8,6 +8,9 @@
  // always-on trace ring, the cooperative yield/halt, and lifecycle.
-
+ 
  #include "runtime_arm.h"
 +#if __has_include("camera/dungeon_entities.hpp")
 +#include "camera/dungeon_entities.hpp"
@@ -417,7 +418,7 @@ index 87a1660..9327248 100644
 +++ b/runner/src/tier3.cpp
 @@ -21,6 +21,9 @@
  #include "bus.h"
-
+ 
  #include "runtime_arm.h"
 +#if __has_include("camera/dungeon_entities.hpp")
 +void runtime_call_push_sky_return(uint32_t return_pc, uint32_t target, uint32_t sp, uint32_t arg);
@@ -438,13 +439,13 @@ index 87a1660..9327248 100644
              // A BX/LDM/POP return may interwork.  The call was pushed in the
              // caller's pre-branch mode above, but matching must use the
 diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
-index 3aa1acc..dfd5b6d 100644
+index 3aa1acc..fe76725 100644
 --- a/runner/tests/gpu2d_window_test.cpp
 +++ b/runner/tests/gpu2d_window_test.cpp
-@@ -842,6 +842,22 @@ bool test_dungeon_camera_midpoint() {
+@@ -842,6 +842,23 @@ bool test_dungeon_camera_midpoint() {
          if (width == 448 && mid[width + left - 1] != to_rgb32(blend(blue, red, 8, 8)))
              return false;
-
+ 
 +        // Half-pixel OBJ motion with a stationary camera. The original OBJ
 +        // still validates the native raster. HUD and weather keep their pixels.
 +        std::array<std::array<int8_t, 2>, 128> offsets{};
@@ -455,9 +456,10 @@ index 3aa1acc..dfd5b6d 100644
 +            mid[left] != to_rgb32(blue) || mid[left + 20] != to_rgb32(blue) ||
 +            native[12] != to_rgb32(blue)) return false;
 +
-+        // In the first tap the opaque OBJ fully covers the red terrain.
-+        // The second tap exposes only green, so the edge must contain no red.
-+        offsets[0] = {1, 0};
++        // A stationary world OBJ moves left as the camera moves right.
++        // At x=12 the first source tap is covered by the blue OBJ and the
++        // second exposes green. The red beneath the OBJ must stay hidden.
++        offsets[0] = {-1, 0};
 +        mid = nds_gpu2d_dungeon_camera_frame(1, width, map, 128, 0, &offsets);
 +        if (!mid || mid[left + 12] != to_rgb32(blend(blue, green, 8, 8))) return false;
 +
