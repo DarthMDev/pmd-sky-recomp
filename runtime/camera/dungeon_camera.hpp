@@ -14,6 +14,11 @@ inline constexpr int kDungeonTilePixels = 24;
 inline constexpr int kVanillaHorizontalTileRadius = 6;
 inline constexpr int kVanillaVerticalTileRadius = 5;
 
+struct DungeonCameraPosition {
+    int16_t x;
+    int16_t y;
+};
+
 /// Text BG3 world tiles in the DS 512x256 map's circular coordinates.
 struct DungeonMarginMap {
     int scroll_x = 0;
@@ -133,10 +138,18 @@ public:
     [[nodiscard]] TileStreamingWindow ComputeStreamingWindow(
         const DungeonDisplaySnapshot& snapshot) const noexcept;
 
-    /// Samples the guest's terrain graphics for columns outside the native viewport.
+    /// Samples terrain outside the native viewport, including any signed camera
+    /// extension in whole pixels. The extension covers all midpoint filter taps.
     /// Returns false when the floor, lighting or tile data cannot be widened safely.
     [[nodiscard]] bool ReadDungeonMarginMap(
-        GuestMemoryView mem, int width, DungeonMarginMap& map) const noexcept;
+        GuestMemoryView mem, int width, DungeonMarginMap& map,
+        int extension_x = 0, int extension_y = 0,
+        const DungeonCameraPosition* raster_camera = nullptr) const noexcept;
+
+    /// Resolves the raster's circular BG3 scroll to the nearest guest world
+    /// coordinates. Rejects scroll values too far away to be the same view.
+    [[nodiscard]] bool ResolveRasterCamera(GuestMemoryView mem, uint16_t scroll_x,
+        uint16_t scroll_y, DungeonCameraPosition& camera) const noexcept;
 
     /// Applies or restores the verified guest render compares for 21:9.
     void UpdateDungeonSpriteCulling(

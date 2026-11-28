@@ -379,11 +379,26 @@ struct DungeonTerrain {
 
 } // namespace
 
+bool DungeonCameraHook::ResolveRasterCamera(GuestMemoryView mem, uint16_t scroll_x,
+    uint16_t scroll_y, DungeonCameraPosition& camera) const noexcept {
+    const auto display = ReadDisplaySnapshot(mem);
+    if (!display.valid) return false;
+    const int dx = ((scroll_x - display.camera_pixel_x + 256) & 511) - 256;
+    const int dy = ((scroll_y - display.camera_pixel_y + 128) & 255) - 128;
+    if (std::abs(dx) > 24 || std::abs(dy) > 24) return false;
+    camera = {static_cast<int16_t>(display.camera_pixel_x + dx),
+              static_cast<int16_t>(display.camera_pixel_y + dy)};
+    return true;
+}
+
 bool DungeonCameraHook::ReadDungeonMarginMap(
-    GuestMemoryView mem, int width, DungeonMarginMap& map) const noexcept {
+    GuestMemoryView mem, int width, DungeonMarginMap& map,
+    int extension_x, int extension_y, const DungeonCameraPosition* raster_camera) const noexcept {
     const uint32_t dungeon = mem.resolve_dungeon_ptr(region_);
     if (dungeon == 0u || !mem.in_range(dungeon, layout::dungeon::kSize) ||
-        width <= gpu2d::kVanillaWidth || width > gpu2d::kMaxWidescreenWidth) return false;
+        width < gpu2d::kVanillaWidth || width > gpu2d::kMaxWidescreenWidth ||
+        extension_x < -12 || extension_x > 12 ||
+        extension_y < -12 || extension_y > 12) return false;
 
     const auto display = ReadDisplaySnapshot(mem);
     // Darkness quads are authored for the native LCD. Until their outer
@@ -400,19 +415,23 @@ bool DungeonCameraHook::ReadDungeonMarginMap(
         mem.read_or<uint8_t>(display_base + layout::display_data::kHallucinatingOffset) != 0u,
         mem.read_or<uint8_t>(dungeon + kFixedRoomIdOffset) == 0x70u,
     };
-    map.scroll_x = display.camera_pixel_x;
-    map.scroll_y = display.camera_pixel_y;
+    map.scroll_x = raster_camera ? raster_camera->x : display.camera_pixel_x;
+    map.scroll_y = raster_camera ? raster_camera->y : display.camera_pixel_y;
     const int margin = (width - gpu2d::kVanillaWidth) / 2;
-    const int left = (map.scroll_x - margin) >> 3;
+    const int left = (map.scroll_x - margin + std::min(0, extension_x)) >> 3;
     const int middle_left = map.scroll_x >> 3;
     const int middle_right = (map.scroll_x + gpu2d::kVanillaWidth - 1) >> 3;
-    const int right = (map.scroll_x + gpu2d::kVanillaWidth + margin - 1) >> 3;
+    const int right = (map.scroll_x + gpu2d::kVanillaWidth + margin - 1 + std::max(0, extension_x)) >> 3;
     const int top = map.scroll_y >> 3;
     const int bottom = (map.scroll_y + gpu2d::kVanillaHeight - 1) >> 3;
-    for (int y = top; y <= bottom; ++y) {
+    const int first_row = (map.scroll_y + std::min(0, extension_y)) >> 3;
+    const int last_row = (map.scroll_y + gpu2d::kVanillaHeight - 1 + std::max(0, extension_y)) >> 3;
+    for (int y = first_row; y <= last_row; ++y) {
         for (int x = left; x <= right; ++x) {
             // Keep the two edge tiles, which can straddle the viewport.
-            if (x > middle_left && x < middle_right) continue;
+            const bool native_row = (extension_y < 0 ? y > top : y >= top) &&
+                                    (extension_y > 0 ? y < bottom : y <= bottom);
+            if (native_row && x > middle_left && x < middle_right) continue;
             const auto entry = terrain.ReadEntry(x, y);
             if (!entry) return false;
             map.entries[(y & 31) * 64 + (x & 63)] = *entry;

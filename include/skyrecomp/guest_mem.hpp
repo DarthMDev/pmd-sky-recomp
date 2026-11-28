@@ -51,6 +51,7 @@ inline constexpr uint32_t kSize = 0x2CB14u;
 inline constexpr uint32_t kCameraFrameCounterOffset = 0x001Cu; // int16_t
 inline constexpr uint32_t kCurrentActiveEntityOffset = 0x00C4u; // struct entity*
 inline constexpr uint32_t kColorTableOffset = 0x01E0u; // struct rgba[256] (1024 bytes)
+inline constexpr uint32_t kFloorPairOffset = 0x0748u; // uint8_t dungeon id, uint8_t floor
 inline constexpr uint32_t kWeatherOffset = 0xCD38u; // uint8_t weather_id
 inline constexpr uint32_t kNaturalWeatherOffset = 0xCD39u; // uint8_t weather_id
 inline constexpr uint32_t kWeatherTurnsOffset = 0xCD3Au; // uint16_t[8]

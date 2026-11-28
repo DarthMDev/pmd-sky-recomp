@@ -9,6 +9,8 @@
 
 namespace skyrecomp::camera {
 
+struct DungeonCameraPosition;
+
 /// Target display refresh / sub-pixel interpolation mode (Task 3.2).
 enum class RefreshRateMode : uint8_t {
     Locked_60Hz = 0,     // Vanilla 60Hz (alpha = 1.0, zero sub-pixel offset)
@@ -44,6 +46,8 @@ struct LogicTickSnapshot {
     uint64_t tick_index = 0;
     ActiveGameMode mode = ActiveGameMode::None;
     int16_t floor_number = 0;
+    uint16_t dungeon_floor_pair = 0;
+    uint32_t dungeon_address = 0;
 
     // Camera position in 24.8 fixed-point pixels
     int32_t camera_x_q8 = 0;
@@ -129,7 +133,7 @@ public:
     [[nodiscard]] static std::vector<float> ComputeSubFrameAlphas(int target_hz);
 
     /// Captures a new authoritative 60Hz logic tick snapshot from read-only guest Main RAM (`t-1 <- t`, `t <- mem`).
-    void CaptureLogicTick(GuestMemoryView mem) noexcept;
+    void CaptureLogicTick(GuestMemoryView mem, const DungeonCameraPosition* raster_camera = nullptr) noexcept;
 
     /// Evaluates the interpolated camera & entity coordinates at fractional phase `alpha` in [0.0f, 1.0f].
     /// When `refresh_mode_ == RefreshRateMode::Locked_60Hz`, `alpha` is forced to 1.0f.
