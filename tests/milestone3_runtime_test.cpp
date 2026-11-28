@@ -256,9 +256,10 @@ void TestDungeonEntityOamOwnership() {
     DungeonEntityRaster raster;
     std::array<uint8_t, 1024> oam{};
     const auto frame = [&](int x, int elevation, uint16_t generation,
-                           bool reorder, bool mismatched_oam = false, bool valid_raster = true) {
+                           bool reorder, bool mismatched_oam = false, bool valid_raster = true,
+                           uint16_t floor_pair = 0x0102) {
         raster.BeginFrame(GuestMemoryView(ram.data(), ram.size()), pmdsky::Region::NA,
-            (uint64_t{dungeon} << 16) | 0x0102);
+            (uint64_t{dungeon} << 16) | floor_pair);
         put(entity + layout::entity::kPixelPosOffset, x * 256);
         put(entity + layout::entity::kElevationOffset, elevation * 256);
         put(entity + layout::entity::kSpawnGenIdOffset, generation);
@@ -313,9 +314,14 @@ void TestDungeonEntityOamOwnership() {
     assert(!raster.MidpointOffsets(0, 0, offsets)); // A rejected raster breaks history.
     frame(103, 0, 11, true, false, false);
     assert(!raster.MidpointOffsets(0, 0, offsets));
-    put(floor, uint16_t{0x0103});
     frame(104, 0, 11, true);
+    frame(105, 0, 11, true);
+    assert(raster.MidpointOffsets(0, 0, offsets));
+    put(floor, uint16_t{0x0103});
+    frame(106, 0, 11, true, false, true, 0x0103);
     assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(107, 0, 11, true, false, true, 0x0103);
+    assert(raster.MidpointOffsets(0, 0, offsets));
 }
 
 /// Verifies high-refresh-rate sub-pixel interpolation without mutating guest RAM.

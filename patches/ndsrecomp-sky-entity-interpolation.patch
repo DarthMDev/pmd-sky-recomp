@@ -136,7 +136,7 @@ index bdca21d..848cc2f 100644
      }
      const bool audio_failed = audio_queue_error ||
 diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
-index 2f8fc5b..f65404c 100644
+index 2f8fc5b..5a36d76 100644
 --- a/runner/src/gpu2d.cpp
 +++ b/runner/src/gpu2d.cpp
 @@ -1,4 +1,7 @@
@@ -230,7 +230,7 @@ index 2f8fc5b..f65404c 100644
          const uint32_t* line3d = nullptr;
          const uint32_t* native_weather = nullptr;
          // Only raster-time snapshots belong to the published native
-@@ -3290,18 +3321,28 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+@@ -3290,18 +3321,29 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
                  if (alpha)
                      push(Pixel{c3 & 0x003F3F3Fu, 0x01u, 0, prio3d, 1, true, alpha});
              }
@@ -258,11 +258,12 @@ index 2f8fc5b..f65404c 100644
                  continue;
              }
 -            const auto sample = [&](TextLine& row, int sx, int sy) {
-+            const auto sample = [&](TextLine& row, int sx, int sy, bool native) {
++            const auto sample = [&](TextLine& row, int sx, int sy, bool native,
++                                    int terrain_tap_x = 0, int terrain_tap_y = 0) {
                  Pixel front = top;
                  Pixel second = below;
                  if (window_mask & 0x08u) {
-@@ -3317,18 +3358,28 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+@@ -3317,21 +3359,37 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
                          }
                      }
                  }
@@ -270,14 +271,19 @@ index 2f8fc5b..f65404c 100644
 +                if (native || !offsets)
 +                    return push_object(obj[x], front, second);
 +
++                // Pair fractional OBJ and terrain on each axis that they
++                // both filter. An OBJ-only fractional axis still needs both taps.
++                const bool paired_x = camera->half_x && object_taps_x == 2;
++                const bool paired_y = camera->half_y && object_taps_y == 2;
 +                const auto sample_objects = [&](int ty) {
-+                    const auto left = push_object(moved_objects[ty * 2][x], front, second);
-+                    return object_taps_x == 2
++                    const auto left = push_object(moved_objects[ty * 2 + (paired_x ? terrain_tap_x : 0)][x],
++                                                  front, second);
++                    return object_taps_x == 2 && !paired_x
 +                        ? blend(left, push_object(moved_objects[ty * 2 + 1][x], front, second), 8, 8)
 +                        : left;
 +                };
-+                const auto upper = sample_objects(0);
-+                return object_taps_y == 2 ? blend(upper, sample_objects(1), 8, 8) : upper;
++                const auto upper = sample_objects(paired_y ? terrain_tap_y : 0);
++                return object_taps_y == 2 && !paired_y ? blend(upper, sample_objects(1), 8, 8) : upper;
              };
              // Live tile views or scanline effects can disagree with the
              // captured raster. Reject the entire frame if they do.
@@ -287,15 +293,22 @@ index 2f8fc5b..f65404c 100644
 
              const int sx = hud_x + camera->dx;
              const int sy = y + camera->dy;
-             const auto sample_row = [&](TextLine& row, int source_y) {
+-            const auto sample_row = [&](TextLine& row, int source_y) {
 -                const auto left = sample(row, sx, source_y);
 -                return camera->half_x ? blend(left, sample(row, sx + 1, source_y), 8, 8) : left;
-+                const auto left = sample(row, sx, source_y, false);
-+                return camera->half_x ? blend(left, sample(row, sx + 1, source_y, false), 8, 8) : left;
++            const auto sample_row = [&](TextLine& row, int source_y, int tap_y) {
++                const auto left = sample(row, sx, source_y, false, 0, tap_y);
++                return camera->half_x
++                    ? blend(left, sample(row, sx + 1, source_y, false, 1, tap_y), 8, 8) : left;
              };
-             const auto upper = sample_row(shifted, sy);
-             dst[x] = to_rgb32(camera->half_y ? blend(upper, sample_row(next_row, sy + 1), 8, 8) : upper);
-@@ -3369,10 +3420,11 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
+-            const auto upper = sample_row(shifted, sy);
+-            dst[x] = to_rgb32(camera->half_y ? blend(upper, sample_row(next_row, sy + 1), 8, 8) : upper);
++            const auto upper = sample_row(shifted, sy, 0);
++            dst[x] = to_rgb32(camera->half_y ? blend(upper, sample_row(next_row, sy + 1, 1), 8, 8) : upper);
+             if (terrain.missing_snapshot || shifted.missing_snapshot || next_row.missing_snapshot)
+                 return false;
+         }
+@@ -3369,10 +3427,11 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
  }
 
  const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
@@ -309,7 +322,7 @@ index 2f8fc5b..f65404c 100644
          dx_q8 % 128 || dy_q8 % 128 || std::abs(dx_q8) > 12 * 256 || std::abs(dy_q8) > 12 * 256)
          return nullptr;
      drain_pool(NDS_GPU2D_FENCE_PRESENT);
-@@ -3388,7 +3440,7 @@ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
+@@ -3388,7 +3447,7 @@ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
      if (!vram) return nullptr;
 
      const DungeonCameraSample camera{nds_gpu2d_framebuffer(screen), raster.terrain_view,
@@ -425,10 +438,10 @@ index 87a1660..9327248 100644
              // A BX/LDM/POP return may interwork.  The call was pushed in the
              // caller's pre-branch mode above, but matching must use the
 diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
-index 3aa1acc..77bf17b 100644
+index 3aa1acc..dfd5b6d 100644
 --- a/runner/tests/gpu2d_window_test.cpp
 +++ b/runner/tests/gpu2d_window_test.cpp
-@@ -842,6 +842,16 @@ bool test_dungeon_camera_midpoint() {
+@@ -842,6 +842,22 @@ bool test_dungeon_camera_midpoint() {
          if (width == 448 && mid[width + left - 1] != to_rgb32(blend(blue, red, 8, 8)))
              return false;
 
@@ -441,6 +454,12 @@ index 3aa1acc..77bf17b 100644
 +            mid[left + 13] != to_rgb32(blend(blend(blue, green, 8, 8), green, 8, 8)) ||
 +            mid[left] != to_rgb32(blue) || mid[left + 20] != to_rgb32(blue) ||
 +            native[12] != to_rgb32(blue)) return false;
++
++        // In the first tap the opaque OBJ fully covers the red terrain.
++        // The second tap exposes only green, so the edge must contain no red.
++        offsets[0] = {1, 0};
++        mid = nds_gpu2d_dungeon_camera_frame(1, width, map, 128, 0, &offsets);
++        if (!mid || mid[left + 12] != to_rgb32(blend(blue, green, 8, 8))) return false;
 +
          // Changing a tile seen only by a shifted tap cannot affect the midpoint.
          std::fill_n(bg_vram.data() + 96, 32, 0x22u);
