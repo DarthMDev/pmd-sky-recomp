@@ -1,0 +1,447 @@
+diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
+index bdca21d..848cc2f 100644
+--- a/runner/src/frontend.cpp
++++ b/runner/src/frontend.cpp
+@@ -217,6 +217,7 @@ void observe_top_black_bands(const uint32_t* pixels, uint64_t frame,
+
+ #include "ui/guest_ui_state.hpp"
+ #include "ui/settings_overlay.hpp"
++#include "camera/dungeon_entities.hpp"
+ #include "ui/remaster_hud.hpp"
+ #if defined(SKY_HAVE_METAL_HD)
+ #include "shaders/metal_hd_presenter.hpp"
+@@ -3190,6 +3191,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+     uint64_t shown_frames = 0;
+     uint64_t synthetic_presents = 0;
+     uint64_t dungeon_camera_presents = 0;
++    uint64_t dungeon_entity_presents = 0;
++    auto& entity_raster = skyrecomp::camera::dungeon_entity_raster;
+     FrameBlendCache blend_cache{};
+     skyrecomp::camera::SubpixelInterpolator camera_interpolator(hud_region);
+     int previous_game_screen = -1;
+@@ -3442,6 +3445,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+             audio_pace_floor = kAudioQueueFrames;
+             audio_presentation_epoch = current_audio_epoch;
+             camera_interpolator.Reset();
++            entity_raster = {};
+             blend_cache.valid = false;
+         }
+         if (selftest_menu) {
+@@ -3770,6 +3774,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                         }
+                         blend_cache.valid = false;
+                         camera_interpolator.Reset();
++                        entity_raster = {};
+                         // A load re-primes the machine, so it also opens a new
+                         // digest epoch: it is the only alignment point two
+                         // independently launched processes share, since
+@@ -4531,9 +4536,13 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+         if (!dungeon_camera_enabled && camera_interpolator.CurrentTick().tick_index != 0)
+             camera_interpolator.Reset();
+         uint64_t dungeon_before_raster = 0;
++        bool valid_dungeon_raster = false;
+         if (dungeon_camera_enabled) {
+             const auto mem = sky_memory();
+             dungeon_before_raster = dungeon_identity(mem, mem.resolve_dungeon_ptr(hud_region));
++            entity_raster.BeginFrame(mem, hud_region, dungeon_before_raster);
++        } else if (entity_raster.Enabled()) {
++            entity_raster = {};
+         }
+         nds_gpu2d_capture_dungeon_raster(dungeon_before_raster != 0);
+         const uint64_t phase0 = SDL_GetPerformanceCounter();
+@@ -4709,6 +4718,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                         nds_gpu2d_dungeon_scroll(sky_game_screen, scroll_x, scroll_y) &&
+                         camera_hook.ResolveRasterCamera(mem, scroll_x, scroll_y, raster_camera)) {
+                         camera_interpolator.CaptureLogicTick(mem, &raster_camera);
++                        valid_dungeon_raster = true;
+                     } else {
+                         camera_interpolator.Reset();
+                     }
+@@ -4935,6 +4945,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                 set_render_logical_size(presentation.renderers[0], layout_w, kScreenHeight * 2);
+             }
+         }
++        if (entity_raster.Enabled())
++            entity_raster.FinishFrame(valid_dungeon_raster);
+         const bool dungeon_transition = dungeon_camera_enabled &&
+             (dungeon_before_raster != current_dungeon_identity ||
+              previous_dungeon_identity != current_dungeon_identity ||
+@@ -4950,23 +4962,29 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+             const uint32_t* midpoint[]{top_pixels, bottom_pixels};
+             const uint32_t* camera_pixels = nullptr;
+             bool camera_cut = false;
++            bool camera_moved = false;
++            bool entities_moved = false;
+             if (dungeon_camera_enabled && sky_dungeon && camera_interpolator.HasTwoSnapshots()) {
+                 const auto camera_frame = camera_interpolator.EvaluateSubFrame(0.5f);
+                 camera_cut = camera_frame.camera_snapped;
+                 const int16_t dx = camera_frame.camera_subpixel_dx_q8;
+                 const int16_t dy = camera_frame.camera_subpixel_dy_q8;
+-                if (sky_dungeon && !camera_cut && (dx || dy) && !fps_meter_frame &&
+-                    !recomp_runtime_ui_is_open(runtime_ui)) {
++                camera_moved = dx || dy;
++                if (!camera_cut && !fps_meter_frame && !recomp_runtime_ui_is_open(runtime_ui)) {
++                    skyrecomp::camera::DungeonObjectOffsets offsets{};
++                    entities_moved = entity_raster.MidpointOffsets(dx, dy, offsets);
+                     // Include the outer tap of the half-pixel filter in the
+                     // read-only map for texels exposed beyond streamed VRAM.
+                     const auto extension = [](int delta) {
+                         return delta < 0 ? delta >> 8 : (delta + 255) >> 8;
+                     };
+-                    if (camera_hook.ReadDungeonMarginMap(sky_memory(), game_width, dungeon_tiles,
++                    if ((camera_moved || entities_moved) &&
++                        camera_hook.ReadDungeonMarginMap(sky_memory(), game_width, dungeon_tiles,
+                                                         extension(dx), extension(dy), &raster_camera)) {
+                         const NdsGpu2dDungeonMap map{dungeon_tiles.entries.data(),
+                                                    dungeon_tiles.scroll_x, dungeon_tiles.scroll_y};
+-                        camera_pixels = nds_gpu2d_dungeon_camera_frame(game_screen, game_width, map, dx, dy);
++                        camera_pixels = nds_gpu2d_dungeon_camera_frame(game_screen, game_width, map, dx, dy,
++                                                                      entities_moved ? &offsets : nullptr);
+                     }
+                 }
+             }
+@@ -5003,7 +5021,8 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+                 phase_draw_ticks += synthetic_ticks.draw;
+                 phase_swap_ticks += synthetic_ticks.swap;
+                 ++synthetic_presents;
+-                if (camera_pixels) ++dungeon_camera_presents;
++                if (camera_pixels && camera_moved) ++dungeon_camera_presents;
++                if (camera_pixels && entities_moved) ++dungeon_entity_presents;
+                 // Pump the OS queue here. The next loop still owns input sampling.
+                 SDL_PumpEvents();
+             }
+@@ -5307,6 +5326,7 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+         }
+     }
+
++    entity_raster = {};
+     if (cpu_handoff) {
+         cpu_handoff.reset(); // drain/pump before SDL/GL teardown or durable flush
+         nds_hostprof_unregister_current_thread();
+@@ -5393,13 +5413,14 @@ int nds_run_interactive_frontend(const NdsFrontendOptions& initial_options) {
+             phase_swap_ticks * tick_seconds);
+         std::fprintf(stderr,
+             "[sdl] frame interpolation: mode=%s active=%u refresh=%dHz "
+-            "min_refresh=%dHz real_presents=%llu synthetic_presents=%llu dungeon_camera_presents=%llu\n",
++            "min_refresh=%dHz real_presents=%llu synthetic_presents=%llu dungeon_camera_presents=%llu dungeon_entity_presents=%llu\n",
+             nds_frame_interpolation_name(options.frame_interpolation),
+             interpolation_active ? 1u : 0u,
+             interpolation_refresh_hz, interpolation_min_refresh_hz,
+             static_cast<unsigned long long>(shown_frames),
+             static_cast<unsigned long long>(synthetic_presents),
+-            static_cast<unsigned long long>(dungeon_camera_presents));
++            static_cast<unsigned long long>(dungeon_camera_presents),
++            static_cast<unsigned long long>(dungeon_entity_presents));
+         nds_profile_report(stderr);
+     }
+     const bool audio_failed = audio_queue_error ||
+diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
+index 2f8fc5b..f65404c 100644
+--- a/runner/src/gpu2d.cpp
++++ b/runner/src/gpu2d.cpp
+@@ -1,4 +1,7 @@
+ #include "gpu2d.h"
++#if __has_include("camera/dungeon_entities.hpp")
++#include "camera/dungeon_entities.hpp"
++#endif
+ #include "host_profile.h"
+ #include "gpu2d_window.h"
+
+@@ -881,12 +884,15 @@ void put_obj(Pixel* line, int width, int x, const Pixel& p) {
+     if (!line[x].valid || p.priority <= line[x].priority) line[x]=p;
+ }
+
++using ObjectOffsets = std::array<std::array<int8_t, 2>, 128>;
++
+ void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
+                      int out_width,
+                      const uint8_t* oam, const uint8_t* palette,
+                      const NdsVramRendererView& vram,
+                      uint8_t* obj_window = nullptr, bool anchor_hud = true,
+-                     bool wide_dungeon = false) {
++                     bool wide_dungeon = false,
++                     const ObjectOffsets* offsets = nullptr, int tap_x = 0, int tap_y = 0) {
+     std::fill_n(out, out_width, Pixel{});
+     if (obj_window) std::fill_n(obj_window, out_width, 0u);
+     if (!(u.dispcnt&0x1000u)) return;
+@@ -903,7 +909,8 @@ void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
+             if (!affine && (a0&0x0200u)) continue;
+             int bw=w,bh=h;
+             if (affine && (a0&0x0200u)){bw*=2;bh*=2;}
+-            const int sy=a0&0xFF;
++            int sy=a0&0xFF;
++            if (offsets) sy += ((*offsets)[n][1] + tap_y) >> 1;
+             int row=(line_y-sy)&0xFF;
+             if (row>=bh) continue;
+             int sx = a1 & 0x1FFu;
+@@ -911,6 +918,7 @@ void render_obj_line(const Unit& u, int engine, int line_y, Pixel* out,
+             // 448px. Their 9-bit coordinates are unique over that interval.
+             const int x_wrap = wide_dungeon ? (256 + (kMaxAdaptiveWidth - 256) / 2) : 256;
+             if (sx >= x_wrap) sx -= 512;
++            if (offsets) sx += ((*offsets)[n][0] + tap_x) >> 1;
+             int output_sx = sx;
+             if (out_width > 256) {
+                 const int extra = (out_width - 256) / 2;
+@@ -1869,6 +1877,12 @@ void latch_line(int y, LineJob& job) {
+                 copy_blocks(terrain.map_base, 0x1000u);
+             }
+         }
++#if __has_include("camera/dungeon_entities.hpp")
++        auto& entities = skyrecomp::camera::dungeon_entity_raster;
++        if (y == 0) entities.LatchOam(job.oam[0]);
++        else if (std::memcmp(raster.oam.data(), job.oam[0], raster.oam.size()) != 0)
++            entities.InvalidateOam();
++#endif
+         constexpr uint32_t terrain_control = 0x7F030887u;
+         if (raster.unit.bgcnt[3] != u.bgcnt[3] ||
+             ((raster.unit.dispcnt ^ u.dispcnt) & terrain_control))
+@@ -3153,6 +3167,7 @@ struct DungeonCameraSample {
+     int dy;
+     bool half_x;
+     bool half_y;
++    const ObjectOffsets* object_offsets;
+ };
+
+ // Sky dungeons draw their maps with text backgrounds. BG0 can also carry
+@@ -3208,10 +3223,26 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+     std::array<Pixel, kMaxAdaptiveWidth> obj{};
+     std::array<uint8_t, kMaxAdaptiveWidth> obj_window{};
+     std::array<BgLine, 4> bg_lines{};
++    const ObjectOffsets* offsets = camera ? camera->object_offsets : nullptr;
++    const auto has_half_offset = [&](int axis) {
++        return offsets && std::any_of(offsets->begin(), offsets->end(),
++            [axis](const auto& offset) { return (offset[axis] & 1) != 0; });
++    };
++    const int object_taps_x = has_half_offset(0) ? 2 : 1;
++    const int object_taps_y = has_half_offset(1) ? 2 : 1;
++    std::array<std::array<Pixel, kMaxAdaptiveWidth>, 4> moved_objects;
+
+     for (int y = 0; y < 192; ++y) {
+         render_obj_line(u, 0, y, obj.data(), output_width, oam, palette, vram,
+                         obj_window.data(), !dungeon, dungeon);
++        if (offsets) {
++            for (int ty = 0; ty < object_taps_y; ++ty) {
++                for (int tx = 0; tx < object_taps_x; ++tx) {
++                    render_obj_line(u, 0, y, moved_objects[ty * 2 + tx].data(),
++                        output_width, oam, palette, vram, nullptr, false, true, offsets, tx, ty);
++                }
++            }
++        }
+         const uint32_t* line3d = nullptr;
+         const uint32_t* native_weather = nullptr;
+         // Only raster-time snapshots belong to the published native
+@@ -3290,18 +3321,28 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+                 if (alpha)
+                     push(Pixel{c3 & 0x003F3F3Fu, 0x01u, 0, prio3d, 1, true, alpha});
+             }
+-            if (obj[x].valid && (window_mask & 0x10u)) push(obj[x]);
+             const auto finish = [&](Pixel front, Pixel second) {
+                 uint32_t color = compose(u, front, second, (window_mask & 0x20u) != 0u);
+                 if (mbmode == 1u) color = brighten(color, mb, 0u);
+                 else if (mbmode == 2u) color = darken(color, mb, 15u);
+                 return color;
+             };
++            const auto push_object = [&](const Pixel& object, Pixel front, Pixel second) {
++                if (object.valid && (window_mask & 0x10u)) {
++                    if (ahead(object, front)) {
++                        second = front;
++                        front = object;
++                    } else if (ahead(object, second)) {
++                        second = object;
++                    }
++                }
++                return finish(front, second);
++            };
+             if (!camera) {
+-                dst[x] = to_rgb32(finish(top, below));
++                dst[x] = to_rgb32(push_object(obj[x], top, below));
+                 continue;
+             }
+-            const auto sample = [&](TextLine& row, int sx, int sy) {
++            const auto sample = [&](TextLine& row, int sx, int sy, bool native) {
+                 Pixel front = top;
+                 Pixel second = below;
+                 if (window_mask & 0x08u) {
+@@ -3317,18 +3358,28 @@ bool composite_2d_wide_frame(const Unit& u, const uint8_t* palette,
+                         }
+                     }
+                 }
+-                return finish(front, second);
++                if (native || !offsets)
++                    return push_object(obj[x], front, second);
++
++                const auto sample_objects = [&](int ty) {
++                    const auto left = push_object(moved_objects[ty * 2][x], front, second);
++                    return object_taps_x == 2
++                        ? blend(left, push_object(moved_objects[ty * 2 + 1][x], front, second), 8, 8)
++                        : left;
++                };
++                const auto upper = sample_objects(0);
++                return object_taps_y == 2 ? blend(upper, sample_objects(1), 8, 8) : upper;
+             };
+             // Live tile views or scanline effects can disagree with the
+             // captured raster. Reject the entire frame if they do.
+-            if (native_column && to_rgb32(sample(terrain, hud_x, y)) != camera->native[y * 256 + hud_x])
++            if (native_column && to_rgb32(sample(terrain, hud_x, y, true)) != camera->native[y * 256 + hud_x])
+                 return false;
+
+             const int sx = hud_x + camera->dx;
+             const int sy = y + camera->dy;
+             const auto sample_row = [&](TextLine& row, int source_y) {
+-                const auto left = sample(row, sx, source_y);
+-                return camera->half_x ? blend(left, sample(row, sx + 1, source_y), 8, 8) : left;
++                const auto left = sample(row, sx, source_y, false);
++                return camera->half_x ? blend(left, sample(row, sx + 1, source_y, false), 8, 8) : left;
+             };
+             const auto upper = sample_row(shifted, sy);
+             dst[x] = to_rgb32(camera->half_y ? blend(upper, sample_row(next_row, sy + 1), 8, 8) : upper);
+@@ -3369,10 +3420,11 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
+ }
+
+ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
+-    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8) {
++    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8,
++    const ObjectOffsets* object_offsets) {
+     const int engine_a_screen = (nds_powercontrol9() & 0x8000u) ? 0 : 1;
+     if (screen != engine_a_screen || width < 256 || width > kMaxAdaptiveWidth ||
+-        width != nds_gpu3d_output_width() || g_adaptive_center_native || (!dx_q8 && !dy_q8) ||
++        width != nds_gpu3d_output_width() || g_adaptive_center_native || (!dx_q8 && !dy_q8 && !object_offsets) ||
+         dx_q8 % 128 || dy_q8 % 128 || std::abs(dx_q8) > 12 * 256 || std::abs(dy_q8) > 12 * 256)
+         return nullptr;
+     drain_pool(NDS_GPU2D_FENCE_PRESENT);
+@@ -3388,7 +3440,7 @@ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
+     if (!vram) return nullptr;
+
+     const DungeonCameraSample camera{nds_gpu2d_framebuffer(screen), raster.terrain_view,
+-        dx_q8 >> 8, dy_q8 >> 8, (dx_q8 & 0x80) != 0, (dy_q8 & 0x80) != 0};
++        dx_q8 >> 8, dy_q8 >> 8, (dx_q8 & 0x80) != 0, (dy_q8 & 0x80) != 0, object_offsets};
+     static AdaptiveFrame midpoint;
+     return composite_2d_wide_frame(u, raster.palette.data(), raster.oam.data(), *vram, width, (width - 256) / 2,
+                                    midpoint, map.entries, bg0_3d, &camera)
+diff --git a/runner/src/gpu2d.h b/runner/src/gpu2d.h
+index 077862b..f61c1ff 100644
+--- a/runner/src/gpu2d.h
++++ b/runner/src/gpu2d.h
+@@ -1,6 +1,7 @@
+ #pragma once
+
+ #include <atomic>
++#include <array>
+ #include <cstdint>
+
+ // ---- Threaded scanline rendering -----------------------------------------
+@@ -91,7 +92,8 @@ bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y);
+ // Host-only midpoint surface. The map must cover the shifted viewport taps.
+ // A null result means the current frame could not be reproduced safely.
+ const uint32_t* nds_gpu2d_dungeon_camera_frame(int screen, uint16_t width,
+-    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8);
++    const NdsGpu2dDungeonMap& map, int16_t dx_q8, int16_t dy_q8,
++    const std::array<std::array<int8_t, 2>, 128>* object_offsets = nullptr);
+ // Returns the native framebuffer with width=256 when no enhanced surface is
+ // active for this physical LCD.
+ const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
+diff --git a/runner/src/runtime_arm.cpp b/runner/src/runtime_arm.cpp
+index 0238a6a..c3fb09d 100644
+--- a/runner/src/runtime_arm.cpp
++++ b/runner/src/runtime_arm.cpp
+@@ -8,6 +8,9 @@
+ // always-on trace ring, the cooperative yield/halt, and lifecycle.
+
+ #include "runtime_arm.h"
++#if __has_include("camera/dungeon_entities.hpp")
++#include "camera/dungeon_entities.hpp"
++#endif
+ #include "physical_write.h"
+ #if defined(NDS_ARM9_DYNARMIC)
+ #include "arm9_native.h"
+@@ -2148,7 +2151,7 @@ constexpr uint32_t kCRS = NDS_RUNTIME_CALL_STACK_CAPACITY;
+ uint32_t g_crs[kCRS] = {};
+ uint32_t g_crs_depth = 0;
+ }  // namespace
+-extern "C" void runtime_call_push_return(uint32_t return_pc) {
++static void push_guest_return(uint32_t return_pc) {
+     uint32_t pc = return_pc & ~1u;
+     uint32_t key = pc | ((g_cpu.cpsr & CPSR_T_BIT) ? 1u : 0u);
+     if (g_crs_depth >= kCRS) {
+@@ -2164,6 +2167,22 @@ extern "C" void runtime_call_push_return(uint32_t return_pc) {
+     g_crs[g_crs_depth++] = key;
+     runtime_trace_event(RUNTIME_TRACE_CALL, pc, pc, g_crs_depth, 1u);
+ }
++#if __has_include("camera/dungeon_entities.hpp")
++void runtime_call_push_sky_return(uint32_t return_pc, uint32_t target, uint32_t sp, uint32_t arg) {
++    auto& raster = skyrecomp::camera::dungeon_entity_raster;
++    if (g_nds_active == NDS_ARM9 && raster.WatchesCall(target))
++        raster.ObserveCall(target, return_pc, sp, arg);
++    push_guest_return(return_pc);
++}
++#endif
++
++extern "C" void runtime_call_push_return(uint32_t return_pc) {
++#if __has_include("camera/dungeon_entities.hpp")
++    runtime_call_push_sky_return(return_pc, g_cpu.R[15], g_cpu.R[13], g_cpu.R[0]);
++#else
++    push_guest_return(return_pc);
++#endif
++}
+ extern "C" int runtime_call_should_return(uint32_t target_pc) {
+     uint32_t pc = target_pc & ~1u;
+     uint32_t key = pc | ((g_cpu.cpsr & CPSR_T_BIT) ? 1u : 0u);
+@@ -2174,6 +2193,11 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
+             ++stats.crs_hit;
+             runtime_trace_event(RUNTIME_TRACE_CALL, pc, pc, g_crs_depth,
+                                 (i == g_crs_depth) ? 2u : 5u);
++#if __has_include("camera/dungeon_entities.hpp")
++            auto& raster = skyrecomp::camera::dungeon_entity_raster;
++            if (g_nds_active == NDS_ARM9 && raster.WatchesReturn(pc))
++                raster.ObserveReturn(pc, g_cpu.R[13]);
++#endif
+             g_crs_depth = i - 1u; return 1;
+         }
+     }
+diff --git a/runner/src/tier3.cpp b/runner/src/tier3.cpp
+index 87a1660..9327248 100644
+--- a/runner/src/tier3.cpp
++++ b/runner/src/tier3.cpp
+@@ -21,6 +21,9 @@
+ #include "bus.h"
+
+ #include "runtime_arm.h"
++#if __has_include("camera/dungeon_entities.hpp")
++void runtime_call_push_sky_return(uint32_t return_pc, uint32_t target, uint32_t sp, uint32_t arg);
++#endif
+ #include "dispatch_lookup.h"
+ #include "state.h"
+ #include "io.h"
+@@ -561,7 +564,11 @@ static void tier3_run_impl(uint32_t /*entry*/, bool single_step) {
+             pending_thumb = ic.cpsr.t;
+             pending_kind = TIER3_COVERAGE_CALL;
+             pending_caller = pc;
++#if __has_include("camera/dungeon_entities.hpp")
++            runtime_call_push_sky_return(pc + (thumb ? 2u : 4u), ic.R[15], ic.R[13], ic.R[0]);
++#else
+             runtime_call_push_return(pc + (thumb ? 2u : 4u));
++#endif
+         } else if (r == Interpreter::Result::Branched && !in.is_call) {
+             // A BX/LDM/POP return may interwork.  The call was pushed in the
+             // caller's pre-branch mode above, but matching must use the
+diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
+index 3aa1acc..77bf17b 100644
+--- a/runner/tests/gpu2d_window_test.cpp
++++ b/runner/tests/gpu2d_window_test.cpp
+@@ -842,6 +842,16 @@ bool test_dungeon_camera_midpoint() {
+         if (width == 448 && mid[width + left - 1] != to_rgb32(blend(blue, red, 8, 8)))
+             return false;
+
++        // Half-pixel OBJ motion with a stationary camera. The original OBJ
++        // still validates the native raster. HUD and weather keep their pixels.
++        std::array<std::array<int8_t, 2>, 128> offsets{};
++        offsets[0] = {1, 1};
++        mid = nds_gpu2d_dungeon_camera_frame(1, width, map, 0, 0, &offsets);
++        if (!mid || mid[left + 12] != to_rgb32(blend(blend(blue, red, 8, 8), red, 8, 8)) ||
++            mid[left + 13] != to_rgb32(blend(blend(blue, green, 8, 8), green, 8, 8)) ||
++            mid[left] != to_rgb32(blue) || mid[left + 20] != to_rgb32(blue) ||
++            native[12] != to_rgb32(blue)) return false;
++
+         // Changing a tile seen only by a shifted tap cannot affect the midpoint.
+         std::fill_n(bg_vram.data() + 96, 32, 0x22u);
+         mid = nds_gpu2d_dungeon_camera_frame(1, width, map, 128, -128);
