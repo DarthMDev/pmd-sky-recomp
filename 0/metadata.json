@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M8FVN1QC8NA1NTEB4ATVK4WJ",
+  "session_id": "00f570f3-83e9-4226-97c5-cb3add0f3f4c",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-28T01:17:27.771842Z",
+  "branch": "feature/ultrawide-dungeon-culling",
+  "checkpoints_count": 4,
+  "save_step_count": 5,
+  "files_touched": [
+    "ARCHITECTURE.md",
+    "Library/Application Support/Microsoft/DeveloperTools/deviceid",
+    "tests/SkyRecompiled.Launcher.Tests/.local/share/NuGet/Migrations/1"
+  ],
+  "agent": "Antigravity",
+  "model": "gemini-pro-orchestrator-g1-pro",
+  "turn_id": "3e68493909ac",
+  "redaction": {
+    "replacements": 33,
+    "layers": {
+      "betterleaks": 19,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 13,
+      "credentialed_uri": 0,
+      "entropy": 1,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 13
+  }
+}
