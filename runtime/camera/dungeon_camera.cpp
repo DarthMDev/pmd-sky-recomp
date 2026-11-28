@@ -417,11 +417,12 @@ bool DungeonCameraHook::ReadDungeonMarginMap(
     };
     map.scroll_x = raster_camera ? raster_camera->x : display.camera_pixel_x;
     map.scroll_y = raster_camera ? raster_camera->y : display.camera_pixel_y;
-    const int margin = (width - gpu2d::kVanillaWidth) / 2;
-    const int left = (map.scroll_x - margin + std::min(0, extension_x)) >> 3;
+    const int left_margin = (width - gpu2d::kVanillaWidth) / 2;
+    const int right_margin = width - gpu2d::kVanillaWidth - left_margin;
+    const int left = (map.scroll_x - left_margin + std::min(0, extension_x)) >> 3;
     const int middle_left = map.scroll_x >> 3;
     const int middle_right = (map.scroll_x + gpu2d::kVanillaWidth - 1) >> 3;
-    const int right = (map.scroll_x + gpu2d::kVanillaWidth + margin - 1 + std::max(0, extension_x)) >> 3;
+    const int right = (map.scroll_x + gpu2d::kVanillaWidth + right_margin - 1 + std::max(0, extension_x)) >> 3;
     const int top = map.scroll_y >> 3;
     const int bottom = (map.scroll_y + gpu2d::kVanillaHeight - 1) >> 3;
     const int first_row = (map.scroll_y + std::min(0, extension_y)) >> 3;

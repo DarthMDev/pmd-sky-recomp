@@ -9,11 +9,24 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
      FrameBlendCache blend_cache{};
 +    skyrecomp::camera::SubpixelInterpolator camera_interpolator(hud_region);
 +    int previous_game_screen = -1;
-+    bool previous_sky_dungeon = false;
++    uint64_t previous_dungeon_identity = 0;
      std::vector<uint32_t> present_overlay_surface;
      uint64_t fps_frames = 0;
      uint64_t fps_synthetic_start = 0;
-@@ -3431,6 +3435,8 @@
+@@ -3389,6 +3393,12 @@
+         if (pmd_sky_rom) bus_get_region("mainram", &mainram);
+         return skyrecomp::GuestMemoryView(mainram.ptr, mainram.len);
+     };
++    const auto dungeon_identity = [](skyrecomp::GuestMemoryView mem, uint32_t address) {
++        if (!address) return uint64_t{0};
++        const auto floor_pair = mem.read_or<uint16_t>(
++            address + skyrecomp::layout::dungeon::kFloorPairOffset);
++        return (uint64_t{address} << 16) | floor_pair;
++    };
+     auto set_sky_culling_width = [&](uint16_t width) {
+         if (pmd_sky_rom)
+             camera_hook.UpdateDungeonSpriteCulling(sky_memory(), width, bus_write_u32_slow);
+@@ -3431,6 +3441,8 @@
              audio_start_threshold = kAudioQueueFrames;
              audio_pace_floor = kAudioQueueFrames;
              audio_presentation_epoch = current_audio_epoch;
@@ -22,7 +35,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
          }
          if (selftest_menu) {
              const NdsEventCounts& counts = nds_event_counts();
-@@ -3757,6 +3763,7 @@
+@@ -3757,6 +3769,7 @@
                                  "apply_failed");
                          }
                          blend_cache.valid = false;
@@ -30,37 +43,48 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
                          // A load re-primes the machine, so it also opens a new
                          // digest epoch: it is the only alignment point two
                          // independently launched processes share, since
-@@ -4512,6 +4519,12 @@
+@@ -4512,6 +4525,17 @@
          if (!running) break;
          set_sky_culling_width(nds_gpu3d_output_width());
          const auto background_before_frame = ground_background();
-+        const bool dungeon_camera_enabled = pmd_sky_rom && interpolation_active && !turbo_active &&
++        const bool dungeon_camera_enabled = pmd_sky_rom && !cpu_handoff &&
++            interpolation_active && !turbo_active &&
 +            sky_state.refresh_rate == skyrecomp::camera::RefreshRateMode::ProMotion_120Hz;
 +        if (!dungeon_camera_enabled && camera_interpolator.CurrentTick().tick_index != 0)
 +            camera_interpolator.Reset();
-+        nds_gpu2d_capture_dungeon_raster(dungeon_camera_enabled &&
-+            sky_memory().resolve_dungeon_ptr(hud_region) != 0);
++        uint64_t dungeon_before_raster = 0;
++        if (dungeon_camera_enabled) {
++            const auto mem = sky_memory();
++            dungeon_before_raster = dungeon_identity(mem, mem.resolve_dungeon_ptr(hud_region));
++        }
++        nds_gpu2d_capture_dungeon_raster(dungeon_before_raster != 0);
          const uint64_t phase0 = SDL_GetPerformanceCounter();
          uint64_t latency_cycles_emu = latency_trace ? nds_frontend_latency::cycles() : 0;
          uint64_t worker_emu_begin=phase0, worker_emu_end=phase0;
-@@ -4652,6 +4665,7 @@
+@@ -4652,6 +4676,8 @@
          bool direct_present=false;
          int sky_game_screen = 0;
          bool sky_dungeon = false;
++        uint64_t current_dungeon_identity = 0;
 +        skyrecomp::camera::DungeonCameraPosition raster_camera{};
  #if defined(NDS_HAVE_COMPUTE_RENDERER)
          if (cpu_handoff) {
              native_top=presented->native_top.data();
-@@ -4673,6 +4687,17 @@
+@@ -4672,7 +4698,21 @@
+             if (pmd_sky_rom) {
                  sky_game_screen = (nds_powercontrol9() & 0x8000u) ? 0 : 1;
                  const auto mem = sky_memory();
-                 sky_dungeon = mem.resolve_dungeon_ptr(hud_region) != 0;
+-                sky_dungeon = mem.resolve_dungeon_ptr(hud_region) != 0;
++                const uint32_t dungeon = mem.resolve_dungeon_ptr(hud_region);
++                sky_dungeon = dungeon != 0;
++                current_dungeon_identity = dungeon_identity(mem, dungeon);
 +                if (dungeon_camera_enabled) {
 +                    uint16_t scroll_x = 0, scroll_y = 0;
-+                    if (!sky_dungeon) {
-+                        camera_interpolator.CaptureLogicTick(mem);
-+                    } else if (nds_gpu2d_dungeon_scroll(sky_game_screen, scroll_x, scroll_y) &&
-+                               camera_hook.ResolveRasterCamera(mem, scroll_x, scroll_y, raster_camera)) {
++                    // This is the serial path. Check the floor on both sides
++                    // of the raster before pairing its scroll with guest RAM.
++                    if (sky_dungeon && dungeon_before_raster == current_dungeon_identity &&
++                        nds_gpu2d_dungeon_scroll(sky_game_screen, scroll_x, scroll_y) &&
++                        camera_hook.ResolveRasterCamera(mem, scroll_x, scroll_y, raster_camera)) {
 +                        camera_interpolator.CaptureLogicTick(mem, &raster_camera);
 +                    } else {
 +                        camera_interpolator.Reset();
@@ -69,7 +93,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
                  const int width = nds_gpu3d_output_width();
                  if (width > 256) {
                      using skyrecomp::camera::GroundBackground;
-@@ -4729,6 +4754,7 @@
+@@ -4729,6 +4769,7 @@
          const bool game_on_bottom = sky_dungeon && sky_game_screen == 1;
          const int game_screen = game_on_bottom ? 1 : 0;
          skyrecomp::shaders::GuestWeatherState metal_weather{};
@@ -77,7 +101,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
          const int game_width = game_on_bottom ? bottom_width : top_width;
          const uint32_t*& game_pixels = game_on_bottom ? bottom_pixels : top_pixels;
          if ((single_screen_frame || weather_bloom_frame || fps_meter_frame) &&
-@@ -4757,6 +4783,7 @@
+@@ -4757,6 +4798,7 @@
                          present_overlay_surface.assign(game_pixels, game_pixels + count);
                          weather_pipeline.ApplyPostProcessArgb8888(
                              present_overlay_surface, game_width, kScreenHeight, weather);
@@ -85,7 +109,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
                          surface_changed = true;
                      }
                  }
-@@ -4893,49 +4920,80 @@
+@@ -4893,49 +4935,81 @@
                  set_render_logical_size(presentation.renderers[0], layout_w, kScreenHeight * 2);
              }
          }
@@ -97,8 +121,9 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 -        // again per frame because their top surface lives on the GPU.
 -        if (interpolation_active && blend_cache.valid && !turbo_active &&
 +        const bool dungeon_transition = dungeon_camera_enabled &&
-+            (previous_sky_dungeon != sky_dungeon ||
-+             (sky_dungeon && (!camera_interpolator.HasTwoSnapshots() || previous_game_screen != sky_game_screen)));
++            (dungeon_before_raster != current_dungeon_identity ||
++             previous_dungeon_identity != current_dungeon_identity ||
++             (sky_dungeon && previous_game_screen != sky_game_screen));
 +        // Insert at most one midpoint. Guest execution, input and audio run
 +        // only on real frames, and the queued audio still gates extra work.
 +        if (!dungeon_transition && interpolation_active && blend_cache.valid && !turbo_active &&
@@ -141,7 +166,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 +            const uint32_t* midpoint[]{top_pixels, bottom_pixels};
 +            const uint32_t* camera_pixels = nullptr;
 +            bool camera_cut = false;
-+            if (dungeon_camera_enabled && sky_dungeon) {
++            if (dungeon_camera_enabled && sky_dungeon && camera_interpolator.HasTwoSnapshots()) {
 +                const auto camera_frame = camera_interpolator.EvaluateSubFrame(0.5f);
 +                camera_cut = camera_frame.camera_snapped;
 +                const int16_t dx = camera_frame.camera_subpixel_dx_q8;
@@ -200,11 +225,11 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 +            }
 +        }
 +        previous_game_screen = sky_game_screen;
-+        previous_sky_dungeon = sky_dungeon;
++        previous_dungeon_identity = current_dungeon_identity;
          const PresentationTicks presentation_ticks = present_screens(
              presentation, top_pixels, top_width,
              bottom_pixels, bottom_width,
-@@ -5263,6 +5321,7 @@
+@@ -5263,6 +5337,7 @@
      close_audio(audio);
      nds_frontend_latency::finish();
      nds_gpu2d_set_wide_affine(false);
@@ -212,7 +237,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
  #if defined(NDS_HAVE_COMPUTE_RENDERER)
      set_sky_culling_width(256);
      nds_gpu2d_set_direct_present(false);
-@@ -5318,12 +5377,13 @@
+@@ -5318,12 +5393,13 @@
              phase_swap_ticks * tick_seconds);
          std::fprintf(stderr,
              "[sdl] frame interpolation: mode=%s active=%u refresh=%dHz "
@@ -231,7 +256,7 @@ diff --git a/runner/src/frontend.cpp b/runner/src/frontend.cpp
 diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 --- a/runner/src/gpu2d.cpp
 +++ b/runner/src/gpu2d.cpp
-@@ -144,6 +144,20 @@
+@@ -144,6 +144,22 @@
  std::array<AdaptiveFrame, 2> g_wide_3d_attr_frame{};
  std::array<uint16_t, 2> g_wide_3d_width{};
  std::array<std::array<uint16_t, 192>, 2> g_wide_3d_line_width{};
@@ -242,7 +267,9 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +    std::array<uint8_t, 0x400> oam;
 +    // Four character blocks and up to two blocks for the text map.
 +    std::array<std::array<uint8_t, 0x4000>, 6> terrain_blocks;
++    std::array<const uint8_t*, 6> terrain_sources{};
 +    NdsVramRendererView terrain_view{};
++    bool terrain_changed = false;
 +    unsigned screen = 0;
 +    int lines = 0;
 +};
@@ -252,7 +279,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  bool g_adaptive_skybox_fill = false;
  bool g_adaptive_center_native = false;
  uint32_t g_adaptive_center_max_polygons = 0;
-@@ -409,7 +423,10 @@
+@@ -409,7 +425,10 @@
      uint32_t map_base = 0;
      uint32_t width_extra = 0;
      uint32_t cached_map_addr = UINT32_MAX;
@@ -263,7 +290,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  };
  
  TextLine prepare_text_line(const Unit& u, int engine, int bg, int y,
-@@ -451,8 +468,13 @@
+@@ -451,8 +470,13 @@
          if (cnt & 0x4000u) map_addr += (line.sy & 0x100u) << 3;
      } else map_addr += (line.sy & 0xF8u) << 3;
      map_addr += ((sx & 0xF8u) >> 2) + ((sx & line.width_extra) << 3);
@@ -278,7 +305,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
          line.cached_tile = dungeon_tiles
              ? dungeon_tiles[(line.sy >> 3u) * 64u + (sx >> 3u)]
              : static_cast<uint16_t>(bg_view16(*line.vram, line.engine, map_addr));
-@@ -463,17 +485,22 @@
+@@ -463,17 +487,22 @@
      if (tile & 0x0800u) ty = 7u-ty;
      uint8_t index;
      uint16_t color;
@@ -305,7 +332,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
          index = (tx&1u) ? packed>>4 : packed&0xFu;
          if (!index) return {};
          color = view16(line.palette,(((tile>>12)&0xFu)<<5)+(index<<1));
-@@ -1809,6 +1836,38 @@
+@@ -1809,6 +1838,45 @@
      // scanline-semaphore tokens, so no other thread may call it.
      const bool engine_a_renders =
          job.engine_active[0] && !line_forceblank(job, 0);
@@ -319,6 +346,8 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +            std::copy_n(job.palette[0], raster.palette.size(), raster.palette.data());
 +            std::copy_n(job.oam[0], raster.oam.size(), raster.oam.data());
 +            raster.terrain_view = {};
++            raster.terrain_sources.fill(nullptr);
++            raster.terrain_changed = false;
 +            if ((u.dispcnt & 0x800u) && (u.bgcnt[3] >> 14) == 1u) {
 +                const TextLine terrain = prepare_text_line(u, 0, 3, 0, job.palette[0], job.vram[0]);
 +                size_t next_block = 0;
@@ -327,6 +356,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +                        const auto slot = block & 31u;
 +                        const auto* data = job.vram[0]->bg[slot];
 +                        if (data && !raster.terrain_view.bg[slot]) {
++                            raster.terrain_sources[next_block] = data;
 +                            auto& snapshot = raster.terrain_blocks[next_block++];
 +                            std::copy_n(data, snapshot.size(), snapshot.data());
 +                            raster.terrain_view.bg[slot] = snapshot.data();
@@ -337,6 +367,10 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +                copy_blocks(terrain.map_base, 0x1000u);
 +            }
 +        }
++        constexpr uint32_t terrain_control = 0x7F030887u;
++        if (raster.unit.bgcnt[3] != u.bgcnt[3] ||
++            ((raster.unit.dispcnt ^ u.dispcnt) & terrain_control))
++            raster.terrain_changed = true;
 +        if (raster.lines == y && raster.screen == job.screen[0] &&
 +            raster.unit.bgx[3] == u.bgx[3] && raster.unit.bgy[3] == u.bgy[3])
 +            ++raster.lines;
@@ -344,7 +378,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      if (engine_a_renders &&
          line_general_path(job.unit[0], 0, job.bg0_3d, job.cap)) {
          const bool capture_uses_3d = job.cap &&
-@@ -1821,6 +1880,12 @@
+@@ -1821,6 +1889,12 @@
              job.line3d = job.line3d_storage.data();
          }
          if (job.bg0_3d) {
@@ -357,7 +391,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              const uint16_t wide_width = nds_gpu3d_output_width();
              if (wide_width > 256u &&
                  wide_width <= static_cast<uint16_t>(kMaxAdaptiveWidth)) {
-@@ -2230,6 +2295,8 @@
+@@ -2230,6 +2304,8 @@
      drain_pool(NDS_GPU2D_FENCE_FRAME);
      g_unit={};
      g_front = 0;
@@ -366,7 +400,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      g_direct_frame_active = false;
      g_direct_present_frame_active = false;
      g_frame_capture_active = false;
-@@ -2394,6 +2461,8 @@
+@@ -2394,6 +2470,8 @@
          }
      }
      g_front = in.front;
@@ -375,7 +409,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
      g_frame_capture_active = in.frame_capture_active != 0u;
      g_present_capture_active = in.present_capture_active != 0u;
  
-@@ -2565,6 +2634,8 @@
+@@ -2565,6 +2643,8 @@
      g_front ^= 1;
      g_wide_affine_lines[g_front ^ 1] = {};
      g_wide_3d_line_width[g_front ^ 1].fill(0);
@@ -384,7 +418,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  }
  void nds_gpu2d_vblank(){
      drain_pool(NDS_GPU2D_FENCE_FRAME);
-@@ -3066,11 +3137,13 @@
+@@ -3066,11 +3146,13 @@
  }  // namespace
  
  
@@ -403,7 +437,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  };
  
  // Sky dungeons draw their maps with text backgrounds. BG0 can also carry
-@@ -3090,15 +3163,15 @@
+@@ -3090,15 +3172,15 @@
      return true;
  }
  
@@ -422,7 +456,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
          logged_wide_2d = true;
          std::fprintf(stderr,
                       "[gpu2d] wide text-BG compositor active at %dpx\n",
-@@ -3116,37 +3189,55 @@
+@@ -3116,37 +3198,55 @@
          if (!(active_mask & (1u << bg))) continue;
          // Dungeon BG3 scrolls with the camera. The other text layers
          // carry native viewport overlays such as the tile grid.
@@ -483,7 +517,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
          }
          uint32_t* dst = out.data() + static_cast<size_t>(y) * output_width;
          auto ahead = [](const Pixel& a, const Pixel& b) {
-@@ -3154,8 +3245,9 @@
+@@ -3154,8 +3254,9 @@
                     (a.priority == b.priority && a.order < b.order);
          };
          for (int column = 0; column < pixel_count; ++column) {
@@ -494,7 +528,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
              const uint8_t window_x =
                  nds_gpu2d_adaptive_window_x(x, extra, hud_x);
              const uint8_t window_mask = nds_gpu2d_window_mask(
-@@ -3172,7 +3264,8 @@
+@@ -3172,7 +3273,8 @@
                  }
              };
              for (size_t i = 0; i < bg_count; ++i) {
@@ -504,7 +538,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
                  if (!(c & 0x8000u) ||
                      !(window_mask & bg_lines[i].target)) {
                      continue;
-@@ -3181,22 +3274,106 @@
+@@ -3181,22 +3283,116 @@
                             bg_lines[i].target, 0, bg_lines[i].prio,
                             bg_lines[i].order, true});
              }
@@ -585,6 +619,15 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +    g_capture_dungeon_raster = enabled;
 +}
 +
++void nds_gpu2d_note_dungeon_vram_change(const uint8_t* block) {
++    if (!g_capture_dungeon_raster) return;
++    auto& raster = g_dungeon_raster[g_front ^ 1];
++    if (raster.lines <= 0 || raster.lines >= 192 || raster.terrain_changed) return;
++    if (!block || std::find(raster.terrain_sources.begin(), raster.terrain_sources.end(), block) !=
++                      raster.terrain_sources.end())
++        raster.terrain_changed = true;
++}
++
 +bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y) {
 +    const auto& raster = g_dungeon_raster[g_front];
 +    const auto& u = raster.unit;
@@ -604,7 +647,8 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 +        return nullptr;
 +    drain_pool(NDS_GPU2D_FENCE_PRESENT);
 +    const auto& raster = g_dungeon_raster[g_front];
-+    if (raster.lines != 192 || raster.screen != static_cast<unsigned>(screen)) return nullptr;
++    if (raster.lines != 192 || raster.terrain_changed ||
++        raster.screen != static_cast<unsigned>(screen)) return nullptr;
 +    const Unit& u = raster.unit;
 +    const bool bg0_3d = (u.dispcnt & 0x108u) == 0x108u;
 +    const bool terrain_ext_palette = (u.dispcnt & 0x40000000u) && (u.bgcnt[3] & 0x80u);
@@ -622,7 +666,7 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
  }
  
  const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
-@@ -3299,10 +3476,7 @@
+@@ -3299,10 +3495,7 @@
      const bool dungeon = scene == NdsGpu2dScene::Dungeon;
      const uint16_t* dungeon_tiles = nullptr;
      if (dungeon) {
@@ -637,12 +681,14 @@ diff --git a/runner/src/gpu2d.cpp b/runner/src/gpu2d.cpp
 diff --git a/runner/src/gpu2d.h b/runner/src/gpu2d.h
 --- a/runner/src/gpu2d.h
 +++ b/runner/src/gpu2d.h
-@@ -83,6 +83,13 @@
+@@ -83,6 +83,15 @@
      int scroll_x;
      int scroll_y;
  };
 +// Capture the engine-A HUD, OAM, scroll, and weather for midpoint presentation.
 +void nds_gpu2d_capture_dungeon_raster(bool enabled);
++// A null block invalidates the snapshot on a VRAM remap.
++void nds_gpu2d_note_dungeon_vram_change(const uint8_t* block);
 +bool nds_gpu2d_dungeon_scroll(int screen, uint16_t& x, uint16_t& y);
 +// Host-only midpoint surface. The map must cover the shifted viewport taps.
 +// A null result means the current frame could not be reproduced safely.
@@ -651,10 +697,29 @@ diff --git a/runner/src/gpu2d.h b/runner/src/gpu2d.h
  // Returns the native framebuffer with width=256 when no enhanced surface is
  // active for this physical LCD.
  const uint32_t* nds_gpu2d_adaptive_framebuffer(int screen, uint16_t* width,
+diff --git a/runner/src/vram.cpp b/runner/src/vram.cpp
+--- a/runner/src/vram.cpp
++++ b/runner/src/vram.cpp
+@@ -97,6 +97,7 @@
+     if (bank >= 9) return;
+     const uint32_t off = addr & (kBankSize[bank] - 1u);
+     const uint32_t physical = kBankOffset[bank] + off;
++    nds_gpu2d_note_dungeon_vram_change(&g_vram[physical & ~0x3FFFu]);
+     store(&g_vram[physical], value, width);
+     const uint32_t end = std::min<uint32_t>(kTotalVram, physical + width);
+     std::fill(g_vram_written.begin() + physical,
+@@ -394,6 +395,7 @@
+     if (next == g_cnt[bank]) return;
+     // A remap rebuilds the flattened renderer views a worker dereferences.
+     nds_gpu2d_memory_fence(NDS_GPU2D_FENCE_VRAMCNT);
++    nds_gpu2d_note_dungeon_vram_change(nullptr);
+     apply_map(bank, g_cnt[bank], false);
+     g_cnt[bank] = next;
+     apply_map(bank, next, true);
 diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test.cpp
 --- a/runner/tests/gpu2d_window_test.cpp
 +++ b/runner/tests/gpu2d_window_test.cpp
-@@ -788,6 +788,80 @@
+@@ -788,6 +788,101 @@
             width_change_safe && display_off_centered;
  }
  
@@ -727,6 +792,27 @@ diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test
 +        // HUD tiles still use live VRAM. The native comparison guards them.
 +        bg_vram[64] = 0x22u;
 +        if (nds_gpu2d_dungeon_camera_frame(1, width, map, 128, 0)) return false;
++        bg_vram[64] = 0x33u;
++        g_unit[0].bgx[3] = 0;
++
++        for (bool change_vram : {true, false}) {
++            nds_gpu2d_capture_dungeon_raster(true);
++            nds_gpu2d_start_frame();
++            nds_gpu2d_render_scanline(0);
++            if (change_vram) {
++                nds_gpu2d_note_dungeon_vram_change(bg_vram.data());
++                bg_vram[96] = 0x22u; // outside the native view
++            } else {
++                g_unit[0].bgcnt[3] ^= 1u;
++            }
++            nds_gpu2d_render_scanline(1);
++            if (!change_vram) g_unit[0].bgcnt[3] ^= 1u;
++            for (int line = 2; line < 192; ++line) nds_gpu2d_render_scanline(line);
++            nds_gpu2d_finish_frame();
++            nds_gpu2d_capture_dungeon_raster(false);
++            if (nds_gpu2d_dungeon_camera_frame(1, width, map, 128, -128)) return false;
++            bg_vram[96] = 0x33u;
++        }
 +    }
 +    g_powercontrol = 0x8002u;
 +    return true;
@@ -735,7 +821,7 @@ diff --git a/runner/tests/gpu2d_window_test.cpp b/runner/tests/gpu2d_window_test
  bool test_adaptive_window_x() {
      // HUD-sourced columns keep their native coordinate; margins clamp to the
      // nearest native edge column instead of wrapping through uint8_t.
-@@ -1130,6 +1204,7 @@
+@@ -1130,6 +1225,7 @@
      if (!test_adaptive_affine_bitmap(true, false)) return 20;
      if (!test_adaptive_affine_tiles()) return 21;
      if (!test_bottom_dungeon_margins()) return 22;

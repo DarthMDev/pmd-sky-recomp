@@ -758,6 +758,11 @@ void TestDungeonMarginMap() {
     assert(map.entries[33] == 0x400);
     assert(map.entries[64 + 34] == 0x404);
 
+    // At 257px the right margin starts on a new tile, with no left margin.
+    map = {};
+    assert(camera.ReadDungeonMarginMap(mem, 257, map));
+    assert(map.entries[32] == 0x402);
+
     // A negative vertical half-pixel can expose a row within the same
     // partially visible tile, even in the middle of a native-width frame.
     map = {};
