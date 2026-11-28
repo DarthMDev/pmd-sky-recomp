@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M8GEGA93563DP1JQBYFJPR60",
+  "session_id": "01a1d7d0-11c1-7892-8285-9791f9d66166",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-28T06:46:56.829499Z",
+  "branch": "feature/milestone-3-entity-interpolation",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [
+    "include/skyrecomp/pmdsky_addrs.hpp",
+    "patches/ndsrecomp-sky-entity-interpolation.patch",
+    "runtime/CMakeLists.txt",
+    "runtime/camera/dungeon_entities.cpp",
+    "runtime/camera/dungeon_entities.hpp",
+    "runtime/ios/CMakeLists.txt",
+    "scripts/setup_third_party.sh",
+    "tests/milestone3_runtime_test.cpp",
+    "translator/gen_pmdsky_bindings.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.2-sol",
+  "turn_id": "f4d8b4d38d81",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 146359,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7019392,
+    "output_tokens": 27021,
+    "api_call_count": 61,
+    "subagent_tokens_complete": true
+  },
+  "redaction": {
+    "replacements": 1120,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 1120,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 27
+  }
+}
