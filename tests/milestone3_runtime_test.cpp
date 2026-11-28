@@ -289,6 +289,22 @@ void TestSubpixelInterpolationDeterminism() {
     assert(sf_warp.dungeon_poses[0].interp_x_q8 == 244 * 256);
     assert(sf_warp.dungeon_poses[0].subpixel_dx_q8 == 0);
 
+    // A floor transition also snaps a small camera move before the display
+    // floor counter catches up.
+    WriteGuest<uint16_t>(ram, kDungeonAddr + layout::dungeon::kFloorPairOffset, 0x0201u);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset, 105);
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+    assert(interp.EvaluateSubFrame(0.5f).camera_snapped);
+    interp.Reset();
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()));
+    assert(!interp.HasTwoSnapshots());
+    assert(interp.EvaluateSubFrame(0.5f).camera_subpixel_dx_q8 == 0);
+    WriteGuest<int16_t>(ram, disp_addr + layout::display_data::kCameraPixelPosOffset, 140);
+    const DungeonCameraPosition raster_camera{132, 80};
+    interp.CaptureLogicTick(GuestMemoryView(ram.data(), ram.size()), &raster_camera);
+    assert(interp.CurrentTick().camera_x_q8 == 132 * 256);
+    assert(interp.EvaluateSubFrame(0.5f).camera_snapped); // large camera move on the same floor
+
     // Also verify Overlay 11 Ground Mode interpolation
     WriteGuest<uint32_t>(ram, pmdsky::NA.DUNGEON_PTR_MASTER, 0u);
     constexpr uint32_t kGroundBgAddr = 0x02180000u;
@@ -741,6 +757,25 @@ void TestDungeonMarginMap() {
     assert(map.entries[63] == 0x202); // world column -1 is the outer subtile of the default tile
     assert(map.entries[33] == 0x400);
     assert(map.entries[64 + 34] == 0x404);
+
+    // At 257px the right margin starts on a new tile, with no left margin.
+    map = {};
+    assert(camera.ReadDungeonMarginMap(mem, 257, map));
+    assert(map.entries[32] == 0x402);
+
+    // A negative vertical half-pixel can expose a row within the same
+    // partially visible tile, even in the middle of a native-width frame.
+    map = {};
+    WriteGuest<int16_t>(ram, display + layout::display_data::kCameraPixelPosOffset + 2u, 1);
+    assert(camera.ReadDungeonMarginMap(mem, 256, map, 0, -1));
+    assert(map.entries[1] == 0x401);
+    WriteGuest<int16_t>(ram, display + layout::display_data::kCameraPixelPosOffset + 2u, 0);
+    WriteGuest<int16_t>(ram, display + layout::display_data::kCameraPixelPosOffset, 511);
+    camera::DungeonCameraPosition raster_camera{};
+    assert(camera.ResolveRasterCamera(mem, 0, 255, raster_camera));
+    assert(raster_camera.x == 512 && raster_camera.y == -1);
+    assert(!camera.ResolveRasterCamera(mem, 128, 0, raster_camera));
+    WriteGuest<int16_t>(ram, display + layout::display_data::kCameraPixelPosOffset, 0);
 
     WriteGuest<uint16_t>(ram, floor_tile + layout::tile::kTerrainFlagsOffset, 0x20u);
     assert(camera.ReadDungeonMarginMap(mem, 448, map));

@@ -1,4 +1,5 @@
 #include "subpixel_interpolator.hpp"
+#include "dungeon_camera.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -94,8 +95,13 @@ void SubpixelInterpolator::Reset() noexcept {
 }
 
 /// Captures a new authoritative 60Hz logic tick snapshot from read-only guest Main RAM.
-void SubpixelInterpolator::CaptureLogicTick(GuestMemoryView mem) noexcept {
+void SubpixelInterpolator::CaptureLogicTick(GuestMemoryView mem,
+    const DungeonCameraPosition* raster_camera) noexcept {
     LogicTickSnapshot next = ReadSnapshotFromGuest(mem);
+    if (raster_camera && next.mode == ActiveGameMode::DungeonOverlay29) {
+        next.camera_x_q8 = static_cast<int32_t>(raster_camera->x) * 256;
+        next.camera_y_q8 = static_cast<int32_t>(raster_camera->y) * 256;
+    }
     next.tick_index = snapshot_count_ + 1;
     if (snapshot_count_ == 0) {
         prev_ = next;
@@ -120,6 +126,8 @@ LogicTickSnapshot SubpixelInterpolator::ReadSnapshotFromGuest(GuestMemoryView me
     const uint32_t dungeon_ptr = mem.resolve_dungeon_ptr(region_);
     if (dungeon_ptr != 0u) {
         snap.mode = ActiveGameMode::DungeonOverlay29;
+        snap.dungeon_address = dungeon_ptr;
+        snap.dungeon_floor_pair = mem.read_or<uint16_t>(dungeon_ptr + layout::dungeon::kFloorPairOffset);
 
         const uint32_t disp_base = dungeon_ptr + layout::dungeon::kDisplayDataOffset;
         const int16_t cam_px_x = mem.read_or<int16_t>(disp_base + layout::display_data::kCameraPixelPosOffset + 0u, 0);
@@ -255,7 +263,9 @@ InterpolatedSubFrame SubpixelInterpolator::EvaluateSubFrame(float alpha) const n
 
     const bool global_discontinuity =
         (prev_.mode != curr_.mode) ||
-        (prev_.floor_number != curr_.floor_number);
+        (prev_.floor_number != curr_.floor_number) ||
+        (prev_.dungeon_floor_pair != curr_.dungeon_floor_pair) ||
+        (prev_.dungeon_address != curr_.dungeon_address);
 
     const bool camera_discontinuity =
         global_discontinuity ||
