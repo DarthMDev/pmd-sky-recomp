@@ -38,6 +38,7 @@ add_subdirectory("${SKY_NDSRECOMP_DIR}/runner" runner EXCLUDE_FROM_ALL)
 add_library(sky_runtime_enhancements STATIC
     "${CMAKE_CURRENT_LIST_DIR}/../gpu2d/widescreen_ppu.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../camera/dungeon_camera.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../camera/dungeon_entities.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../camera/subpixel_interpolator.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../shaders/weather_shader_pipeline.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../ui/settings_overlay.cpp"

@@ -20,6 +20,10 @@ struct SymbolAddresses {
     uint32_t do_autoload;
     uint32_t ExplorersOfSkyMain;
     uint32_t AddSimpleObjToOam;
+    uint32_t GroupOamAttributesWrapper;
+    uint32_t CopyAttributesToOam;
+    uint32_t ClearGroupedOamObjsAndGroups;
+    uint32_t DisplayAndSwitchAnimationControlCurrentFrame;
     uint32_t InitRender3dElement64;
     uint32_t NewWindowScreenCheck;
     uint32_t WINDOW_LIST;
@@ -28,6 +32,7 @@ struct SymbolAddresses {
     uint32_t RunDungeon;
     uint32_t GetWeatherColorTable;
     uint32_t DisplayMonstersAndItems;
+    uint32_t DisplayMonster;
     uint32_t DisplayMonsterShadow;
     uint32_t DisplayItem;
     uint32_t DisplayThrownItemShadow;
@@ -63,6 +68,10 @@ inline constexpr SymbolAddresses NA = {
     .do_autoload = 0x02000A1C,
     .ExplorersOfSkyMain = 0x022DC240,
     .AddSimpleObjToOam = 0x0201B9F8,
+    .GroupOamAttributesWrapper = 0x0201BA9C,
+    .CopyAttributesToOam = 0x0200B630,
+    .ClearGroupedOamObjsAndGroups = 0x0200B67C,
+    .DisplayAndSwitchAnimationControlCurrentFrame = 0x0201CF5C,
     .InitRender3dElement64 = 0x0201E730,
     .NewWindowScreenCheck = 0x02027648,
     .WINDOW_LIST = 0x022A88DC,
@@ -71,6 +80,7 @@ inline constexpr SymbolAddresses NA = {
     .RunDungeon = 0x022DEF38,
     .GetWeatherColorTable = 0x022DE620,
     .DisplayMonstersAndItems = 0x022E1854,
+    .DisplayMonster = 0x02303F18,
     .DisplayMonsterShadow = 0x02303E5C,
     .DisplayItem = 0x023457C8,
     .DisplayThrownItemShadow = 0x022E9488,
@@ -106,6 +116,10 @@ inline constexpr SymbolAddresses EU = {
     .do_autoload = 0x02000A1C,
     .ExplorersOfSkyMain = 0x022DCB80,
     .AddSimpleObjToOam = 0x0201BA94,
+    .GroupOamAttributesWrapper = 0x0201BB38,
+    .CopyAttributesToOam = 0x0200B630,
+    .ClearGroupedOamObjsAndGroups = 0x0200B67C,
+    .DisplayAndSwitchAnimationControlCurrentFrame = 0x0201CFF8,
     .InitRender3dElement64 = 0x0201E7CC,
     .NewWindowScreenCheck = 0x0202793C,
     .WINDOW_LIST = 0x022A921C,
@@ -114,6 +128,7 @@ inline constexpr SymbolAddresses EU = {
     .RunDungeon = 0x022DF878,
     .GetWeatherColorTable = 0x022DEF60,
     .DisplayMonstersAndItems = 0x022E2194,
+    .DisplayMonster = 0x02304944,
     .DisplayMonsterShadow = 0x02304888,
     .DisplayItem = 0x023463B4,
     .DisplayThrownItemShadow = 0x022E9E38,

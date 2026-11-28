@@ -5,6 +5,7 @@
 #include "skyrecomp/guest_mem.hpp"
 #include "skyrecomp/pmdsky_addrs.hpp"
 #include "../runtime/camera/dungeon_camera.hpp"
+#include "../runtime/camera/dungeon_entities.hpp"
 #include "../runtime/camera/subpixel_interpolator.hpp"
 #include "../runtime/gpu2d/widescreen_ppu.hpp"
 #include "../runtime/shaders/weather_shader_pipeline.hpp"
@@ -226,6 +227,114 @@ void TestOverlay29CameraAndTileStreaming() {
         }
     }
     assert(saw_margin_tile);
+}
+
+void TestDungeonEntityOamOwnership() {
+    using namespace skyrecomp::camera;
+    std::vector<uint8_t> ram(layout::kMainRamSize, 0);
+    constexpr uint32_t dungeon = 0x02100000;
+    constexpr uint32_t entity = dungeon + layout::dungeon::kEntityTableOffset +
+        layout::entity_table::kEntitiesArrayOffset;
+    constexpr uint32_t control = 0x02130000;
+    constexpr uint32_t info = control + 0x20;
+    constexpr uint32_t heads = 0x02131000;
+    constexpr uint32_t ungrouped = 0x02131400;
+    constexpr uint32_t floor = dungeon + layout::dungeon::kFloorPairOffset;
+    const auto& symbols = pmdsky::NA;
+    const auto put = [&](uint32_t address, auto value) { WriteGuest(ram, address, value); };
+    put(symbols.DUNGEON_PTR_MASTER, dungeon);
+    put(symbols.OBJ_GRAPHICS_CONTROLS_PTR, control);
+    put(floor, uint16_t{0x0102});
+    put(entity + layout::entity::kTypeOffset, int32_t{1});
+    put(info, uint32_t{112});
+    put(info + 4, uint32_t{320});
+    put(info + 0x0C, heads);
+    put(info + 0x10, ungrouped);
+    put(info + 0x14, uint8_t{1});
+    put(info + 0x18, uint32_t{0x07000000});
+
+    DungeonEntityRaster raster;
+    std::array<uint8_t, 1024> oam{};
+    const auto frame = [&](int x, int elevation, uint16_t generation,
+                           bool reorder, bool mismatched_oam = false, bool valid_raster = true,
+                           uint16_t floor_pair = 0x0102) {
+        raster.BeginFrame(GuestMemoryView(ram.data(), ram.size()), pmdsky::Region::NA,
+            (uint64_t{dungeon} << 16) | floor_pair);
+        put(entity + layout::entity::kPixelPosOffset, x * 256);
+        put(entity + layout::entity::kElevationOffset, elevation * 256);
+        put(entity + layout::entity::kSpawnGenIdOffset, generation);
+        put(info + 8, int32_t{0});
+        raster.ObserveCall(symbols.DisplayMonster, 0x108, 0x1000, entity);
+        raster.ObserveCall(symbols.DisplayAndSwitchAnimationControlCurrentFrame, 0x208, 0x0FC0,
+                           entity + layout::entity::kGraphicalParamsOffset);
+        put(info + 8, int32_t{1});
+        raster.ObserveReturn(0x208, 0x0FC0);
+        raster.ObserveCall(symbols.DisplayMonsterShadow, 0x20C, 0x0FC0, 1);
+        put(info + 8, int32_t{2});
+        raster.ObserveReturn(0x20C, 0x0FC0);
+        raster.ObserveReturn(0x108, 0x1000);
+        // The third OBJ is a HUD piece submitted outside the monster calls.
+        put(info + 8, int32_t{3});
+        for (uint32_t group = 0; group < 320; ++group) put(heads + group * 2, int16_t{-1});
+        const std::array<uint16_t, 3> sorted = reorder
+            ? std::array<uint16_t, 3>{1, 2, 0} : std::array<uint16_t, 3>{0, 1, 2};
+        for (uint16_t slot = 0; slot < sorted.size(); ++slot) {
+            const auto source = sorted[slot];
+            put(heads + (2 - slot) * 2, source);
+            put(ungrouped + source * 8, static_cast<uint16_t>(0x40 + source));
+            put(ungrouped + source * 8 + 6, int16_t{-1});
+            oam[slot * 8] = static_cast<uint8_t>(0x40 + source);
+        }
+        for (size_t i = 3; i < 112; ++i) oam[i * 8 + 1] = 2;
+        const auto snapshot = ram;
+        raster.ObserveCall(symbols.GroupOamAttributesWrapper, 0, 0, control);
+        raster.ObserveCall(symbols.CopyAttributesToOam, 0, 0, info);
+        if (mismatched_oam) oam[8] ^= 1;
+        raster.LatchOam(oam.data());
+        raster.FinishFrame(valid_raster);
+        assert(ram == snapshot);
+    };
+
+    DungeonObjectOffsets offsets{};
+    frame(32, 0, 10, false);
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(35, 2, 10, true);
+    // Body and shadow have new OAM indices. Elevation moves only the body.
+    assert(raster.MidpointOffsets(-128, 0, offsets));
+    assert((offsets[0] == std::array<int8_t, 2>{-2, 0}));
+    assert((offsets[1] == std::array<int8_t, 2>{0, 0}));
+    assert((offsets[2] == std::array<int8_t, 2>{-2, 2}));
+    frame(36, 0, 11, false); // Reused entity slot.
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(100, 0, 11, true); // Teleport.
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(101, 0, 11, true, true); // The published OAM differs from the guest list.
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(102, 0, 11, true);
+    assert(!raster.MidpointOffsets(0, 0, offsets)); // A rejected raster breaks history.
+    frame(103, 0, 11, true, false, false);
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(104, 0, 11, true);
+    frame(105, 0, 11, true);
+    assert(raster.MidpointOffsets(0, 0, offsets));
+    put(floor, uint16_t{0x0103});
+    frame(106, 0, 11, true, false, true, 0x0103);
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(107, 0, 11, true, false, true, 0x0103);
+    assert(raster.MidpointOffsets(0, 0, offsets));
+
+    // The guest can copy the same grouped list again without drawing it
+    // against the new camera. That list must break the interpolation history.
+    raster.BeginFrame(GuestMemoryView(ram.data(), ram.size()), pmdsky::Region::NA,
+                      (uint64_t{dungeon} << 16) | 0x0103);
+    raster.ObserveCall(symbols.CopyAttributesToOam, 0, 0, info);
+    raster.LatchOam(oam.data());
+    raster.FinishFrame(true);
+    assert(!raster.MidpointOffsets(128, 0, offsets));
+    frame(108, 0, 11, true, false, true, 0x0103);
+    assert(!raster.MidpointOffsets(0, 0, offsets));
+    frame(109, 0, 11, true, false, true, 0x0103);
+    assert(raster.MidpointOffsets(0, 0, offsets));
 }
 
 /// Verifies high-refresh-rate sub-pixel interpolation without mutating guest RAM.
@@ -902,6 +1011,7 @@ int main() {
     TestWidescreenPpuAndHudAnchoring();
     TestOverlay29CameraAndTileStreaming();
     TestSubpixelInterpolationDeterminism();
+    TestDungeonEntityOamOwnership();
     TestWeatherShaderPipeline();
     TestRecompUiSettingsOverlay();
     TestGuestUiStateBridge();

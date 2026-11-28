@@ -31,6 +31,10 @@ TARGET_SYMBOLS = [
     "ExplorersOfSkyMain",
     # 2D / 3D Rendering & Window Primitives (arm9)
     "AddSimpleObjToOam",
+    "GroupOamAttributesWrapper",
+    "CopyAttributesToOam",
+    "ClearGroupedOamObjsAndGroups",
+    "DisplayAndSwitchAnimationControlCurrentFrame",
     "InitRender3dElement64",
     "NewWindowScreenCheck",
     "WINDOW_LIST",
@@ -40,6 +44,7 @@ TARGET_SYMBOLS = [
     "RunDungeon",
     "GetWeatherColorTable",
     "DisplayMonstersAndItems",
+    "DisplayMonster",
     "DisplayMonsterShadow",
     "DisplayItem",
     "DisplayThrownItemShadow",
